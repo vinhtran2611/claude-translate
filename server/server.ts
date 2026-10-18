@@ -11,6 +11,7 @@ import {
 } from '../shared/server/claude-runner.ts';
 import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
 import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES } from '../shared/server/log.ts';
+import { backupDaily } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 
@@ -30,6 +31,11 @@ const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRE
 const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice.sqlite');
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
 const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(HISTORY_DATABASE_PATH), 'server.log');
+const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');
+// Each database gets one copy a day; the check runs at start and then hourly, so a server left running past
+// midnight still makes the next day's copy.
+const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice' }];
+const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const PORT = Number(process.env.PORT ?? 8787);
 
 // source_prompt_path: the mode's "# Source" section, the last part of the system prompt.
@@ -446,6 +452,17 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   });
 }
 
+function runDailyBackups(): void {
+  for (const { path, name } of DAILY_BACKUPS) {
+    try {
+      const backup_path = backupDaily(path, BACKUPS_DIRECTORY, name);
+      if (backup_path !== null) log('info', null, 'backup', backup_path);
+    } catch (error) {
+      log('error', null, 'backup', `${name} failed: ${(error as Error).message}`);
+    }
+  }
+}
+
 function toHistoryResponse(entry: Omit<HistoryEntry, 'is_fallback'>): HistoryEntry {
   return { ...entry, is_fallback: entry.served_model_id !== entry.requested_model_id };
 }
@@ -543,4 +560,6 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   log('info', null, 'ready', `http://localhost:${PORT}  (Ctrl-C stops)`);
   spawnSpareProcess(spare_settings);
+  runDailyBackups();
+  setInterval(runDailyBackups, BACKUP_CHECK_INTERVAL_MS).unref();
 });

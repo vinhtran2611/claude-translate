@@ -72,3 +72,80 @@ test('the translate page links to Practice and keeps its title', async () => {
   assert.match(page, /<title>Claude Translate<\/title>/);
   assert.match(page, /href="\/practice"/);
 });
+
+// Grading: the answer carries a FAKE: marker that tells the fake claude what to reply (test/fake-claude/claude).
+const FEEDBACK = {
+  feedback_version: 1, categories_version: 1, summary: 'Good. One verb to fix.', strengths: [],
+  errors: [{ original: 'choose living', correction: 'choose to live', category: 'verb_form', severity: 'major', explanation: 'choose + to.', rule: 'choose + to + verb.' }],
+  corrected_text: 'They choose to live here.', natural_version: 'They choose to live here.', meaning: 'complete', remember: ['choose + to + verb.'],
+};
+
+const submit = (exercise_id: string, text: string) => fetch(`${server.base_url}/api/practice/attempts`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ exercise_id, answer: { text }, writing_ms: 5000 }),
+});
+
+async function waitForGrading(attempt_id: number): Promise<any> {
+  for (let tries = 0; tries < 100; tries++) {
+    const attempt = await (await fetch(`${server.base_url}/api/practice/attempts/${attempt_id}`)).json();
+    if (attempt.status !== 'grading') return attempt;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`attempt ${attempt_id} is still grading`);
+}
+
+test('an answer is saved, graded with the grading prompt, and the feedback stored', async () => {
+  const response = await submit('w01-s01', `They choose living here. FAKE:reply=${JSON.stringify(FEEDBACK)}`);
+  assert.equal(response.status, 201);
+  const { attempt_id } = await response.json();
+  const attempt = await waitForGrading(attempt_id);
+  assert.equal(attempt.status, 'graded');
+  assert.deepEqual(attempt.feedback, FEEDBACK);
+  assert.equal(attempt.error_count, 1);
+  assert.equal(attempt.major_error_count, 1);
+  assert.equal(attempt.served_model_id, 'claude-sonnet-5-5');
+  assert.equal(attempt.writing_ms, 5000);
+  assert.equal(attempt.exercise_snapshot.text_vi, 'Câu mới.');
+  const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('They choose living here.'));
+  assert.ok(run);
+  assert.match(run.args[run.args.indexOf('--system-prompt') + 1], /IELTS Writing examiner/);
+  const exercises = await listExercises();
+  assert.deepEqual(exercises[0].last_attempt.id, attempt_id);
+  assert.equal(exercises[0].last_attempt.error_count, 1);
+});
+
+test('a reply that is not valid feedback fails with the raw reply kept, and Grade again works', async () => {
+  const { attempt_id } = await (await submit('w01-p01', 'Some answer. FAKE:reply={"summary":"incomplete"}')).json();
+  const failed = await waitForGrading(attempt_id);
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.error_kind, 'invalid_feedback');
+  assert.equal(failed.raw_output, '{"summary":"incomplete"}');
+  assert.equal(failed.answer.text, 'Some answer. FAKE:reply={"summary":"incomplete"}');
+  const regrade = await fetch(`${server.base_url}/api/practice/attempts/${attempt_id}/regrade`, { method: 'POST' });
+  assert.equal(regrade.status, 202);
+  assert.equal((await waitForGrading(attempt_id)).status, 'failed');
+});
+
+test('a crash fails the attempt; a graded attempt cannot be graded again', async () => {
+  const { attempt_id } = await (await submit('w01-s01', 'Crash please FAKE:crash')).json();
+  const failed = await waitForGrading(attempt_id);
+  assert.equal(failed.error_kind, 'exited');
+  assert.equal(failed.error_message, 'fake claude crashed');
+  const graded_id = (await (await submit('w01-s01', `Fine. FAKE:reply=${JSON.stringify(FEEDBACK)}`)).json()).attempt_id;
+  await waitForGrading(graded_id);
+  assert.equal((await fetch(`${server.base_url}/api/practice/attempts/${graded_id}/regrade`, { method: 'POST' })).status, 409);
+});
+
+test('bad attempts are rejected before anything is saved', async () => {
+  assert.equal((await submit('nope', 'Hello.')).status, 404);
+  assert.equal((await submit('w01-s01', '   ')).status, 400);
+  assert.equal((await submit('w01-s01', 'a'.repeat(1001))).status, 400);
+  assert.equal((await submit('w01-f01', 'An essay.')).status, 400);
+  const exercises = await listExercises();
+  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-f01').is_gradable, false);
+});
+
+test('the server backs up both databases on start', async () => {
+  const backups = readdirSync(join(server.data_directory, 'backups'));
+  assert.ok(backups.some((name) => /^history-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)));
+  assert.ok(backups.some((name) => /^practice-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)));
+});

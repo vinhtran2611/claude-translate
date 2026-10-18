@@ -1,6 +1,6 @@
 // Opening a feature's SQLite file: the same safety rules as server/history-store.ts, for any feature's database.
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 // migrate(file_schema_version) brings a file from that version (0 for a new file) to schema_version; it runs inside
@@ -39,4 +39,32 @@ export function inTransaction<Result>(database: DatabaseSync, fn: () => Result):
     database.exec('ROLLBACK');
     throw error;
   }
+}
+
+// Arbitrary: a month of daily copies; at ~10 KB per essay attempt that is a few MB.
+const BACKUPS_KEPT = 30;
+
+function localDateText(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Copies database_path to <backups_directory>/<name>-YYYY-MM-DD.sqlite unless today's copy exists, then keeps the
+// newest BACKUPS_KEPT copies of that name. VACUUM INTO makes a consistent copy even while the server has the file
+// open. Returns the new copy's path, or null when today's copy already existed or there is no database yet.
+// Restore: stop the server and copy a backup over the live file.
+export function backupDaily(database_path: string, backups_directory: string, name: string, now = new Date()): string | null {
+  if (!existsSync(database_path)) return null;
+  const backup_path = join(backups_directory, `${name}-${localDateText(now)}.sqlite`);
+  if (existsSync(backup_path)) return null;
+  mkdirSync(backups_directory, { recursive: true });
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  try {
+    database.prepare('VACUUM INTO ?').run(backup_path);
+  } finally {
+    database.close();
+  }
+  const backup_pattern = new RegExp(`^${name}-\\d{4}-\\d{2}-\\d{2}\\.sqlite$`);
+  const backups = readdirSync(backups_directory).filter((file_name) => backup_pattern.test(file_name)).sort();
+  for (const old_backup of backups.slice(0, Math.max(0, backups.length - BACKUPS_KEPT))) rmSync(join(backups_directory, old_backup));
+  return backup_path;
 }

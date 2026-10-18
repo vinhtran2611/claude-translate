@@ -96,10 +96,94 @@ export interface ExerciseSummary {
   title: string;
   topic: string | null;
   attempt_count: number;
+  last_attempt: LastAttempt | null;
+  // Whether this version of the app can grade the type.
+  is_gradable: boolean;
 }
 
 // GET /api/practice/exercises/:id
 export interface ExerciseDetail {
   id: string;
   exercise: Exercise;
+}
+
+// What Claude returns for one answer (docs/practice-proposal.md §5.4), checked by the server before it is stored.
+export interface Feedback {
+  feedback_version: 1;
+  categories_version: 1;
+  // 1–3 short sentences.
+  summary: string;
+  // 0–2 short items.
+  strengths: string[];
+  // 0–40, in answer order.
+  errors: FeedbackError[];
+  // The answer with only the errors fixed.
+  corrected_text: string;
+  // 1–3 lessons, most important first.
+  remember: string[];
+  // Translation types.
+  meaning?: 'complete' | 'minor_loss' | 'major_loss';
+  // Sentence and paragraph translation: how a strong writer would say it.
+  natural_version?: string;
+}
+
+export interface FeedbackError {
+  // Exact words from the answer.
+  original: string;
+  correction: string;
+  category: ErrorCategory;
+  severity: 'major' | 'minor';
+  // Why it is wrong.
+  explanation: string;
+  // What to remember.
+  rule: string;
+}
+
+export type AttemptStatus = 'grading' | 'graded' | 'failed';
+
+export interface AttemptAnswer {
+  text: string;
+}
+
+// POST /api/practice/attempts -> 201 { attempt_id }: the answer is saved before grading starts.
+export interface CreateAttemptRequest {
+  exercise_id: string;
+  answer: AttemptAnswer;
+  // From opening the exercise to Submit; null when unknown.
+  writing_ms: number | null;
+}
+
+// GET /api/practice/attempts/:id
+export interface AttemptDetail {
+  id: number;
+  exercise_id: string;
+  exercise_type: ExerciseType;
+  // The exercise exactly as it was when you answered.
+  exercise_snapshot: Exercise;
+  answer: AttemptAnswer;
+  word_count: number;
+  writing_ms: number | null;
+  status: AttemptStatus;
+  // null unless status is 'graded'.
+  feedback: Feedback | null;
+  // The model's last raw reply; '' when there was none.
+  raw_output: string;
+  error_kind: string | null;
+  error_message: string | null;
+  error_count: number | null;
+  major_error_count: number | null;
+  requested_model_id: string;
+  served_model_id: string | null;
+  effort: string;
+  submitted_at: string;
+  graded_at: string | null;
+  grading_ms: number | null;
+}
+
+// The latest attempt of an exercise, as the list shows it.
+export interface LastAttempt {
+  id: number;
+  status: AttemptStatus;
+  error_count: number | null;
+  submitted_at: string;
 }

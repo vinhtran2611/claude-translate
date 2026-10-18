@@ -870,12 +870,12 @@ Each milestone ends with something you can use, and translate keeps working afte
 - Done: `git init` and a first commit of the app as it was (2026-10-18). Every later step is one reviewable, revertible commit.
 - Before M1: copy `data/` somewhere safe (it is not in git).
 
-**M1. Shared runner + Practice skeleton with import**
+**M1. Shared runner + Practice skeleton with import** (done 2026-10-18)
 - Write `test/runner.test.ts` against the current `/translate` behavior using the fake `claude` (normal result, fallback after silence, stall, error result, crash). Then move the runner, `log` and HTTP helpers into `shared/server/`. The same tests must pass. This is the riskiest step, so it comes first and alone.
 - Add `features/practice/` with the store, the validator, import, and the Home screen (list, filters, import dialog). Add the "Practice" link on the translate masthead.
 - Usable: import exercise files and browse them. Translate unchanged.
 
-**M2. Grading for sentence and paragraph translation**
+**M2. Grading for sentence and paragraph translation** (done 2026-10-18)
 - Exercise screen, attempt saving, grading prompts for the two types, feedback validator, feedback view, **Next** and **Try again**, draft autosave, interrupted-grading recovery.
 - Daily backup (`VACUUM INTO`) for both databases.
 - Usable: daily practice with sentences and paragraphs. Every attempt saved and backed up.

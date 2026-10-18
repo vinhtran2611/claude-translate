@@ -85,8 +85,25 @@ translation's mode, not the one on screen.
 ## Practice
 
 http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
-design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestone M1): import exercise files
-and browse them. Writing an answer and getting feedback come in M2.
+design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 and M2): import
+exercise files, and write and get feedback on sentence and paragraph translations. History is M3; essays and error
+correction are M4 and M5.
+
+| Action | How |
+|---|---|
+| Start | **Start next** (or `⌘↵`) opens the first exercise you have not done yet; or click any exercise |
+| Submit | **Submit** or `⌘↵`. Your answer is saved first, then graded (about 5–20 s) |
+| After feedback | **Next** (`⌘↵`) opens the next new exercise of the same type; **Try again** gives an empty box for the same exercise |
+| Grading failed | your answer is kept; **Grade again** retries with the same answer |
+
+- **Feedback** lists each error with the exact words, the fix, its category (`features/practice/categories.ts`), major
+  or minor, why it is wrong and a rule to remember, then the corrected text, a natural version and 1–3 lessons.
+- **Grading** uses `claude -p` through the same runner as translate (`shared/server/claude-runner.ts`), with Sonnet 5.5
+  at Low effort and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
+  Grading continues on the server if you close the page. The reply must be one JSON object; anything else fails the
+  attempt with the raw reply shown.
+- **Drafts** are kept in the browser while you type, until the server has saved the answer. The browser's spellcheck
+  and autocorrect are off in the answer box, so it cannot fix your mistakes for you.
 
 - **Exercises** come from JSON files you make with Claude: the prompt is in the proposal (§4.4), and
   [features/practice/examples/exercises.example.json](features/practice/examples/exercises.example.json) shows one
@@ -95,7 +112,11 @@ and browse them. Writing an answer and getting feedback come in M2.
   with its place (`exercises[3].text_vi: required`); **Copy errors** copies them for Claude to fix. An `id` you already
   imported is replaced, so to fix an exercise, fix the file and import it again.
 - Stored in SQLite at `data/practice.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), separate from translate history.
-  Every imported file is also copied to `data/practice-imports/`.
+  Every imported file is also copied to `data/practice-imports/`. Every attempt keeps a copy of the exercise as it
+  was, your answer and the full feedback; nothing is deleted.
+- **Backups:** once a day (at start, then checked hourly) the server copies `data/history.sqlite` and
+  `data/practice.sqlite` to `data/backups/<name>-YYYY-MM-DD.sqlite` and keeps the newest 30 of each. To restore, stop
+  the server and copy a backup over the live file.
 
 ## History
 

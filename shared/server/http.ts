@@ -11,12 +11,14 @@ export interface Feature {
 
 // Throws when the body is not JSON. max_bytes: a larger body throws too, before it is all read into memory.
 export async function readJsonBody(req: IncomingMessage, max_bytes = Infinity): Promise<unknown> {
-  let body = '';
+  const chunks: Buffer[] = [];
+  let byte_count = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > max_bytes) throw new Error(`body is larger than ${max_bytes} bytes`);
+    chunks.push(chunk);
+    byte_count += chunk.length;
+    if (byte_count > max_bytes) throw new Error(`body is larger than ${max_bytes} bytes`);
   }
-  return JSON.parse(body);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 export function sendJson(res: ServerResponse, status_code: number, body: unknown): void {

@@ -82,6 +82,21 @@ remembers the model that answered, the effort and the mode, which is named first
 not the default (`From history · Markdown · 17.2s · Opus 5.5 · High`). The mode chip names the next
 translation's mode, not the one on screen.
 
+## Practice
+
+http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
+design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestone M1): import exercise files
+and browse them. Writing an answer and getting feedback come in M2.
+
+- **Exercises** come from JSON files you make with Claude: the prompt is in the proposal (§4.4), and
+  [features/practice/examples/exercises.example.json](features/practice/examples/exercises.example.json) shows one
+  exercise of each of the 5 types.
+- **Import file** checks the whole file first. If anything is wrong, nothing is imported and every problem is listed
+  with its place (`exercises[3].text_vi: required`); **Copy errors** copies them for Claude to fix. An `id` you already
+  imported is replaced, so to fix an exercise, fix the file and import it again.
+- Stored in SQLite at `data/practice.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), separate from translate history.
+  Every imported file is also copied to `data/practice-imports/`.
+
 ## History
 
 Every translation that produced any text is saved automatically, including ones that were
@@ -388,15 +403,19 @@ changing them. A new mode also needs its value in the `mode` CHECK of `server/hi
 | File | Role |
 |---|---|
 | `start.sh` | entrypoint: checks requirements, starts the server, opens the browser |
-| `server/server.ts` | HTTP server and `claude -p` process management; no runtime dependencies |
+| `server/server.ts` | the HTTP server (entry file) and translate: its routes, spare process and pair parsing; no runtime dependencies |
 | `server/history-store.ts` | the only code that reads or writes the history database |
 | `shared/api.ts` | types only: the HTTP contract (requests, stream events, history) both sides import |
+| `shared/server/` | code every feature uses: `claude-runner.ts` (runs one `claude -p` request: flags, fallback, timeouts, retries, quota), `log.ts`, `http.ts`, `sqlite.ts` |
+| `shared/web/` | `base.css` (colours, buttons, chips) and `ui.ts` (page helpers), served at `/shared/web/` |
+| `features/practice/` | the Practice feature: `server/` (routes, store, file check), `web/` (the page), `api.ts`, `categories.ts`, `examples/`. A feature imports only from itself and `shared/` (`test/boundaries.test.ts`) |
+| `docs/practice-proposal.md` | the Practice design and its milestones |
 | `web/index.html` | the page's markup and styles; follows the system light/dark theme |
 | `web/app.ts` | the page's code: text box, language detection, pairs, history sidebar, menus |
 | `web/markdown.ts` | the Markdown renderer (parse and draw one cell), served at `/markdown.ts` |
 | `web/source-check.ts` | the check that the left column kept every input word, served at `/source-check.ts` |
 | `web/favicon.svg` | the tab and bookmark icon, served at `/favicon.svg` |
-| `test/` | `markdown.test.ts`, `source-check.test.ts`, the CommonMark spec and HTML entity tables, and real documents as fixtures |
+| `test/` | `markdown.test.ts`, `source-check.test.ts`, the CommonMark spec and HTML entity tables, and real documents as fixtures; `translate-server.test.ts` and `practice-*.test.ts` run the real server against a fake `claude` (`test/fake-claude/claude`) |
 | `prompts/` | the system prompt: `core.md`, `style-vi.md`, `style-en.md`, `glossary.tsv` and one `source-*.md` per mode |
 | `package.json`, `tsconfig.json` | `npm run typecheck` (TypeScript, dev only) and `npm test` |
 | `data/history.sqlite` | your translation history (created on first start) |

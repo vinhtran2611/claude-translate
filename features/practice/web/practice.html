@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice · Claude Translate</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/web/base.css">
+<style>
+  .shell { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 960px; margin: 0 auto; padding: 40px 32px 64px; }
+  @media (max-width: 760px) { .shell { padding: 20px 16px 48px; } }
+
+  .toolbar + .card { margin-top: 14px; }
+  .back-link { text-decoration: none; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--ink-soft); font-size: 14.5px; line-height: 1.6; }
+  .empty h2 { margin: 0 0 6px; font-size: 17px; color: var(--ink); }
+  .empty p { margin: 0 0 18px; }
+  .empty a { color: var(--link); }
+
+  .group + .group { border-top: 1px solid var(--line); }
+  .group-title { margin: 0; padding: 16px 20px 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .exercise-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+  .exercise-row {
+    display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%;
+    padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer;
+    text-decoration: none; color: var(--ink);
+  }
+  .exercise-row:hover { background: var(--hover); }
+  .exercise-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .exercise-id { font: 12.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+  .exercise-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
+  .exercise-status { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .exercise-status.is-new { color: var(--accent); }
+
+  .detail { padding: 24px 28px 28px; }
+  .detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 18px; }
+  .detail-head h2 { margin: 0; font-size: 17px; }
+  .detail-meta { font-size: 13px; color: var(--muted); }
+  .field { margin: 0 0 18px; }
+  .field-label { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .field-text { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .focus-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .focus-list li { padding: 3px 10px; border-radius: 999px; background: var(--block-fill); font-size: 13px; color: var(--ink-soft); }
+  .note { margin: 22px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--surface-tint); color: var(--muted); font-size: 13.5px; }
+
+  .import-dialog {
+    width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
+    background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);
+  }
+  .import-dialog::backdrop { background: var(--backdrop); }
+  .import-body { padding: 22px 22px 18px; }
+  .import-body h2 { margin: 0 0 14px; font-size: 16px; }
+  .drop-zone {
+    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 16px; border: 1.5px dashed var(--line-strong);
+    border-radius: 12px; color: var(--ink-soft); font-size: 14px; text-align: center;
+  }
+  .drop-zone.is-over { border-color: var(--accent); background: var(--surface-tint); }
+  .import-result { margin-top: 14px; font-size: 14px; line-height: 1.55; }
+  .import-result:empty { display: none; }
+  .import-result .result-file { font-weight: 600; }
+  .import-result.is-error .result-file { color: var(--danger); }
+  .problem-list { max-height: 220px; overflow: auto; margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--block-fill); list-style: none; }
+  .problem-list li { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .problem-path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--ink-soft); }
+  .import-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="masthead">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.5l2.2 6.6 6.8 2.4-6.8 2.4L12 20.5l-2.2-6.6-6.8-2.4 6.8-2.4z"/></svg>
+    <span class="wordmark">Claude <span>Practice</span></span>
+    <nav class="masthead-nav" aria-label="Pages">
+      <a class="masthead-link" href="/">Translate</a>
+      <a class="masthead-link" href="/practice" aria-current="page">Practice</a>
+    </nav>
+  </header>
+
+  <section id="home-view" hidden>
+    <div class="toolbar">
+      <div class="filters" id="filters" role="toolbar" aria-label="Exercise type"></div>
+      <button class="ghost-button" id="import-button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+        Import file
+      </button>
+    </div>
+    <div class="card" id="exercise-card"></div>
+  </section>
+
+  <section id="exercise-view" hidden>
+    <div class="toolbar">
+      <a class="ghost-button back-link" href="#/">← Exercises</a>
+    </div>
+    <div class="card detail" id="exercise-detail"></div>
+  </section>
+</div>
+
+<dialog class="import-dialog" id="import-dialog" aria-labelledby="import-title">
+  <div class="import-body">
+    <h2 id="import-title">Import exercises</h2>
+    <div class="drop-zone" id="drop-zone">
+      <span>Drop a .json file here, or</span>
+      <button class="primary-button" id="choose-file-button">Choose file</button>
+      <input type="file" id="file-input" accept=".json,application/json" hidden>
+    </div>
+    <div class="import-result" id="import-result" aria-live="polite"></div>
+  </div>
+  <div class="import-actions">
+    <button class="ghost-button" id="copy-errors-button" hidden>Copy errors</button>
+    <button class="primary-button" id="import-done-button">Done</button>
+  </div>
+</dialog>
+
+<script type="module" src="/practice/web/practice.ts"></script>
+</body>
+</html>

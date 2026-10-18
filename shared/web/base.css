@@ -1,0 +1,154 @@
+/* The look every page shares: colour tokens (light, dark by system setting, or forced by data-theme), the base
+   body, and the buttons and chips. Copied from web/index.html, which keeps its own inline copy until translate
+   moves to features/translate/ (docs/practice-proposal.md §8 M6). Served at /shared/web/base.css. */
+:root {
+  --page: #f4f1ea;
+  --surface: #fffdf8;
+  --surface-tint: #f9f6ef;
+  --line: #e7e1d4;
+  --line-strong: #d6cebd;
+  --ink: #1d1b16;
+  --ink-soft: #3d3a33;
+  --muted: #8a8475;
+  --faint: #b4ad9d;
+  --accent: #c15f3c;
+  --button: #1d1b16;
+  --button-text: #fffdf8;
+  --hover: rgba(29, 27, 22, 0.06);
+  --danger: #a8361f;
+  --danger-soft: rgba(168, 54, 31, 0.08);
+  --warning: #8a5a00;
+  --warning-soft: rgba(176, 116, 0, 0.1);
+  --backdrop: rgba(29, 27, 22, 0.18);
+  --sidebar-width: 272px;
+  --sidebar-bg: #eeeae1;
+  --sidebar-hover: rgba(29, 27, 22, 0.045);
+  --sidebar-active: rgba(29, 27, 22, 0.085);
+  --shadow: 0 1px 2px rgba(29, 27, 22, 0.04), 0 12px 32px -12px rgba(29, 27, 22, 0.12);
+  --skeleton: #ece6da;
+  --popover-shadow: 0 1px 2px rgba(29, 27, 22, 0.05), 0 18px 44px -12px rgba(29, 27, 22, 0.24);
+  --code-ink: #3d3a33;
+  --code-fill: rgba(29, 27, 22, 0.045);
+  --code-edge: rgba(29, 27, 22, 0.085);
+  --block-fill: rgba(29, 27, 22, 0.032);
+  --link: #a4472a;
+}
+/* Screen only, like the data-theme, docked-sidebar grid and 760px rules: paper always gets the light tokens and desktop layout. */
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #161513;
+    --surface: #1e1d1a;
+    --surface-tint: #22211e;
+    --line: #302e29;
+    --line-strong: #403d36;
+    --ink: #ede8dd;
+    --ink-soft: #d3cdc0;
+    --muted: #8f8a7d;
+    --faint: #5e5a51;
+    --accent: #e3896a;
+    --button: #ede8dd;
+    --button-text: #161513;
+    --hover: rgba(237, 232, 221, 0.07);
+    --danger: #f0a08c;
+    --danger-soft: rgba(240, 160, 140, 0.08);
+    --warning: #e8b85c;
+    --warning-soft: rgba(232, 184, 92, 0.1);
+    --backdrop: rgba(0, 0, 0, 0.45);
+    --sidebar-bg: #121110;
+    --sidebar-hover: rgba(237, 232, 221, 0.05);
+    --sidebar-active: rgba(237, 232, 221, 0.09);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+    --skeleton: #36342e;
+    --popover-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 22px 52px -14px rgba(0, 0, 0, 0.75);
+    --code-ink: #e6dfd2;
+    --code-fill: rgba(237, 232, 221, 0.07);
+    --code-edge: rgba(237, 232, 221, 0.11);
+    --block-fill: rgba(237, 232, 221, 0.045);
+    --link: #eb9c7e;
+  }
+}
+@media screen {
+  :root[data-theme="dark"] {
+    --page: #161513;
+    --surface: #1e1d1a;
+    --surface-tint: #22211e;
+    --line: #302e29;
+    --line-strong: #403d36;
+    --ink: #ede8dd;
+    --ink-soft: #d3cdc0;
+    --muted: #8f8a7d;
+    --faint: #5e5a51;
+    --accent: #e3896a;
+    --button: #ede8dd;
+    --button-text: #161513;
+    --hover: rgba(237, 232, 221, 0.07);
+    --danger: #f0a08c;
+    --danger-soft: rgba(240, 160, 140, 0.08);
+    --warning: #e8b85c;
+    --warning-soft: rgba(232, 184, 92, 0.1);
+    --backdrop: rgba(0, 0, 0, 0.45);
+    --sidebar-bg: #121110;
+    --sidebar-hover: rgba(237, 232, 221, 0.05);
+    --sidebar-active: rgba(237, 232, 221, 0.09);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+    --skeleton: #36342e;
+    --popover-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 22px 52px -14px rgba(0, 0, 0, 0.75);
+    --code-ink: #e6dfd2;
+    --code-fill: rgba(237, 232, 221, 0.07);
+    --code-edge: rgba(237, 232, 221, 0.11);
+    --block-fill: rgba(237, 232, 221, 0.045);
+    --link: #eb9c7e;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "Be Vietnam Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea { font: inherit; color: inherit; }
+
+.masthead { display: flex; align-items: center; gap: 9px; min-height: 34px; padding-left: 2px; }
+.masthead > svg { width: 18px; height: 18px; color: var(--accent); }
+.wordmark { font-family: "Newsreader", Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.wordmark span { color: var(--muted); }
+.masthead-nav { display: flex; gap: 2px; margin-left: 14px; }
+.masthead-link {
+  display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px;
+  color: var(--muted); font-size: 13.5px; font-weight: 500; text-decoration: none; transition: background 0.15s, color 0.15s;
+}
+.masthead-link:hover { background: var(--hover); color: var(--ink); }
+.masthead-link[aria-current="page"] { color: var(--ink); background: var(--hover); }
+
+.ghost-button {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ghost-button:hover { background: var(--hover); color: var(--ink); }
+.ghost-button[hidden] { display: none; }
+.ghost-button:disabled { background: transparent; color: var(--faint); cursor: default; }
+.ghost-button svg { width: 15px; height: 15px; }
+
+.primary-button {
+  display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border: 0; border-radius: 10px;
+  background: var(--button); color: var(--button-text); font-size: 13.5px; font-weight: 600; cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.primary-button:hover { opacity: 0.88; }
+.primary-button:active { transform: translateY(1px); }
+.primary-button:disabled { background: var(--hover); color: var(--faint); opacity: 1; cursor: default; transform: none; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: 13px; font-weight: 500;
+  white-space: nowrap; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.chip[aria-pressed="true"] { border-color: var(--button); background: var(--button); color: var(--button-text); }
+.chip .chip-count { color: inherit; opacity: 0.6; font-variant-numeric: tabular-nums; }
+:is(.chip, .ghost-button, .primary-button, .masthead-link):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

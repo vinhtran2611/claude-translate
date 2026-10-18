@@ -472,10 +472,11 @@ configureLogFile(SERVER_LOG_PATH);
 const history_store = openHistoryStore(HISTORY_DATABASE_PATH);
 // Every feature but translate, which is still served from server/ and web/ (see docs/practice-proposal.md §8 M6).
 const features: Feature[] = [createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH })];
+// URLs mirror the folders, so a page module's relative import of shared/web/ui.ts resolves the same for tsc and the browser.
 const SHARED_WEB_FILES = new Map([
-  ['/shared/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
+  ['/shared/web/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
 ]);
-const SHARED_WEB_MODULE_PATHS = new Map(['ui.ts'].map((name) => [`/shared/${name}`, join(SHARED_WEB_DIRECTORY, name)]));
+const SHARED_WEB_MODULE_PATHS = new Map(['ui.ts'].map((name) => [`/shared/web/${name}`, join(SHARED_WEB_DIRECTORY, name)]));
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // A rebinding page can retry without end; one line per Host names it without flooding the log.

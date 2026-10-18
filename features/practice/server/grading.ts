@@ -21,6 +21,7 @@ const GRADING_SETTINGS: Partial<Record<ExerciseType, { model_id: string; effort:
   // Medium: bands need the whole essay weighed, which low effort rushes.
   essay_translation: { model_id: 'claude-sonnet-5-5', effort: 'medium', output_format: 'output-essay_translation.md' },
   free_writing: { model_id: 'claude-sonnet-5-5', effort: 'medium', output_format: 'output-free_writing.md' },
+  error_correction: { model_id: 'claude-sonnet-5-5', effort: 'low', output_format: 'output-error_correction.md' },
 };
 
 // Arbitrary: generous for the shortest answers, the longest an essay can be.
@@ -86,7 +87,7 @@ export function gradeAttempt(store: PracticeStore, attempt_id: number, exercise:
         const grading_ms = Date.now() - started_at;
         const served_model_id = run.served_model_id();
         const parsed = extractJson(reply_text);
-        const checked = parsed === null ? { feedback: null, problems: ['the reply has no JSON object'] } : checkFeedback(parsed, exercise.type);
+        const checked = parsed === null ? { feedback: null, problems: ['the reply has no JSON object'] } : checkFeedback(parsed, exercise.type, exercise.type === 'error_correction' ? exercise.mistakes.length : 0);
         if (checked.feedback === null) {
           log('error', request_number, 'error', `${modelLabelOf(served_model_id)}  ${formatSeconds(grading_ms)}  invalid_feedback: ${checked.problems.slice(0, 3).join('; ')}  attempt ${attempt_id}`);
           saveOutcome({

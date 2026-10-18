@@ -1,12 +1,13 @@
 // Turns the grader's reply into checked Feedback (docs/practice-proposal.md §5.4, §5.5), and computes the fields the
 // server derives from it. Derived fields are computed in code, never taken from the model.
-import type { Bands, Criterion, ExerciseType, Feedback, FeedbackError } from '../api.ts';
+import type { Bands, Criterion, ExerciseType, Feedback, FeedbackError, KeyResult } from '../api.ts';
 import { isErrorCategory } from '../categories.ts';
 
 const MAX_ERRORS = 40;
 const MEANINGS = ['complete', 'minor_loss', 'major_loss'];
 const SEVERITIES = ['major', 'minor'];
 const PARTS = ['prompt', 'essay'];
+const KEY_RESULT_STATUSES = ['fixed', 'partly', 'missed'];
 // The types whose feedback must say how much meaning the translation kept.
 const TRANSLATION_TYPES = new Set<ExerciseType>(['sentence_translation', 'paragraph_translation', 'essay_translation']);
 // The types whose feedback gives a natural version of the whole answer.
@@ -87,8 +88,28 @@ function checkBands(value: unknown, criteria: (keyof Bands)[], problems: string[
   }
 }
 
-// Checks the parsed reply for this exercise type. Unknown extra fields are dropped, not errors: they do no harm.
-export function checkFeedback(value: unknown, exercise_type: ExerciseType): CheckedFeedback {
+// One key result per planted mistake, in order, so result i is about mistake i.
+function checkKeyResults(value: unknown, mistake_count: number, problems: string[]): void {
+  if (!Array.isArray(value) || value.length !== mistake_count) {
+    problems.push(`key_results must be a list of ${mistake_count}, one per planted mistake`);
+    return;
+  }
+  value.forEach((result, index) => {
+    const path = `key_results[${index}]`;
+    if (!isPlainObject(result)) {
+      problems.push(`${path} must be an object`);
+      return;
+    }
+    if (result.mistake_index !== index) problems.push(`${path}.mistake_index must be ${index}`);
+    if (!KEY_RESULT_STATUSES.includes(result.status as string)) problems.push(`${path}.status must be fixed, partly or missed`);
+    if (typeof result.learner_text !== 'string') problems.push(`${path}.learner_text must be a string`);
+    if (result.comment !== undefined && typeof result.comment !== 'string') problems.push(`${path}.comment must be a string`);
+  });
+}
+
+// Checks the parsed reply for this exercise type. mistake_count: error correction's number of planted mistakes.
+// Unknown extra fields are dropped, not errors: they do no harm.
+export function checkFeedback(value: unknown, exercise_type: ExerciseType, mistake_count = 0): CheckedFeedback {
   const problems: string[] = [];
   if (!isPlainObject(value)) return { feedback: null, problems: ['the reply is not a JSON object'] };
   if (value.feedback_version !== 1) problems.push('feedback_version must be 1');
@@ -104,6 +125,7 @@ export function checkFeedback(value: unknown, exercise_type: ExerciseType): Chec
   if (exercise_type === 'essay_translation' && !isText(value.corrected_prompt_text)) problems.push('corrected_prompt_text must be a non-empty string');
   const criteria = BAND_CRITERIA[exercise_type];
   if (criteria !== undefined) checkBands(value.bands, criteria, problems);
+  if (exercise_type === 'error_correction') checkKeyResults(value.key_results, mistake_count, problems);
   if (problems.length > 0) return { feedback: null, problems };
   const feedback: Feedback = {
     feedback_version: 1,
@@ -125,6 +147,10 @@ export function checkFeedback(value: unknown, exercise_type: ExerciseType): Chec
       const { band, comment, next_step } = raw_bands[criterion];
       return [criterion, { band, comment, next_step }];
     })) as unknown as Bands;
+  }
+  if (exercise_type === 'error_correction') {
+    feedback.key_results = (value.key_results as KeyResult[]).map(({ mistake_index, status, learner_text, comment }) =>
+      (comment === undefined || comment === '' ? { mistake_index, status, learner_text } : { mistake_index, status, learner_text, comment }));
   }
   return { feedback, problems: [] };
 }

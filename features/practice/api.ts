@@ -130,6 +130,18 @@ export interface Feedback {
   // Free writing: all 4 criteria. Essay translation: lexical_resource and grammatical_range_accuracy only, since the
   // ideas and structure come from the Vietnamese sample.
   bands?: Bands;
+  // Error correction: one per planted mistake, in the exercise's order.
+  key_results?: KeyResult[];
+}
+
+// Did you fix one planted mistake? Any correct fix counts, not only the listed one.
+export interface KeyResult {
+  // Index in the exercise's mistakes.
+  mistake_index: number;
+  status: 'fixed' | 'partly' | 'missed';
+  // What you wrote in that place.
+  learner_text: string;
+  comment?: string;
 }
 
 // Estimates from a model, often off by 0.5 to 1.0; the page always calls them estimates.

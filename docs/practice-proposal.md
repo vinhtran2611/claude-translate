@@ -888,7 +888,7 @@ Each milestone ends with something you can use, and translate keeps working afte
 - Two-box essay translation screen, word count, elapsed time, band block, `overall_band`, the two prompts.
 - Usable: full Task 2 practice with estimated bands.
 
-**M5. Error correction**
+**M5. Error correction** (done 2026-10-18)
 - Pre-filled box, `key_results` checklist, the prompt.
 - Usable: all 5 types.
 

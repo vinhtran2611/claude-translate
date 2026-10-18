@@ -149,3 +149,22 @@ test('the free writing message leaves out the sample essay; essay translation se
   assert.match(gradingSystemPromptOf('free_writing'), /Do not add an overall band/);
   assert.match(gradingSystemPromptOf('essay_translation'), /"part": "prompt or essay"/);
 });
+
+test('error correction needs one key result per planted mistake, in order', () => {
+  const base = { ...GOOD_FEEDBACK, natural_version: undefined, meaning: undefined };
+  const results = [
+    { mistake_index: 0, status: 'fixed', learner_text: 'many students', comment: '' },
+    { mistake_index: 1, status: 'partly', learner_text: 'make', comment: 'Still plural.' },
+  ];
+  const good = checkFeedback({ ...base, key_results: results }, 'error_correction', 2);
+  assert.deepEqual(good.problems, []);
+  assert.deepEqual(good.feedback?.key_results, [
+    { mistake_index: 0, status: 'fixed', learner_text: 'many students' },
+    { mistake_index: 1, status: 'partly', learner_text: 'make', comment: 'Still plural.' },
+  ]);
+  assert.deepEqual(checkFeedback({ ...base, key_results: results }, 'error_correction', 3).problems,
+    ['key_results must be a list of 3, one per planted mistake']);
+  assert.deepEqual(checkFeedback({ ...base, key_results: [{ ...results[1], mistake_index: 1 }, { ...results[0], status: 'done', mistake_index: 0 }] }, 'error_correction', 2).problems,
+    ['key_results[0].mistake_index must be 0', 'key_results[1].mistake_index must be 1', 'key_results[1].status must be fixed, partly or missed']);
+  assert.match(gradingSystemPromptOf('error_correction'), /"key_results" has exactly one entry per planted mistake/);
+});

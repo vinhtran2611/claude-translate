@@ -85,9 +85,9 @@ translation's mode, not the one on screen.
 ## Practice
 
 http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
-design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 to M4): import
-exercise files; write and get feedback on sentence, paragraph and essay translations and on free writing (Task 2
-essays, with estimated bands); and look back at every attempt in History. Error correction is M5.
+design is in [docs/practice-proposal.md](docs/practice-proposal.md). All 5 v1 exercise types work
+(milestones M1 to M5): sentence, paragraph and essay translation, free writing (Task 2 essays, with estimated bands)
+and error correction. Every attempt is kept in History.
 
 | Action | How |
 |---|---|
@@ -105,8 +105,11 @@ essays, with estimated bands); and look back at every attempt in History. Error 
   safe side; IELTS publishes no exact rule for one task). Essay translation gets Lexical Resource and Grammar only,
   since the ideas come from the Vietnamese sample. Bands from a model are estimates, often off by 0.5 to 1. A free
   writing exercise's sample essay is shown only after grading.
+- **Error correction.** The box starts with the text and its planted mistakes; edit it in place (**Reset text** brings
+  the original back). The feedback ticks off each planted mistake as fixed, partly fixed or missed (any correct fix
+  counts), then lists the errors still in your text, including any new one you made while editing.
 - **Grading** uses `claude -p` through the same runner as translate (`shared/server/claude-runner.ts`), with Sonnet 5.5
-  (Low effort for sentences and paragraphs, Medium for essays: about 30 s) and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
+  (Low effort for sentences, paragraphs and error correction, Medium for essays: about 30 s) and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
   Grading continues on the server if you close the page. The reply must be one JSON object; anything else fails the
   attempt with the raw reply shown.
 - **Drafts** are kept in the browser while you type, until the server has saved the answer. The browser's spellcheck

@@ -140,6 +140,18 @@
   .sample-essay .field-text { margin-top: 8px; font-size: 14.5px; }
   .work-side > .footer-note { margin: 6px 0 0; }
 
+  .checklist { margin: 16px 0 0; }
+  .checklist-title { margin: 0 0 8px; font-size: 14.5px; font-weight: 600; }
+  .checklist-list { margin: 0; padding: 0; list-style: none; }
+  .checklist-item { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .checklist-item + .checklist-item { margin-top: 6px; }
+  .checklist-mark { font-size: 15px; font-weight: 700; line-height: 1.4; }
+  .checklist-item.is-fixed .checklist-mark { color: var(--accent); }
+  .checklist-item.is-partly .checklist-mark { color: var(--warning); }
+  .checklist-item.is-missed .checklist-mark { color: var(--danger); }
+  .errors-title { margin: 18px 0 0; }
+  .errors-title + .error-list { margin-top: 8px; }
+
   .import-dialog {
     width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
     background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);

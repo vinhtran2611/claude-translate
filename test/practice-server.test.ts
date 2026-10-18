@@ -139,10 +139,8 @@ test('bad attempts are rejected before anything is saved', async () => {
   assert.equal((await submit('nope', 'Hello.')).status, 404);
   assert.equal((await submit('w01-s01', '   ')).status, 400);
   assert.equal((await submit('w01-s01', 'a'.repeat(1001))).status, 400);
-  assert.equal((await submit('w01-c01', 'A corrected text.')).status, 400);
   const exercises = await listExercises();
-  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-c01').is_gradable, false);
-  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-f01').is_gradable, true);
+  assert.ok(exercises.every((exercise: { is_gradable: boolean }) => exercise.is_gradable));
 });
 
 test('the server backs up both databases on start', async () => {
@@ -205,4 +203,23 @@ test('essay translation needs the task in English too, and errors say which part
   assert.equal(attempt.overall_band, null);
   const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('Some people thinks so.'));
   assert.match(run?.content ?? '', /<answer_prompt>\nSome people thinks so\.\n<\/answer_prompt>\n\n<answer_essay word_count="\d+">/);
+});
+
+test('error correction is graded mistake by mistake, with one key result per planted mistake', async () => {
+  const key_results = Array.from({ length: 7 }, (_, mistake_index) => ({ mistake_index, status: mistake_index < 5 ? 'fixed' : 'missed', learner_text: 'x' }));
+  const feedback = {
+    feedback_version: 1, categories_version: 1, summary: 'You found 5 of 7.', strengths: [], key_results,
+    errors: [{ original: 'can not', correction: 'cannot', category: 'spelling', severity: 'minor', explanation: 'One word.', rule: 'cannot.' }],
+    corrected_text: 'Fixed text.', remember: ['cannot is one word.'],
+  };
+  const { attempt_id } = await (await submit('w01-c01', `My edited text. FAKE:reply=${JSON.stringify(feedback)}`)).json();
+  const attempt = await waitForGrading(attempt_id);
+  assert.equal(attempt.status, 'graded');
+  assert.deepEqual(attempt.feedback.key_results, key_results);
+  const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('My edited text.'));
+  assert.match(run?.content ?? '', /"mistakes": \[/);
+  const short = { ...feedback, key_results: key_results.slice(0, 3) };
+  const failed = await waitForGrading((await (await submit('w01-c01', `Again. FAKE:reply=${JSON.stringify(short)}`)).json()).attempt_id);
+  assert.equal(failed.error_kind, 'invalid_feedback');
+  assert.match(failed.error_message, /key_results must be a list of 7/);
 });

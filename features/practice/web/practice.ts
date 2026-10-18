@@ -3,7 +3,7 @@
 // #/attempt/<n> (an answer and its feedback) and #/history.
 import { createElement, dateGroupOf, fetchJson, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type {
-  AttemptDetail, AttemptStatus, AttemptSummary, Bands, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
+  AttemptDetail, AttemptStatus, AttemptSummary, Bands, ErrorCorrection, KeyResult, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
 } from '../api.ts';
 import { categoryLabelOf } from '../categories.ts';
 
@@ -186,8 +186,9 @@ function createField(label: string, value: string | HTMLElement, class_name = 'f
   return field;
 }
 
-// What you work from. Reference answers and planted mistakes are left out: they would give the answer away.
-function exerciseFields(exercise: Exercise): HTMLElement[] {
+// What you work from. Reference answers and planted mistakes are left out: they would give the answer away. While
+// writing, error correction's text is in the answer box, so the left side gives only the instruction.
+function exerciseFields(exercise: Exercise, is_writing = false): HTMLElement[] {
   switch (exercise.type) {
     case 'sentence_translation':
     case 'paragraph_translation':
@@ -199,8 +200,12 @@ function exerciseFields(exercise: Exercise): HTMLElement[] {
         createField('Task', exercise.prompt_en),
         createField('Essay type', `${ESSAY_TYPE_LABELS[exercise.essay_type]} · at least ${exercise.min_words ?? 250} words · ${exercise.time_limit_minutes ?? 40} minutes`),
       ];
-    case 'error_correction':
-      return [createField(`Find and fix ${exercise.mistakes.length} ${exercise.mistakes.length === 1 ? 'mistake' : 'mistakes'}`, exercise.text_en)];
+    case 'error_correction': {
+      const label = `Find and fix ${exercise.mistakes.length} ${exercise.mistakes.length === 1 ? 'mistake' : 'mistakes'}`;
+      return is_writing
+        ? [createField(label, 'The text is in the box. Edit it in place: change only what is wrong, and leave the rest as it is.')]
+        : [createField(`${label} · original text`, exercise.text_en)];
+    }
   }
 }
 
@@ -210,9 +215,9 @@ function exerciseHead(exercise: Exercise): HTMLElement {
   return head;
 }
 
-function exerciseSide(exercise: Exercise): HTMLElement {
+function exerciseSide(exercise: Exercise, is_writing = false): HTMLElement {
   const side = createElement('div', 'work-side');
-  side.append(exerciseHead(exercise), ...exerciseFields(exercise));
+  side.append(exerciseHead(exercise), ...exerciseFields(exercise, is_writing));
   return side;
 }
 
@@ -230,14 +235,15 @@ function renderReadOnlyExercise(exercise: Exercise): void {
 }
 
 // A text box the browser must not correct: spellcheck, autocorrect and autocapitalize would fix your mistakes for you.
-function createAnswerBox(label: string, size_class: string, placeholder: string, draft_key: string): HTMLTextAreaElement {
+// initial_text: what the box starts with when there is no draft ('' except for error correction).
+function createAnswerBox(label: string, size_class: string, placeholder: string, draft_key: string, initial_text = ''): HTMLTextAreaElement {
   const box = createElement('textarea', `answer-box ${size_class}`);
   box.setAttribute('aria-label', label);
   box.spellcheck = false;
   box.setAttribute('autocorrect', 'off');
   box.setAttribute('autocapitalize', 'off');
   box.placeholder = placeholder;
-  box.value = readStored(draft_key) ?? '';
+  box.value = readStored(draft_key) ?? initial_text;
   // Saved on every change, so a closed tab never loses an answer; cleared once the server has it.
   box.addEventListener('input', () => writeStored(draft_key, box.value));
   return box;
@@ -246,6 +252,10 @@ function createAnswerBox(label: string, size_class: string, placeholder: string,
 function formatClock(duration_ms: number): string {
   const total_seconds = Math.floor(duration_ms / 1000);
   return `${Math.floor(total_seconds / 60)}:${String(total_seconds % 60).padStart(2, '0')}`;
+}
+
+function answerLabelOf(type: ExerciseType): string {
+  return type === 'free_writing' ? 'Your essay' : type === 'essay_translation' ? 'Essay in English' : type === 'error_correction' ? 'Your corrected text' : 'Your English';
 }
 
 const ANSWER_BOX_SIZES: Record<ExerciseType, string> = {
@@ -260,19 +270,33 @@ function renderWriting(exercise: Exercise, generation: number): void {
   // Essay translation has a second, small box for the task; every other type has one box.
   const prompt_box = exercise.type === 'essay_translation'
     ? createAnswerBox('Task in English', 'is-short', 'Translate the task here.', prompt_draft_key) : null;
+  const original_text = exercise.type === 'error_correction' ? exercise.text_en : '';
   const answer_box = createAnswerBox(
-    exercise.type === 'free_writing' ? 'Your essay' : exercise.type === 'essay_translation' ? 'Essay in English' : 'Your English',
+    answerLabelOf(exercise.type),
     ANSWER_BOX_SIZES[exercise.type],
     exercise.type === 'free_writing' ? 'Write your essay here.' : exercise.type === 'essay_translation' ? 'Translate the essay here.' : 'Write your English translation here.',
     draft_key,
+    original_text,
   );
   const footer = createElement('div', 'work-footer');
   const note = createElement('span', 'footer-note');
   const submit_button = createElement('button', 'primary-button');
   submit_button.append('Submit', createElement('span', 'shortcut-hint', '⌘↵'));
-  footer.append(note, submit_button);
+  if (exercise.type === 'error_correction') {
+    // Back to the text as given, e.g. after an edit you regret; your changes go with it.
+    const reset_button = createElement('button', 'ghost-button', 'Reset text');
+    reset_button.addEventListener('click', () => {
+      answer_box.value = original_text;
+      writeStored(draft_key, original_text);
+      updateFooter();
+      answer_box.focus();
+    });
+    footer.append(note, reset_button, submit_button);
+  } else {
+    footer.append(note, submit_button);
+  }
   if (prompt_box !== null) answer_side.append(createElement('p', 'field-label', 'Task in English'), prompt_box, createElement('p', 'field-label box-gap', 'Essay in English'));
-  else answer_side.append(createElement('p', 'field-label', exercise.type === 'free_writing' ? 'Your essay' : 'Your English'));
+  else answer_side.append(createElement('p', 'field-label', answerLabelOf(exercise.type)));
   answer_side.append(answer_box, footer);
 
   const min_words = exercise.type === 'free_writing' ? exercise.min_words ?? 250 : null;
@@ -320,7 +344,7 @@ function renderWriting(exercise: Exercise, generation: number): void {
   updateFooter();
 
   const work = createElement('div', 'work');
-  work.append(exerciseSide(exercise), answer_side);
+  work.append(exerciseSide(exercise, true), answer_side);
   exercise_detail.replaceChildren(work);
   (prompt_box ?? answer_box).focus();
 }
@@ -372,6 +396,41 @@ function createBandBlock(bands: Bands, overall_band: number | null): HTMLElement
   return block;
 }
 
+const KEY_RESULT_MARKS: Record<KeyResult['status'], string> = { fixed: '✓', partly: '◐', missed: '✗' };
+const KEY_RESULT_LABELS: Record<KeyResult['status'], string> = { fixed: 'fixed', partly: 'partly fixed', missed: 'missed' };
+
+// Error correction: each planted mistake, and whether you fixed it.
+function createChecklist(exercise: ErrorCorrection, key_results: KeyResult[]): HTMLElement {
+  const block = createElement('div', 'checklist');
+  const fixed_count = key_results.filter((key_result) => key_result.status === 'fixed').length;
+  block.append(createElement('p', 'checklist-title', `You fixed ${fixed_count} of ${exercise.mistakes.length} planted ${exercise.mistakes.length === 1 ? 'mistake' : 'mistakes'}`));
+  const list = createElement('ul', 'checklist-list');
+  list.append(...key_results.map((key_result) => {
+    const mistake = exercise.mistakes[key_result.mistake_index];
+    const item = createElement('li', `checklist-item is-${key_result.status}`);
+    item.append(createElement('span', 'checklist-mark', KEY_RESULT_MARKS[key_result.status]));
+    const body = createElement('div');
+    const head = createElement('div', 'error-head');
+    head.append(createErrorFix(mistake.wrong, mistake.correct), createElement('span', 'error-tag', `${categoryLabelOf(mistake.category)} · ${KEY_RESULT_LABELS[key_result.status]}`));
+    body.append(head);
+    if (key_result.status !== 'fixed') {
+      const wrote = createElement('p', 'error-line');
+      wrote.append(createElement('b', '', 'You wrote: '), key_result.learner_text === '' ? '(nothing)' : key_result.learner_text);
+      body.append(wrote);
+      if (key_result.comment !== undefined) body.append(createElement('p', 'error-line', key_result.comment));
+    }
+    if (mistake.note !== undefined) {
+      const why = createElement('p', 'error-line');
+      why.append(createElement('b', '', 'Why: '), mistake.note);
+      body.append(why);
+    }
+    item.append(body);
+    return item;
+  }));
+  block.append(list);
+  return block;
+}
+
 function renderFeedback(result: HTMLElement, attempt: AttemptDetail, feedback: Feedback): void {
   const status = createElement('div', 'result-status');
   const model_label = MODEL_LABELS[attempt.served_model_id ?? ''] ?? attempt.served_model_id ?? '';
@@ -381,14 +440,17 @@ function renderFeedback(result: HTMLElement, attempt: AttemptDetail, feedback: F
   result.append(status);
   if (feedback.bands !== undefined) result.append(createBandBlock(feedback.bands, attempt.overall_band));
   result.append(summary);
+  const snapshot = attempt.exercise_snapshot;
+  if (snapshot.type === 'error_correction' && feedback.key_results !== undefined) result.append(createChecklist(snapshot, feedback.key_results));
   if (feedback.strengths.length > 0) {
     const strengths = createElement('ul', 'strengths');
     strengths.append(...feedback.strengths.map((strength) => createElement('li', '', strength)));
     result.append(strengths);
   }
   if (feedback.errors.length === 0) {
-    result.append(createElement('p', 'no-errors', 'No errors found.'));
+    result.append(createElement('p', 'no-errors', snapshot.type === 'error_correction' ? 'No errors left in your text.' : 'No errors found.'));
   } else {
+    if (snapshot.type === 'error_correction') result.append(createElement('p', 'field-label errors-title', 'Errors left in your text'));
     const list = createElement('ol', 'error-list');
     list.append(...feedback.errors.map((error) => {
       const card = createElement('li', 'error-card');
@@ -453,7 +515,7 @@ async function renderAttempt(attempt_id: number, generation: number): Promise<vo
   if (attempt.answer.prompt_text !== undefined) {
     answer_side.append(createField('Task in English', attempt.answer.prompt_text), createField('Essay in English', attempt.answer.text));
   } else {
-    answer_side.append(createField(exercise.type === 'free_writing' ? 'Your essay' : 'Your English', attempt.answer.text));
+    answer_side.append(createField(answerLabelOf(exercise.type), attempt.answer.text));
   }
   const words_text = `${attempt.word_count} ${attempt.word_count === 1 ? 'word' : 'words'}`;
   answer_side.append(createElement('p', 'footer-note', attempt.writing_ms === null ? words_text : `${words_text} · written in ${formatClock(attempt.writing_ms)}`));

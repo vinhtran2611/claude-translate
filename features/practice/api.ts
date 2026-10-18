@@ -125,9 +125,33 @@ export interface Feedback {
   meaning?: 'complete' | 'minor_loss' | 'major_loss';
   // Sentence and paragraph translation: how a strong writer would say it.
   natural_version?: string;
+  // Essay translation: your English task with only its errors fixed (corrected_text is the essay).
+  corrected_prompt_text?: string;
+  // Free writing: all 4 criteria. Essay translation: lexical_resource and grammatical_range_accuracy only, since the
+  // ideas and structure come from the Vietnamese sample.
+  bands?: Bands;
+}
+
+// Estimates from a model, often off by 0.5 to 1.0; the page always calls them estimates.
+export interface Bands {
+  task_response?: Criterion;
+  coherence_cohesion?: Criterion;
+  lexical_resource: Criterion;
+  grammatical_range_accuracy: Criterion;
+}
+
+export interface Criterion {
+  // 0 to 9 in steps of 0.5.
+  band: number;
+  // 1 to 2 sentences.
+  comment: string;
+  // One concrete action towards the next band.
+  next_step: string;
 }
 
 export interface FeedbackError {
+  // Essay translation only: which of your two texts the error is in.
+  part?: 'prompt' | 'essay';
   // Exact words from the answer.
   original: string;
   correction: string;
@@ -142,7 +166,10 @@ export interface FeedbackError {
 export type AttemptStatus = 'grading' | 'graded' | 'failed';
 
 export interface AttemptAnswer {
+  // The essay for essay types, else the whole answer.
   text: string;
+  // Essay translation only: your English version of the task.
+  prompt_text?: string;
 }
 
 // POST /api/practice/attempts -> 201 { attempt_id }: the answer is saved before grading starts.
@@ -172,6 +199,8 @@ export interface AttemptDetail {
   error_message: string | null;
   error_count: number | null;
   major_error_count: number | null;
+  // Free writing only: the mean of the 4 criteria, rounded down to 0.5; computed by the server.
+  overall_band: number | null;
   requested_model_id: string;
   served_model_id: string | null;
   effort: string;
@@ -185,6 +214,7 @@ export interface LastAttempt {
   id: number;
   status: AttemptStatus;
   error_count: number | null;
+  overall_band: number | null;
   submitted_at: string;
 }
 
@@ -197,5 +227,6 @@ export interface AttemptSummary {
   title: string;
   status: AttemptStatus;
   error_count: number | null;
+  overall_band: number | null;
   submitted_at: string;
 }

@@ -60,7 +60,7 @@ export interface NewAttempt {
 
 // How a grading ended. raw_output is the model's last reply ('' when there was none).
 export type GradingOutcome =
-  | { status: 'graded'; feedback: Feedback; error_count: number; major_error_count: number; raw_output: string;
+  | { status: 'graded'; feedback: Feedback; error_count: number; major_error_count: number; overall_band: number | null; raw_output: string;
       served_model_id: string; grading_ms: number; output_tokens: number | null }
   | { status: 'failed'; error_kind: string; error_message: string; raw_output: string;
       served_model_id: string | null; grading_ms: number; output_tokens: number | null };
@@ -99,7 +99,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
     SELECT id, type, content_json, (SELECT count(*) FROM attempts WHERE attempts.exercise_id = exercises.id) AS attempt_count
     FROM exercises ORDER BY position`);
   const select_last_attempts = database.prepare(`
-    SELECT exercise_id, id, status, error_count, submitted_at FROM attempts AS outer_attempt
+    SELECT exercise_id, id, status, error_count, overall_band, submitted_at FROM attempts AS outer_attempt
     WHERE id = (SELECT max(id) FROM attempts WHERE attempts.exercise_id = outer_attempt.exercise_id)`);
   const insert_attempt = database.prepare(`
     INSERT INTO attempts (exercise_id, exercise_type, exercise_snapshot_json, answer_json, word_count, writing_ms, status,
@@ -110,7 +110,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
     UPDATE attempts SET status = 'grading', error_kind = NULL, error_message = NULL WHERE id = $id AND status = 'failed'`);
   const finish_graded = database.prepare(`
     UPDATE attempts SET status = 'graded', feedback_json = $feedback_json, raw_output = $raw_output, error_count = $error_count,
-                        major_error_count = $major_error_count, served_model_id = $served_model_id, graded_at = $now,
+                        major_error_count = $major_error_count, overall_band = $overall_band, served_model_id = $served_model_id, graded_at = $now,
                         grading_ms = $grading_ms, output_tokens = $output_tokens, error_kind = NULL, error_message = NULL
     WHERE id = $id AND status = 'grading'`);
   const finish_failed = database.prepare(`
@@ -119,7 +119,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
     WHERE id = $id AND status = 'grading'`);
   const select_attempt = database.prepare('SELECT * FROM attempts WHERE id = $id');
   const select_attempt_summaries = database.prepare(`
-    SELECT id, exercise_id, exercise_type, exercise_snapshot_json, status, error_count, submitted_at FROM attempts
+    SELECT id, exercise_id, exercise_type, exercise_snapshot_json, status, error_count, overall_band, submitted_at FROM attempts
     WHERE ($type IS NULL OR exercise_type = $type) AND ($exercise_id IS NULL OR exercise_id = $exercise_id)
     ORDER BY id DESC LIMIT ${ATTEMPT_LIST_LIMIT}`);
   const fail_interrupted = database.prepare(`
@@ -183,7 +183,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
     if (outcome.status === 'graded') {
       finish_graded.run({
         id: attempt_id, feedback_json: JSON.stringify(outcome.feedback), raw_output, error_count: outcome.error_count,
-        major_error_count: outcome.major_error_count, served_model_id, now: new Date().toISOString(), grading_ms, output_tokens,
+        major_error_count: outcome.major_error_count, overall_band: outcome.overall_band, served_model_id, now: new Date().toISOString(), grading_ms, output_tokens,
       });
     } else {
       finish_failed.run({
@@ -197,7 +197,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   function readAttempt(attempt_id: number): AttemptDetail | null {
     const row = select_attempt.get({ id: attempt_id }) as Record<string, any> | undefined;
     if (!row) return null;
-    const { exercise_snapshot_json, answer_json, feedback_json, overall_band: _overall_band, output_tokens: _output_tokens, ...columns } = row;
+    const { exercise_snapshot_json, answer_json, feedback_json, output_tokens: _output_tokens, ...columns } = row;
     return {
       ...columns,
       exercise_snapshot: JSON.parse(exercise_snapshot_json),

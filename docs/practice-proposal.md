@@ -884,7 +884,7 @@ Each milestone ends with something you can use, and translate keeps working afte
 - History screen (list, filters, open past attempt, **Grade again**).
 - Usable: review any past attempt exactly as it was.
 
-**M4. Free writing and essay translation**
+**M4. Free writing and essay translation** (done 2026-10-18)
 - Two-box essay translation screen, word count, elapsed time, band block, `overall_band`, the two prompts.
 - Usable: full Task 2 practice with estimated bands.
 

@@ -18,6 +18,9 @@ const PROMPTS_DIRECTORY = join(dirname(dirname(fileURLToPath(import.meta.url))),
 const GRADING_SETTINGS: Partial<Record<ExerciseType, { model_id: string; effort: Effort; output_format: string }>> = {
   sentence_translation: { model_id: 'claude-sonnet-5-5', effort: 'low', output_format: 'output-translation.md' },
   paragraph_translation: { model_id: 'claude-sonnet-5-5', effort: 'low', output_format: 'output-translation.md' },
+  // Medium: bands need the whole essay weighed, which low effort rushes.
+  essay_translation: { model_id: 'claude-sonnet-5-5', effort: 'medium', output_format: 'output-essay_translation.md' },
+  free_writing: { model_id: 'claude-sonnet-5-5', effort: 'medium', output_format: 'output-free_writing.md' },
 };
 
 // Arbitrary: generous for the shortest answers, the longest an essay can be.
@@ -46,11 +49,16 @@ export function gradingSystemPromptOf(type: ExerciseType): string {
   return `${parts.join('\n\n')}\n`;
 }
 
-// The exercise without its id (the grader does not need it). Reference answers stay: they help the grader.
+// The exercise without its id (the grader does not need it). Reference answers stay: they help the grader. A free
+// writing sample essay does not: it would pull the bands towards it.
 export function gradingUserMessageOf(exercise: Exercise, answer: AttemptAnswer, word_count: number): string {
   const { id: _id, ...exercise_fields } = exercise;
-  return `Grade this answer. Exercise type: ${exercise.type}.\n\n<exercise>\n${JSON.stringify(exercise_fields, null, 2)}\n</exercise>\n\n` +
-    `<answer word_count="${word_count}">\n${answer.text}\n</answer>`;
+  if (exercise_fields.type === 'free_writing') delete exercise_fields.sample_essay_en;
+  const head = `Grade this answer. Exercise type: ${exercise.type}.\n\n<exercise>\n${JSON.stringify(exercise_fields, null, 2)}\n</exercise>\n\n`;
+  if (exercise.type === 'essay_translation') {
+    return `${head}<answer_prompt>\n${answer.prompt_text ?? ''}\n</answer_prompt>\n\n<answer_essay word_count="${word_count}">\n${answer.text}\n</answer_essay>`;
+  }
+  return `${head}<answer word_count="${word_count}">\n${answer.text}\n</answer>`;
 }
 
 // Starts grading attempt_id, which must be in status 'grading'; the outcome is written to the store when it ends.
@@ -93,7 +101,8 @@ export function gradeAttempt(store: PracticeStore, attempt_id: number, exercise:
         });
         log('info', request_number, 'graded',
           `${modelLabelOf(served_model_id).padEnd(10)}  ${settings.effort.padEnd(6)}  ${formatSeconds(grading_ms).padStart(6)}  ` +
-            `${derived.error_count} ${derived.error_count === 1 ? 'error' : 'errors'}  ${formatCount(output_tokens ?? 0)} tokens  attempt ${attempt_id}`);
+            `${derived.error_count} ${derived.error_count === 1 ? 'error' : 'errors'}${derived.overall_band === null ? '' : `  band ${derived.overall_band.toFixed(1)}`}  ` +
+            `${formatCount(output_tokens ?? 0)} tokens  attempt ${attempt_id}`);
       },
       onError: (error, failure_text, failure_detail_lines) => {
         const grading_ms = Date.now() - started_at;

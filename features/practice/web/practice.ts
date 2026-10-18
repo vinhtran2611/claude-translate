@@ -3,7 +3,7 @@
 // #/attempt/<n> (an answer and its feedback) and #/history.
 import { createElement, dateGroupOf, fetchJson, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type {
-  AttemptDetail, AttemptStatus, AttemptSummary, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
+  AttemptDetail, AttemptStatus, AttemptSummary, Bands, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
 } from '../api.ts';
 import { categoryLabelOf } from '../categories.ts';
 
@@ -20,6 +20,11 @@ const ESSAY_TYPE_LABELS: Record<string, string> = {
   problem_solution: 'Problem and solution', two_part: 'Two-part question',
 };
 const MEANING_LABELS: Record<string, string> = { complete: 'Meaning complete', minor_loss: 'Meaning: small loss', major_loss: 'Meaning: main idea lost' };
+const CRITERION_LABELS: Record<keyof Bands, string> = {
+  task_response: 'Task Response', coherence_cohesion: 'Coherence & Cohesion', lexical_resource: 'Lexical Resource',
+  grammatical_range_accuracy: 'Grammatical Range & Accuracy',
+};
+const CRITERION_ORDER = Object.keys(CRITERION_LABELS) as (keyof Bands)[];
 const MODEL_LABELS: Record<string, string> = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
 const FILTER_STORAGE_KEY = 'practice.filter';
 const HISTORY_FILTER_STORAGE_KEY = 'practice.history_filter';
@@ -73,15 +78,17 @@ function countWords(text: string): number {
   return words[0] === '' ? 0 : words.length;
 }
 
-function attemptStatus(status: AttemptStatus, error_count: number | null): { text: string; class_name: string } {
+// overall_band (free writing) is shown instead of the error count when there is one.
+function attemptStatus(status: AttemptStatus, error_count: number | null, overall_band: number | null = null): { text: string; class_name: string } {
   if (status === 'grading') return { text: 'grading…', class_name: '' };
   if (status === 'failed') return { text: 'not graded', class_name: 'is-failed' };
+  if (overall_band !== null) return { text: `band ${overall_band.toFixed(1)}`, class_name: '' };
   return { text: error_count === 0 ? 'no errors' : `${error_count} ${error_count === 1 ? 'error' : 'errors'}`, class_name: '' };
 }
 
 function lastAttemptStatus(exercise: ExerciseSummary): { text: string; class_name: string } {
   const { last_attempt } = exercise;
-  return last_attempt === null ? { text: 'new', class_name: 'is-new' } : attemptStatus(last_attempt.status, last_attempt.error_count);
+  return last_attempt === null ? { text: 'new', class_name: 'is-new' } : attemptStatus(last_attempt.status, last_attempt.error_count, last_attempt.overall_band);
 }
 
 // The first gradable exercise with no attempt yet, of `type` (or any type), in list order; after `after_id` when given.
@@ -222,46 +229,85 @@ function renderReadOnlyExercise(exercise: Exercise): void {
   exercise_detail.replaceChildren(detail);
 }
 
-function renderWriting(exercise: Exercise): void {
+// A text box the browser must not correct: spellcheck, autocorrect and autocapitalize would fix your mistakes for you.
+function createAnswerBox(label: string, size_class: string, placeholder: string, draft_key: string): HTMLTextAreaElement {
+  const box = createElement('textarea', `answer-box ${size_class}`);
+  box.setAttribute('aria-label', label);
+  box.spellcheck = false;
+  box.setAttribute('autocorrect', 'off');
+  box.setAttribute('autocapitalize', 'off');
+  box.placeholder = placeholder;
+  box.value = readStored(draft_key) ?? '';
+  // Saved on every change, so a closed tab never loses an answer; cleared once the server has it.
+  box.addEventListener('input', () => writeStored(draft_key, box.value));
+  return box;
+}
+
+function formatClock(duration_ms: number): string {
+  const total_seconds = Math.floor(duration_ms / 1000);
+  return `${Math.floor(total_seconds / 60)}:${String(total_seconds % 60).padStart(2, '0')}`;
+}
+
+const ANSWER_BOX_SIZES: Record<ExerciseType, string> = {
+  sentence_translation: '', paragraph_translation: 'is-long', essay_translation: 'is-essay', free_writing: 'is-essay', error_correction: 'is-long',
+};
+
+function renderWriting(exercise: Exercise, generation: number): void {
   const opened_at = Date.now();
   const draft_key = `${DRAFT_STORAGE_PREFIX}${exercise.id}`;
+  const prompt_draft_key = `${draft_key}.prompt`;
   const answer_side = createElement('div', 'work-side');
-  const answer_box = createElement('textarea', `answer-box${exercise.type === 'sentence_translation' ? '' : ' is-long'}`);
-  answer_box.setAttribute('aria-label', 'Your English');
-  // The browser must not fix your mistakes for you.
-  answer_box.spellcheck = false;
-  answer_box.setAttribute('autocorrect', 'off');
-  answer_box.setAttribute('autocapitalize', 'off');
-  answer_box.placeholder = 'Write your English translation here.';
-  answer_box.value = readStored(draft_key) ?? '';
+  // Essay translation has a second, small box for the task; every other type has one box.
+  const prompt_box = exercise.type === 'essay_translation'
+    ? createAnswerBox('Task in English', 'is-short', 'Translate the task here.', prompt_draft_key) : null;
+  const answer_box = createAnswerBox(
+    exercise.type === 'free_writing' ? 'Your essay' : exercise.type === 'essay_translation' ? 'Essay in English' : 'Your English',
+    ANSWER_BOX_SIZES[exercise.type],
+    exercise.type === 'free_writing' ? 'Write your essay here.' : exercise.type === 'essay_translation' ? 'Translate the essay here.' : 'Write your English translation here.',
+    draft_key,
+  );
   const footer = createElement('div', 'work-footer');
   const note = createElement('span', 'footer-note');
   const submit_button = createElement('button', 'primary-button');
   submit_button.append('Submit', createElement('span', 'shortcut-hint', '⌘↵'));
   footer.append(note, submit_button);
-  answer_side.append(createElement('p', 'field-label', 'Your English'), answer_box, footer);
+  if (prompt_box !== null) answer_side.append(createElement('p', 'field-label', 'Task in English'), prompt_box, createElement('p', 'field-label box-gap', 'Essay in English'));
+  else answer_side.append(createElement('p', 'field-label', exercise.type === 'free_writing' ? 'Your essay' : 'Your English'));
+  answer_side.append(answer_box, footer);
 
+  const min_words = exercise.type === 'free_writing' ? exercise.min_words ?? 250 : null;
+  const isReady = (): boolean => answer_box.value.trim() !== '' && (prompt_box === null || prompt_box.value.trim() !== '');
   const updateFooter = (): void => {
+    if (submit_button.dataset.busy === 'true') return;
     const word_count = countWords(answer_box.value);
-    note.textContent = `${word_count} ${word_count === 1 ? 'word' : 'words'}`;
-    submit_button.disabled = answer_box.value.trim() === '';
+    const words_text = `${word_count} ${word_count === 1 ? 'word' : 'words'}${min_words === null ? '' : ` of ${min_words}`}`;
+    // Free writing shows the time you have spent; it is never a limit.
+    note.textContent = exercise.type === 'free_writing' ? `${words_text} · ${formatClock(Date.now() - opened_at)}` : words_text;
+    note.classList.toggle('is-under', min_words !== null && word_count < min_words);
+    submit_button.disabled = !isReady();
   };
-  // Saved on every change, so a closed tab never loses an answer; cleared once the server has it.
-  answer_box.addEventListener('input', () => {
-    writeStored(draft_key, answer_box.value);
-    updateFooter();
-  });
+  for (const box of [prompt_box, answer_box]) box?.addEventListener('input', updateFooter);
+  if (exercise.type === 'free_writing') {
+    const timer = setInterval(() => {
+      if (generation !== route_generation || submit_button.dataset.busy === 'true') clearInterval(timer);
+      else updateFooter();
+    }, 1000);
+  }
   const submit = async (): Promise<void> => {
-    if (answer_box.value.trim() === '' || submit_button.dataset.busy === 'true') return;
+    if (!isReady() || submit_button.dataset.busy === 'true') return;
     submit_button.dataset.busy = 'true';
     submit_button.disabled = true;
     note.textContent = 'Saving…';
-    const request: CreateAttemptRequest = { exercise_id: exercise.id, answer: { text: answer_box.value }, writing_ms: Date.now() - opened_at };
+    const answer = prompt_box === null ? { text: answer_box.value } : { text: answer_box.value, prompt_text: prompt_box.value };
+    const request: CreateAttemptRequest = { exercise_id: exercise.id, answer, writing_ms: Date.now() - opened_at };
     try {
       const { attempt_id } = await fetchJson<{ attempt_id: number }>('/api/practice/attempts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
       });
-      try { localStorage.removeItem(draft_key); } catch { /* the draft stays; harmless */ }
+      try {
+        localStorage.removeItem(draft_key);
+        localStorage.removeItem(prompt_draft_key);
+      } catch { /* the draft stays; harmless */ }
       location.hash = `#/attempt/${attempt_id}`;
     } catch (error) {
       delete submit_button.dataset.busy;
@@ -276,7 +322,7 @@ function renderWriting(exercise: Exercise): void {
   const work = createElement('div', 'work');
   work.append(exerciseSide(exercise), answer_side);
   exercise_detail.replaceChildren(work);
-  answer_box.focus();
+  (prompt_box ?? answer_box).focus();
 }
 
 async function renderExercise(exercise_id: string, generation: number): Promise<void> {
@@ -290,7 +336,7 @@ async function renderExercise(exercise_id: string, generation: number): Promise<
   }
   if (generation !== route_generation) return;
   const summary = exercises.find((exercise) => exercise.id === exercise_id);
-  if (summary?.is_gradable) renderWriting(detail.exercise);
+  if (summary?.is_gradable) renderWriting(detail.exercise, generation);
   else renderReadOnlyExercise(detail.exercise);
 }
 
@@ -302,13 +348,39 @@ function createErrorFix(original: string, correction: string): HTMLElement {
   return fix;
 }
 
+// The estimated bands: the overall band (free writing) and each criterion with why and what to do next.
+function createBandBlock(bands: Bands, overall_band: number | null): HTMLElement {
+  const block = createElement('div', 'band-block');
+  const head = createElement('div', 'band-head');
+  if (overall_band !== null) head.append(createElement('span', 'band-overall', `Estimated band ${overall_band.toFixed(1)}`));
+  else head.append(createElement('span', 'band-overall', 'Estimated bands'));
+  head.append(createElement('span', 'band-note', 'an estimate, not an official score'));
+  block.append(head);
+  const list = createElement('ul', 'criterion-list');
+  for (const criterion of CRITERION_ORDER) {
+    const entry = bands[criterion];
+    if (entry === undefined) continue;
+    const item = createElement('li', 'criterion');
+    const title = createElement('div', 'criterion-title');
+    title.append(createElement('span', '', CRITERION_LABELS[criterion]), createElement('span', 'criterion-band', entry.band.toFixed(1)));
+    const next_step = createElement('p', 'error-line');
+    next_step.append(createElement('b', '', 'Next: '), entry.next_step);
+    item.append(title, createElement('p', 'error-line', entry.comment), next_step);
+    list.append(item);
+  }
+  block.append(list);
+  return block;
+}
+
 function renderFeedback(result: HTMLElement, attempt: AttemptDetail, feedback: Feedback): void {
   const status = createElement('div', 'result-status');
   const model_label = MODEL_LABELS[attempt.served_model_id ?? ''] ?? attempt.served_model_id ?? '';
   status.append(`✓ Graded · ${model_label}${attempt.grading_ms === null ? '' : ` · ${(attempt.grading_ms / 1000).toFixed(1)}s`}`);
   const summary = createElement('p', 'result-summary', feedback.summary);
   if (feedback.meaning !== undefined) summary.append(createElement('span', `meaning-badge is-${feedback.meaning}`, MEANING_LABELS[feedback.meaning]));
-  result.append(status, summary);
+  result.append(status);
+  if (feedback.bands !== undefined) result.append(createBandBlock(feedback.bands, attempt.overall_band));
+  result.append(summary);
   if (feedback.strengths.length > 0) {
     const strengths = createElement('ul', 'strengths');
     strengths.append(...feedback.strengths.map((strength) => createElement('li', '', strength)));
@@ -322,7 +394,8 @@ function renderFeedback(result: HTMLElement, attempt: AttemptDetail, feedback: F
       const card = createElement('li', 'error-card');
       const head = createElement('div', 'error-head');
       head.append(createErrorFix(error.original, error.correction),
-        createElement('span', `error-tag is-${error.severity}`, `${categoryLabelOf(error.category)} · ${error.severity}`));
+        createElement('span', `error-tag is-${error.severity}`,
+          `${error.part === undefined ? '' : `${error.part === 'prompt' ? 'Task' : 'Essay'} · `}${categoryLabelOf(error.category)} · ${error.severity}`));
       const why = createElement('p', 'error-line');
       why.append(createElement('b', '', 'Why: '), error.explanation);
       const rule = createElement('p', 'error-line');
@@ -332,13 +405,24 @@ function renderFeedback(result: HTMLElement, attempt: AttemptDetail, feedback: F
     }));
     result.append(list);
   }
-  if (feedback.errors.length > 0) result.append(createField('Corrected', feedback.corrected_text, 'field version-block'));
+  if (feedback.corrected_prompt_text !== undefined && feedback.errors.some((error) => error.part === 'prompt')) {
+    result.append(createField('Corrected task', feedback.corrected_prompt_text, 'field version-block'));
+  }
+  const has_text_errors = feedback.errors.some((error) => error.part !== 'prompt');
+  if (has_text_errors) result.append(createField(feedback.corrected_prompt_text === undefined ? 'Corrected' : 'Corrected essay', feedback.corrected_text, 'field version-block'));
   if (feedback.natural_version !== undefined) result.append(createField('Natural', feedback.natural_version, 'field version-block'));
   const remember = createElement('div', 'remember');
   const remember_list = createElement('ul');
   remember_list.append(...feedback.remember.map((lesson) => createElement('li', '', lesson)));
   remember.append(createElement('p', 'field-label', 'Remember today'), remember_list);
   result.append(remember);
+  // Shown only after grading, so it cannot shape what you write.
+  const exercise = attempt.exercise_snapshot;
+  if (exercise.type === 'free_writing' && exercise.sample_essay_en !== undefined) {
+    const sample = createElement('details', 'sample-essay');
+    sample.append(createElement('summary', '', 'Sample essay'), createElement('p', 'field-text', exercise.sample_essay_en));
+    result.append(sample);
+  }
 }
 
 function renderFailure(result: HTMLElement, attempt: AttemptDetail): void {
@@ -366,7 +450,13 @@ async function renderAttempt(attempt_id: number, generation: number): Promise<vo
   if (generation !== route_generation) return;
   const exercise = attempt.exercise_snapshot;
   const answer_side = createElement('div', 'work-side');
-  answer_side.append(createElement('p', 'field-label', 'Your English'), createElement('p', 'field-text', attempt.answer.text));
+  if (attempt.answer.prompt_text !== undefined) {
+    answer_side.append(createField('Task in English', attempt.answer.prompt_text), createField('Essay in English', attempt.answer.text));
+  } else {
+    answer_side.append(createField(exercise.type === 'free_writing' ? 'Your essay' : 'Your English', attempt.answer.text));
+  }
+  const words_text = `${attempt.word_count} ${attempt.word_count === 1 ? 'word' : 'words'}`;
+  answer_side.append(createElement('p', 'footer-note', attempt.writing_ms === null ? words_text : `${words_text} · written in ${formatClock(attempt.writing_ms)}`));
   const work = createElement('div', 'work');
   work.append(exerciseSide(exercise), answer_side);
   const result = createElement('div', 'result');
@@ -418,7 +508,7 @@ function createHistoryRow(attempt: AttemptSummary, generation: number): HTMLLIEl
   const item = createElement('li');
   const link = createElement('a', 'history-row');
   link.href = `#/attempt/${attempt.id}`;
-  const status = attemptStatus(attempt.status, attempt.error_count);
+  const status = attemptStatus(attempt.status, attempt.error_count, attempt.overall_band);
   const end = createElement('span', 'history-end');
   end.append(createElement('span', `exercise-status ${status.class_name}`, status.text));
   if (attempt.status === 'failed') {

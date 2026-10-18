@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { CreateAttemptRequest, ExerciseType, ImportResult } from '../api.ts';
+import type { AttemptAnswer, CreateAttemptRequest, ExerciseType, ImportResult } from '../api.ts';
 import { checkExerciseFile, MAX_IMPORT_FILE_BYTES } from './exercise-import.ts';
 import { countWords } from './feedback-validate.ts';
 import { gradeAttempt, gradingSettingsOf, isGradable, MAX_ANSWER_CHARS } from './grading.ts';
@@ -26,6 +26,8 @@ const ATTEMPT_PATH = /^\/api\/practice\/attempts\/(\d+)$/;
 const REGRADE_PATH = /^\/api\/practice\/attempts\/(\d+)\/regrade$/;
 // Arbitrary: far above the longest answer, below anything that could hurt the server.
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
+// Essay translation's English task: a few sentences.
+const MAX_PROMPT_ANSWER_CHARS = 3_000;
 
 function rejectAttempt(res: ServerResponse, status_code: number, reason: string): void {
   log('warn', null, 'http', `${status_code} POST /api/practice/attempts: ${reason}`);
@@ -57,7 +59,15 @@ async function handleCreateAttempt(req: IncomingMessage, res: ServerResponse, st
     return;
   }
   const writing_ms = Number.isInteger(body.writing_ms) && (body.writing_ms as number) >= 0 ? body.writing_ms as number : null;
-  const answer = { text };
+  const answer: AttemptAnswer = { text };
+  if (exercise.type === 'essay_translation') {
+    const prompt_text = typeof body.answer?.prompt_text === 'string' ? body.answer.prompt_text.trim().normalize('NFC') : '';
+    if (prompt_text === '' || prompt_text.length > MAX_PROMPT_ANSWER_CHARS) {
+      rejectAttempt(res, 400, `answer.prompt_text must be non-empty and at most ${MAX_PROMPT_ANSWER_CHARS} characters`);
+      return;
+    }
+    answer.prompt_text = prompt_text;
+  }
   const word_count = countWords(text);
   const { model_id: requested_model_id, effort } = gradingSettingsOf(exercise.type);
   const attempt_id = store.createAttempt({ exercise, answer, word_count, writing_ms, requested_model_id, effort });

@@ -139,9 +139,10 @@ test('bad attempts are rejected before anything is saved', async () => {
   assert.equal((await submit('nope', 'Hello.')).status, 404);
   assert.equal((await submit('w01-s01', '   ')).status, 400);
   assert.equal((await submit('w01-s01', 'a'.repeat(1001))).status, 400);
-  assert.equal((await submit('w01-f01', 'An essay.')).status, 400);
+  assert.equal((await submit('w01-c01', 'A corrected text.')).status, 400);
   const exercises = await listExercises();
-  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-f01').is_gradable, false);
+  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-c01').is_gradable, false);
+  assert.equal(exercises.find((exercise: { id: string }) => exercise.id === 'w01-f01').is_gradable, true);
 });
 
 test('the server backs up both databases on start', async () => {
@@ -154,11 +155,54 @@ test('History lists attempts newest first, with filters by type and exercise', a
   const all = await (await fetch(`${server.base_url}/api/practice/attempts`)).json();
   assert.ok(all.length >= 4);
   assert.deepEqual(all.map((attempt: { id: number }) => attempt.id), [...all.map((attempt: { id: number }) => attempt.id)].sort((a, b) => b - a));
-  assert.deepEqual(Object.keys(all[0]).sort(), ['error_count', 'exercise_id', 'exercise_type', 'id', 'status', 'submitted_at', 'title']);
+  assert.deepEqual(Object.keys(all[0]).sort(), ['error_count', 'exercise_id', 'exercise_type', 'id', 'overall_band', 'status', 'submitted_at', 'title']);
   const paragraphs = await (await fetch(`${server.base_url}/api/practice/attempts?type=paragraph_translation`)).json();
   assert.ok(paragraphs.length > 0);
   assert.ok(paragraphs.every((attempt: { exercise_type: string }) => attempt.exercise_type === 'paragraph_translation'));
   const for_exercise = await (await fetch(`${server.base_url}/api/practice/attempts?exercise_id=w01-s01`)).json();
   assert.ok(for_exercise.every((attempt: { exercise_id: string; title: string }) => attempt.exercise_id === 'w01-s01' && attempt.title === 'Câu mới.'));
   assert.ok(all.some((attempt: { status: string }) => attempt.status === 'failed'));
+});
+
+const criterion = (band: number) => ({ band, comment: 'Why.', next_step: 'Do this.' });
+
+test('free writing is graded on 4 criteria, and the overall band is the mean rounded down to 0.5', async () => {
+  const feedback = {
+    feedback_version: 1, categories_version: 1, summary: 'A clear position.', strengths: [], errors: [], corrected_text: 'My essay.',
+    bands: { task_response: criterion(6.5), coherence_cohesion: criterion(7), lexical_resource: criterion(6), grammatical_range_accuracy: criterion(6) },
+    remember: ['Add examples.'],
+  };
+  const { attempt_id } = await (await submit('w01-f01', `My essay. FAKE:reply=${JSON.stringify(feedback)}`)).json();
+  const attempt = await waitForGrading(attempt_id);
+  assert.equal(attempt.status, 'graded');
+  assert.equal(attempt.overall_band, 6);
+  assert.deepEqual(attempt.feedback.bands, feedback.bands);
+  const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('My essay. FAKE'));
+  assert.ok(run);
+  assert.equal(run.args[run.args.indexOf('--effort') + 1], 'medium');
+  assert.match(run.args[run.args.indexOf('--system-prompt') + 1], /task_response: answers every part/);
+  const summary = (await (await fetch(`${server.base_url}/api/practice/attempts?type=free_writing`)).json())[0];
+  assert.equal(summary.overall_band, 6);
+});
+
+test('essay translation needs the task in English too, and errors say which part', async () => {
+  const send = (answer: Record<string, string>) => fetch(`${server.base_url}/api/practice/attempts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ exercise_id: 'w01-e01', answer, writing_ms: null }),
+  });
+  assert.equal((await send({ text: 'The essay.' })).status, 400);
+  const feedback = {
+    feedback_version: 1, categories_version: 1, summary: 'Close to the Vietnamese.', strengths: [],
+    errors: [{ part: 'prompt', original: 'Some people thinks', correction: 'Some people think', category: 'subject_verb_agreement', severity: 'major', explanation: 'Plural.', rule: 'people + think.' }],
+    corrected_prompt_text: 'Some people think so.', corrected_text: 'The essay.', meaning: 'complete',
+    bands: { lexical_resource: criterion(6), grammatical_range_accuracy: criterion(5.5) }, remember: ['people is plural.'],
+  };
+  const response = await send({ prompt_text: 'Some people thinks so.', text: `The essay. FAKE:reply=${JSON.stringify(feedback)}` });
+  assert.equal(response.status, 201);
+  const attempt = await waitForGrading((await response.json()).attempt_id);
+  assert.equal(attempt.status, 'graded');
+  assert.equal(attempt.answer.prompt_text, 'Some people thinks so.');
+  assert.equal(attempt.feedback.errors[0].part, 'prompt');
+  assert.equal(attempt.overall_band, null);
+  const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('Some people thinks so.'));
+  assert.match(run?.content ?? '', /<answer_prompt>\nSome people thinks so\.\n<\/answer_prompt>\n\n<answer_essay word_count="\d+">/);
 });

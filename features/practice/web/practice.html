@@ -122,6 +122,24 @@
     .history-type, .history-row .exercise-id { display: none; }
   }
 
+  .answer-box.is-short { min-height: 5em; }
+  .answer-box.is-essay { min-height: 26em; }
+  .box-gap { margin-top: 16px; }
+  .footer-note.is-under { color: var(--warning); }
+  .band-block { margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-tint); }
+  .band-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .band-overall { font-family: "Newsreader", Georgia, serif; font-size: 22px; font-weight: 500; }
+  .band-note { font-size: 12.5px; color: var(--muted); }
+  .criterion-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+  @media (max-width: 760px) { .criterion-list { grid-template-columns: 1fr; } }
+  .criterion-title { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .criterion-band { font-variant-numeric: tabular-nums; color: var(--accent); }
+  .criterion .error-line { margin-top: 4px; }
+  .sample-essay { margin-top: 14px; font-size: 14px; }
+  .sample-essay summary { cursor: pointer; color: var(--ink-soft); font-weight: 500; }
+  .sample-essay .field-text { margin-top: 8px; font-size: 14.5px; }
+  .work-side > .footer-note { margin: 6px 0 0; }
+
   .import-dialog {
     width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
     background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);

@@ -85,9 +85,9 @@ translation's mode, not the one on screen.
 ## Practice
 
 http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
-design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 to M3): import
-exercise files, write and get feedback on sentence and paragraph translations, and look back at every attempt in
-History. Essays and error correction are M4 and M5.
+design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 to M4): import
+exercise files; write and get feedback on sentence, paragraph and essay translations and on free writing (Task 2
+essays, with estimated bands); and look back at every attempt in History. Error correction is M5.
 
 | Action | How |
 |---|---|
@@ -99,8 +99,14 @@ History. Essays and error correction are M4 and M5.
 
 - **Feedback** lists each error with the exact words, the fix, its category (`features/practice/categories.ts`), major
   or minor, why it is wrong and a rule to remember, then the corrected text, a natural version and 1–3 lessons.
+- **Essays.** Free writing has one big box; the footer shows the word count against the minimum (amber while under it)
+  and the time you have spent, which is never a limit. Essay translation has two boxes: the task in English, then the
+  essay. Free writing is banded on all 4 IELTS criteria, and the overall band is their mean rounded down to 0.5 (the
+  safe side; IELTS publishes no exact rule for one task). Essay translation gets Lexical Resource and Grammar only,
+  since the ideas come from the Vietnamese sample. Bands from a model are estimates, often off by 0.5 to 1. A free
+  writing exercise's sample essay is shown only after grading.
 - **Grading** uses `claude -p` through the same runner as translate (`shared/server/claude-runner.ts`), with Sonnet 5.5
-  at Low effort and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
+  (Low effort for sentences and paragraphs, Medium for essays: about 30 s) and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
   Grading continues on the server if you close the page. The reply must be one JSON object; anything else fails the
   attempt with the raw reply shown.
 - **Drafts** are kept in the browser while you type, until the server has saved the answer. The browser's spellcheck

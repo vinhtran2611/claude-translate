@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { checkFeedback, countWords, deriveFields, extractJson } from '../features/practice/server/feedback-validate.ts';
+import { checkFeedback, countWords, deriveFields, extractJson, overallBandOf } from '../features/practice/server/feedback-validate.ts';
 import { gradingSystemPromptOf, gradingUserMessageOf } from '../features/practice/server/grading.ts';
 import { openPracticeStore } from '../features/practice/server/practice-store.ts';
 import { backupDaily } from '../shared/server/sqlite.ts';
@@ -32,7 +32,7 @@ test('good feedback passes, keeps only known fields, and derives the counts', ()
   assert.deepEqual(problems, []);
   assert.ok(feedback);
   assert.equal('extra' in feedback, false);
-  assert.deepEqual(deriveFields(feedback), { error_count: 2, major_error_count: 1 });
+  assert.deepEqual(deriveFields(feedback), { error_count: 2, major_error_count: 1, overall_band: null });
 });
 
 test('bad feedback lists each problem', () => {
@@ -106,4 +106,46 @@ test('backupDaily makes one copy a day and keeps the newest 30', () => {
   assert.equal(kept.length, 30);
   assert.equal(kept.at(-1), 'practice-2026-10-19.sqlite');
   assert.equal(backupDaily(join(directory, 'missing.sqlite'), backups_directory, 'missing'), null);
+});
+
+const criterion = (band: unknown) => ({ band, comment: 'Why.', next_step: 'Do this.' });
+
+test('free writing needs all 4 bands in steps of 0.5; essay translation only the 2 language ones', () => {
+  const base = { ...GOOD_FEEDBACK, natural_version: undefined, meaning: undefined };
+  const four = { task_response: criterion(6), coherence_cohesion: criterion(6.5), lexical_resource: criterion(7), grammatical_range_accuracy: criterion(5.5) };
+  const free = checkFeedback({ ...base, bands: four }, 'free_writing');
+  assert.deepEqual(free.problems, []);
+  assert.equal(free.feedback?.meaning, undefined);
+  assert.deepEqual(checkFeedback({ ...base, bands: { ...four, task_response: criterion(6.3) } }, 'free_writing').problems,
+    ['bands.task_response.band must be 0 to 9 in steps of 0.5']);
+  assert.deepEqual(checkFeedback({ ...base, bands: { lexical_resource: criterion(7) } }, 'free_writing').problems,
+    ['bands.task_response is required', 'bands.coherence_cohesion is required', 'bands.grammatical_range_accuracy is required']);
+  const essay = checkFeedback({
+    ...base, meaning: 'complete', corrected_prompt_text: 'Task.', bands: four,
+    errors: GOOD_FEEDBACK.errors.map((error) => ({ ...error, part: 'essay' })),
+  }, 'essay_translation');
+  assert.deepEqual(essay.problems, []);
+  assert.deepEqual(Object.keys(essay.feedback?.bands ?? {}), ['lexical_resource', 'grammatical_range_accuracy']);
+  assert.deepEqual(checkFeedback({ ...base, meaning: 'complete', corrected_prompt_text: 'Task.', bands: four }, 'essay_translation').problems,
+    ['errors[0].part must be prompt or essay', 'errors[1].part must be prompt or essay']);
+});
+
+test('the overall band is the mean of 4 criteria rounded down to 0.5, and only for free writing', () => {
+  const bands = (a: number, b: number, c: number, d: number) => ({
+    task_response: criterion(a), coherence_cohesion: criterion(b), lexical_resource: criterion(c), grammatical_range_accuracy: criterion(d),
+  }) as never;
+  assert.equal(overallBandOf(bands(6, 6.5, 6.5, 6.5)), 6);
+  assert.equal(overallBandOf(bands(7, 7, 7, 6.5)), 6.5);
+  assert.equal(overallBandOf(bands(7, 7, 7, 7)), 7);
+  assert.equal(overallBandOf({ lexical_resource: criterion(7), grammatical_range_accuracy: criterion(7) } as never), null);
+  assert.equal(overallBandOf(undefined), null);
+});
+
+test('the free writing message leaves out the sample essay; essay translation sends both parts', () => {
+  const free = gradingUserMessageOf({ id: 'f1', type: 'free_writing', prompt_en: 'Discuss.', essay_type: 'opinion', sample_essay_en: 'SAMPLE TEXT' }, { text: 'Mine.' }, 1);
+  assert.doesNotMatch(free, /SAMPLE TEXT/);
+  const essay = gradingUserMessageOf({ id: 'e1', type: 'essay_translation', prompt_vi: 'Đề.', essay_vi: 'Bài.' }, { text: 'Essay.', prompt_text: 'Task.' }, 1);
+  assert.match(essay, /<answer_prompt>\nTask\.\n<\/answer_prompt>\n\n<answer_essay word_count="1">\nEssay\.\n<\/answer_essay>$/);
+  assert.match(gradingSystemPromptOf('free_writing'), /Do not add an overall band/);
+  assert.match(gradingSystemPromptOf('essay_translation'), /"part": "prompt or essay"/);
 });

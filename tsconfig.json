@@ -16,5 +16,5 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["server/**/*.ts", "shared/**/*.ts", "web/**/*.ts", "test/**/*.ts"]
+  "include": ["server/**/*.ts", "shared/**/*.ts", "features/**/*.ts", "web/**/*.ts", "test/**/*.ts"]
 }

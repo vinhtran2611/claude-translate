@@ -16,6 +16,7 @@
 
   :is(.toolbar, .start-row) + .card { margin-top: 14px; }
   .back-link, .link-button { text-decoration: none; }
+  .toolbar + .toolbar { margin-top: 10px; }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
 
@@ -105,6 +106,22 @@
   .raw-output { margin-top: 10px; font-size: 13px; }
   .raw-output pre { max-height: 240px; overflow: auto; padding: 10px; border-radius: 8px; background: var(--block-fill); white-space: pre-wrap; overflow-wrap: anywhere; }
 
+  /* History: one row per attempt, newest first, grouped by day like translate's sidebar. */
+  .history-row {
+    display: grid; grid-template-columns: 3.5em 9.5em 6.5em minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%;
+    padding: 9px 12px; border-radius: 10px; color: var(--ink); text-decoration: none; cursor: pointer;
+  }
+  .history-row:hover { background: var(--hover); }
+  .history-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .history-time { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .history-type { font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-end { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .history-end .ghost-button { height: 28px; padding: 0 9px; font-size: 12.5px; color: var(--ink); }
+  @media (max-width: 760px) {
+    .history-row { grid-template-columns: 3.5em minmax(0, 1fr) auto; }
+    .history-type, .history-row .exercise-id { display: none; }
+  }
+
   .import-dialog {
     width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
     background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);
@@ -141,6 +158,10 @@
   <section id="home-view" hidden>
     <div class="toolbar">
       <div class="filters" id="filters" role="toolbar" aria-label="Exercise type"></div>
+      <a class="ghost-button link-button" href="#/history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        History
+      </a>
       <button class="ghost-button" id="import-button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
         Import file
@@ -152,9 +173,19 @@
     <div class="card" id="exercise-card"></div>
   </section>
 
-  <section id="exercise-view" hidden>
+  <section id="history-view" hidden>
     <div class="toolbar">
       <a class="ghost-button back-link" href="#/">← Exercises</a>
+    </div>
+    <div class="toolbar">
+      <div class="filters" id="history-filters" role="toolbar" aria-label="Exercise type"></div>
+    </div>
+    <div class="card" id="history-card"></div>
+  </section>
+
+  <section id="exercise-view" hidden>
+    <div class="toolbar">
+      <a class="ghost-button back-link" href="#/" id="back-link">← Exercises</a>
     </div>
     <div class="card" id="exercise-detail"></div>
   </section>

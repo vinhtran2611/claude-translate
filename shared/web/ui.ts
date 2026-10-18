@@ -38,3 +38,17 @@ export function createElement<Tag extends keyof HTMLElementTagNameMap>(tag: Tag,
   if (text !== '') element.textContent = text;
   return element;
 }
+
+// The section a timestamp falls in, counted from local midnight: Today, Yesterday, Previous 7 days, Previous 30 days,
+// then the month ("September", or "April 2025" in another year). The same rule as translate's history sidebar.
+export function dateGroupOf(timestamp: string, now = new Date()): string {
+  const date = new Date(timestamp);
+  const today_start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days_before_today = Math.ceil((today_start.getTime() - date.getTime()) / 86400000);
+  if (date >= today_start) return 'Today';
+  if (days_before_today <= 1) return 'Yesterday';
+  if (days_before_today <= 7) return 'Previous 7 days';
+  if (days_before_today <= 30) return 'Previous 30 days';
+  const month_format: Intl.DateTimeFormatOptions = { month: 'long', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) };
+  return date.toLocaleDateString('en-US', month_format);
+}

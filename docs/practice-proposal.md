@@ -880,7 +880,7 @@ Each milestone ends with something you can use, and translate keeps working afte
 - Daily backup (`VACUUM INTO`) for both databases.
 - Usable: daily practice with sentences and paragraphs. Every attempt saved and backed up.
 
-**M3. History**
+**M3. History** (done 2026-10-18)
 - History screen (list, filters, open past attempt, **Grade again**).
 - Usable: review any past attempt exactly as it was.
 

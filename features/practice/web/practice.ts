@@ -1,9 +1,9 @@
-// The Practice page: the exercise list with type filters, the import dialog, the writing screen and an attempt with its
-// feedback. Routes are hashes, so Back works: #/ (list), #/exercise/<id> (write) and #/attempt/<n> (an answer and its
-// feedback).
-import { createElement, fetchJson, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
+// The Practice page: the exercise list with type filters, the import dialog, the writing screen, an attempt with its
+// feedback, and the history of attempts. Routes are hashes, so Back works: #/ (list), #/exercise/<id> (write),
+// #/attempt/<n> (an answer and its feedback) and #/history.
+import { createElement, dateGroupOf, fetchJson, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type {
-  AttemptDetail, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
+  AttemptDetail, AttemptStatus, AttemptSummary, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
 } from '../api.ts';
 import { categoryLabelOf } from '../categories.ts';
 
@@ -22,13 +22,19 @@ const ESSAY_TYPE_LABELS: Record<string, string> = {
 const MEANING_LABELS: Record<string, string> = { complete: 'Meaning complete', minor_loss: 'Meaning: small loss', major_loss: 'Meaning: main idea lost' };
 const MODEL_LABELS: Record<string, string> = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
 const FILTER_STORAGE_KEY = 'practice.filter';
+const HISTORY_FILTER_STORAGE_KEY = 'practice.history_filter';
 const DRAFT_STORAGE_PREFIX = 'practice.draft.';
 const EXERCISE_HASH = /^#\/exercise\/([a-z0-9][a-z0-9-]{0,63})$/;
 const ATTEMPT_HASH = /^#\/attempt\/(\d+)$/;
+const HISTORY_HASH = '#/history';
 const POLL_INTERVAL_MS = 1000;
 
 const home_view = requiredElement('#home-view', HTMLElement);
 const exercise_view = requiredElement('#exercise-view', HTMLElement);
+const history_view = requiredElement('#history-view', HTMLElement);
+const history_filters_element = requiredElement('#history-filters', HTMLElement);
+const history_card = requiredElement('#history-card', HTMLElement);
+const back_link = requiredElement('#back-link', HTMLAnchorElement);
 const filters_element = requiredElement('#filters', HTMLElement);
 const start_row = requiredElement('#start-row', HTMLElement);
 const start_button = requiredElement('#start-button', HTMLButtonElement);
@@ -47,6 +53,10 @@ let exercises: ExerciseSummary[] = [];
 // 'all' or one type; remembered in the browser.
 let filter: ExerciseType | 'all' = (TYPE_ORDER as string[]).includes(readStored(FILTER_STORAGE_KEY) ?? '')
   ? readStored(FILTER_STORAGE_KEY) as ExerciseType : 'all';
+let history_filter: ExerciseType | 'all' = (TYPE_ORDER as string[]).includes(readStored(HISTORY_FILTER_STORAGE_KEY) ?? '')
+  ? readStored(HISTORY_FILTER_STORAGE_KEY) as ExerciseType : 'all';
+// Where "←" on an exercise or attempt goes back to: the list or History, whichever was shown last.
+let last_list_hash = '#/';
 // The last failed import's problems, for Copy errors.
 let last_import_errors: ImportProblem[] = [];
 // What ⌘↵ does on the current screen: submit the answer, or open the next exercise; null when nothing.
@@ -63,13 +73,15 @@ function countWords(text: string): number {
   return words[0] === '' ? 0 : words.length;
 }
 
+function attemptStatus(status: AttemptStatus, error_count: number | null): { text: string; class_name: string } {
+  if (status === 'grading') return { text: 'grading…', class_name: '' };
+  if (status === 'failed') return { text: 'not graded', class_name: 'is-failed' };
+  return { text: error_count === 0 ? 'no errors' : `${error_count} ${error_count === 1 ? 'error' : 'errors'}`, class_name: '' };
+}
+
 function lastAttemptStatus(exercise: ExerciseSummary): { text: string; class_name: string } {
   const { last_attempt } = exercise;
-  if (last_attempt === null) return { text: 'new', class_name: 'is-new' };
-  if (last_attempt.status === 'grading') return { text: 'grading…', class_name: '' };
-  if (last_attempt.status === 'failed') return { text: 'not graded', class_name: 'is-failed' };
-  const error_count = last_attempt.error_count ?? 0;
-  return { text: error_count === 0 ? 'no errors' : `${error_count} ${error_count === 1 ? 'error' : 'errors'}`, class_name: '' };
+  return last_attempt === null ? { text: 'new', class_name: 'is-new' } : attemptStatus(last_attempt.status, last_attempt.error_count);
 }
 
 // The first gradable exercise with no attempt yet, of `type` (or any type), in list order; after `after_id` when given.
@@ -80,22 +92,27 @@ function nextNewExercise(type: ExerciseType | 'all', after_id: string | null = n
     exercise.id !== after_id) ?? null;
 }
 
-function renderFilters(): void {
-  const counts = new Map<ExerciseType | 'all', number>([['all', exercises.length]]);
-  for (const exercise of exercises) counts.set(exercise.type, (counts.get(exercise.type) ?? 0) + 1);
-  filters_element.replaceChildren();
+// One chip for All and one per type present in `types`, each with its count; onPick gets the chosen one.
+function renderTypeChips(container: HTMLElement, types: ExerciseType[], current: ExerciseType | 'all', onPick: (option: ExerciseType | 'all') => void): void {
+  const counts = new Map<ExerciseType | 'all', number>([['all', types.length]]);
+  for (const type of types) counts.set(type, (counts.get(type) ?? 0) + 1);
+  container.replaceChildren();
   for (const option of ['all', ...TYPE_ORDER] as const) {
     if (option !== 'all' && !counts.has(option)) continue;
     const chip = createElement('button', 'chip', option === 'all' ? 'All' : TYPE_LABELS[option]);
     chip.append(createElement('span', 'chip-count', String(counts.get(option) ?? 0)));
-    chip.setAttribute('aria-pressed', String(option === filter));
-    chip.addEventListener('click', () => {
-      filter = option;
-      writeStored(FILTER_STORAGE_KEY, option);
-      renderHome();
-    });
-    filters_element.append(chip);
+    chip.setAttribute('aria-pressed', String(option === current));
+    chip.addEventListener('click', () => onPick(option));
+    container.append(chip);
   }
+}
+
+function renderFilters(): void {
+  renderTypeChips(filters_element, exercises.map((exercise) => exercise.type), filter, (option) => {
+    filter = option;
+    writeStored(FILTER_STORAGE_KEY, option);
+    renderHome();
+  });
 }
 
 function renderEmptyState(): void {
@@ -393,6 +410,78 @@ async function renderAttempt(attempt_id: number, generation: number): Promise<vo
   exercise_detail.replaceChildren(work, result);
 }
 
+function formatClockTime(timestamp: string): string {
+  return new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function createHistoryRow(attempt: AttemptSummary, generation: number): HTMLLIElement {
+  const item = createElement('li');
+  const link = createElement('a', 'history-row');
+  link.href = `#/attempt/${attempt.id}`;
+  const status = attemptStatus(attempt.status, attempt.error_count);
+  const end = createElement('span', 'history-end');
+  end.append(createElement('span', `exercise-status ${status.class_name}`, status.text));
+  if (attempt.status === 'failed') {
+    const regrade_button = createElement('button', 'ghost-button', 'Grade again');
+    regrade_button.addEventListener('click', async (event) => {
+      // The row is a link; this button grades here instead of opening it.
+      event.preventDefault();
+      regrade_button.disabled = true;
+      try {
+        await fetchJson(`/api/practice/attempts/${attempt.id}/regrade`, { method: 'POST' });
+      } catch {
+        // Already grading again (409) or gone: the redraw below shows which.
+      }
+      if (generation === route_generation) void renderHistory(generation);
+    });
+    end.append(regrade_button);
+  }
+  link.append(
+    createElement('span', 'history-time', formatClockTime(attempt.submitted_at)),
+    createElement('span', 'history-type', TYPE_LABELS[attempt.exercise_type]),
+    createElement('span', 'exercise-id', attempt.exercise_id),
+    createElement('span', 'exercise-title', attempt.title),
+    end,
+  );
+  link.title = `${attempt.title}\n${new Date(attempt.submitted_at).toLocaleString('en-GB')}`;
+  item.append(link);
+  return item;
+}
+
+// Every attempt, newest first, grouped by day; while one is grading the list is asked for again every second.
+async function renderHistory(generation: number): Promise<void> {
+  const attempts = await fetchJson<AttemptSummary[]>('/api/practice/attempts');
+  if (generation !== route_generation) return;
+  if (history_filter !== 'all' && !attempts.some((attempt) => attempt.exercise_type === history_filter)) history_filter = 'all';
+  renderTypeChips(history_filters_element, attempts.map((attempt) => attempt.exercise_type), history_filter, (option) => {
+    history_filter = option;
+    writeStored(HISTORY_FILTER_STORAGE_KEY, option);
+    void renderHistory(route_generation);
+  });
+  const shown_attempts = attempts.filter((attempt) => history_filter === 'all' || attempt.exercise_type === history_filter);
+  if (shown_attempts.length === 0) {
+    const empty = createElement('div', 'empty');
+    empty.append(createElement('h2', '', 'No attempts yet'), createElement('p', '', 'Every answer you submit is kept here with its feedback.'));
+    history_card.replaceChildren(empty);
+  } else {
+    const groups = new Map<string, AttemptSummary[]>();
+    for (const attempt of shown_attempts) {
+      const label = dateGroupOf(attempt.submitted_at);
+      groups.set(label, [...(groups.get(label) ?? []), attempt]);
+    }
+    history_card.replaceChildren(...[...groups].map(([label, group_attempts]) => {
+      const group = createElement('section', 'group');
+      const list = createElement('ol', 'exercise-list');
+      list.append(...group_attempts.map((attempt) => createHistoryRow(attempt, generation)));
+      group.append(createElement('h2', 'group-title', label), list);
+      return group;
+    }));
+  }
+  if (attempts.some((attempt) => attempt.status === 'grading')) {
+    setTimeout(() => { if (generation === route_generation) void renderHistory(generation); }, POLL_INTERVAL_MS);
+  }
+}
+
 async function loadExercises(): Promise<void> {
   exercises = await fetchJson<ExerciseSummary[]>('/api/practice/exercises');
 }
@@ -402,9 +491,18 @@ async function route(): Promise<void> {
   primary_action = null;
   const exercise_match = EXERCISE_HASH.exec(location.hash);
   const attempt_match = ATTEMPT_HASH.exec(location.hash);
-  home_view.hidden = exercise_match !== null || attempt_match !== null;
-  exercise_view.hidden = !home_view.hidden;
-  if (exercise_match) {
+  const is_history = location.hash === HISTORY_HASH;
+  home_view.hidden = exercise_match !== null || attempt_match !== null || is_history;
+  history_view.hidden = !is_history;
+  exercise_view.hidden = exercise_match === null && attempt_match === null;
+  if (home_view.hidden === false) last_list_hash = '#/';
+  if (is_history) last_list_hash = HISTORY_HASH;
+  back_link.href = last_list_hash;
+  back_link.textContent = last_list_hash === HISTORY_HASH ? '← History' : '← Exercises';
+  if (is_history) {
+    history_card.replaceChildren(createElement('p', 'detail detail-meta', 'Loading…'));
+    await renderHistory(generation);
+  } else if (exercise_match) {
     await renderExercise(exercise_match[1], generation);
   } else if (attempt_match) {
     exercise_detail.replaceChildren(createElement('p', 'detail detail-meta', 'Loading…'));

@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { CreateAttemptRequest, ImportResult } from '../api.ts';
+import type { CreateAttemptRequest, ExerciseType, ImportResult } from '../api.ts';
 import { checkExerciseFile, MAX_IMPORT_FILE_BYTES } from './exercise-import.ts';
 import { countWords } from './feedback-validate.ts';
 import { gradeAttempt, gradingSettingsOf, isGradable, MAX_ANSWER_CHARS } from './grading.ts';
@@ -143,6 +143,10 @@ export function createPracticeFeature({ database_path }: { database_path: string
       else res.writeHead(404).end('No such exercise');
     } else if (req.method === 'POST' && pathname === '/api/practice/exercises/import') {
       await handleImport(req, res, store, imports_directory);
+    } else if (req.method === 'GET' && pathname === '/api/practice/attempts') {
+      const { searchParams } = new URL(req.url ?? '', 'http://localhost');
+      const type = searchParams.get('type');
+      sendJson(res, 200, store.listAttempts({ type: type === null || type === '' ? null : type as ExerciseType, exercise_id: searchParams.get('exercise_id') || null }));
     } else if (req.method === 'POST' && pathname === '/api/practice/attempts') {
       await handleCreateAttempt(req, res, store);
     } else if (req.method === 'GET' && attempt_match) {

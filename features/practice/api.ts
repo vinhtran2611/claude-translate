@@ -187,3 +187,15 @@ export interface LastAttempt {
   error_count: number | null;
   submitted_at: string;
 }
+
+// GET /api/practice/attempts?type=&exercise_id=, newest first, at most 200.
+export interface AttemptSummary {
+  id: number;
+  exercise_id: string;
+  exercise_type: ExerciseType;
+  // From the exercise as it was when you answered.
+  title: string;
+  status: AttemptStatus;
+  error_count: number | null;
+  submitted_at: string;
+}

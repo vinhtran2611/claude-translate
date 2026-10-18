@@ -149,3 +149,16 @@ test('the server backs up both databases on start', async () => {
   assert.ok(backups.some((name) => /^history-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)));
   assert.ok(backups.some((name) => /^practice-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)));
 });
+
+test('History lists attempts newest first, with filters by type and exercise', async () => {
+  const all = await (await fetch(`${server.base_url}/api/practice/attempts`)).json();
+  assert.ok(all.length >= 4);
+  assert.deepEqual(all.map((attempt: { id: number }) => attempt.id), [...all.map((attempt: { id: number }) => attempt.id)].sort((a, b) => b - a));
+  assert.deepEqual(Object.keys(all[0]).sort(), ['error_count', 'exercise_id', 'exercise_type', 'id', 'status', 'submitted_at', 'title']);
+  const paragraphs = await (await fetch(`${server.base_url}/api/practice/attempts?type=paragraph_translation`)).json();
+  assert.ok(paragraphs.length > 0);
+  assert.ok(paragraphs.every((attempt: { exercise_type: string }) => attempt.exercise_type === 'paragraph_translation'));
+  const for_exercise = await (await fetch(`${server.base_url}/api/practice/attempts?exercise_id=w01-s01`)).json();
+  assert.ok(for_exercise.every((attempt: { exercise_id: string; title: string }) => attempt.exercise_id === 'w01-s01' && attempt.title === 'Câu mới.'));
+  assert.ok(all.some((attempt: { status: string }) => attempt.status === 'failed'));
+});

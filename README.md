@@ -85,9 +85,9 @@ translation's mode, not the one on screen.
 ## Practice
 
 http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
-design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 and M2): import
-exercise files, and write and get feedback on sentence and paragraph translations. History is M3; essays and error
-correction are M4 and M5.
+design is in [docs/practice-proposal.md](docs/practice-proposal.md). Done so far (milestones M1 to M3): import
+exercise files, write and get feedback on sentence and paragraph translations, and look back at every attempt in
+History. Essays and error correction are M4 and M5.
 
 | Action | How |
 |---|---|
@@ -95,6 +95,7 @@ correction are M4 and M5.
 | Submit | **Submit** or `⌘↵`. Your answer is saved first, then graded (about 5–20 s) |
 | After feedback | **Next** (`⌘↵`) opens the next new exercise of the same type; **Try again** gives an empty box for the same exercise |
 | Grading failed | your answer is kept; **Grade again** retries with the same answer |
+| History | **History** above the list: every attempt, newest first, grouped by day, with type filters. Click one to see it as it was, with its feedback; a failed one has **Grade again** right in the list |
 
 - **Feedback** lists each error with the exact words, the fix, its category (`features/practice/categories.ts`), major
   or minor, why it is wrong and a rule to remember, then the corrected text, a natural version and 1–3 lessons.

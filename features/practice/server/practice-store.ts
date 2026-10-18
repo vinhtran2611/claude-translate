@@ -1,10 +1,11 @@
 // The one place that reads and writes the practice database (docs/practice-proposal.md §6).
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction, openDatabase } from '../../../shared/server/sqlite.ts';
-import type { AttemptAnswer, AttemptDetail, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, LastAttempt } from '../api.ts';
+import type { AttemptAnswer, AttemptDetail, AttemptSummary, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, LastAttempt } from '../api.ts';
 import { exerciseTitleOf } from './exercise-import.ts';
 
 const SCHEMA_VERSION = 1;
+const ATTEMPT_LIST_LIMIT = 200;
 
 // attempts is created now, so the grading milestone needs no migration. An attempt keeps a snapshot of its exercise
 // and has no foreign key to it: replacing an exercise never changes or breaks history. AUTOINCREMENT: an id is never reused.
@@ -76,6 +77,8 @@ export interface PracticeStore {
   restartGrading(attempt_id: number): boolean;
   finishGrading(attempt_id: number, outcome: GradingOutcome): void;
   readAttempt(attempt_id: number): AttemptDetail | null;
+  // Newest first, at most ATTEMPT_LIST_LIMIT; a filter left out (null) matches every attempt.
+  listAttempts(filters: { type: ExerciseType | null; exercise_id: string | null }): AttemptSummary[];
   // A server stopped mid-grading leaves 'grading' rows nobody will finish: they become failed / interrupted.
   failInterruptedGradings(): number;
 }
@@ -115,6 +118,10 @@ export function openPracticeStore(database_path: string): PracticeStore {
                         served_model_id = $served_model_id, grading_ms = $grading_ms, output_tokens = $output_tokens
     WHERE id = $id AND status = 'grading'`);
   const select_attempt = database.prepare('SELECT * FROM attempts WHERE id = $id');
+  const select_attempt_summaries = database.prepare(`
+    SELECT id, exercise_id, exercise_type, exercise_snapshot_json, status, error_count, submitted_at FROM attempts
+    WHERE ($type IS NULL OR exercise_type = $type) AND ($exercise_id IS NULL OR exercise_id = $exercise_id)
+    ORDER BY id DESC LIMIT ${ATTEMPT_LIST_LIMIT}`);
   const fail_interrupted = database.prepare(`
     UPDATE attempts SET status = 'failed', error_kind = 'interrupted', error_message = 'The server stopped while grading.'
     WHERE status = 'grading'`);
@@ -199,9 +206,14 @@ export function openPracticeStore(database_path: string): PracticeStore {
     } as AttemptDetail;
   }
 
+  function listAttempts({ type, exercise_id }: { type: ExerciseType | null; exercise_id: string | null }): AttemptSummary[] {
+    return (select_attempt_summaries.all({ type, exercise_id }) as (Omit<AttemptSummary, 'title'> & { exercise_snapshot_json: string })[])
+      .map(({ exercise_snapshot_json, ...columns }) => ({ ...columns, title: exerciseTitleOf(JSON.parse(exercise_snapshot_json) as Exercise) }));
+  }
+
   function failInterruptedGradings(): number {
     return Number(fail_interrupted.run().changes);
   }
 
-  return { importExercises, listExercises, readExercise, createAttempt, restartGrading, finishGrading, readAttempt, failInterruptedGradings };
+  return { importExercises, listExercises, readExercise, createAttempt, restartGrading, finishGrading, readAttempt, listAttempts, failInterruptedGradings };
 }

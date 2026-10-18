@@ -1,0 +1,20 @@
+{
+  // Type checking only: Node runs the .ts files directly and the server strips types from web/*.ts as it serves them,
+  // so nothing is ever compiled. erasableSyntaxOnly keeps every file runnable that way.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["server/**/*.ts", "shared/**/*.ts", "web/**/*.ts", "test/**/*.ts"]
+}

@@ -1,0 +1,20 @@
+# Terminology data, one rule per line: English term<TAB>rule. Lines starting with # are ignored.
+# Rule "keep" = leave the English term in Vietnamese text; anything else is the Vietnamese form to use.
+# The server renders this file into the <glossary> block of the system prompt; edits apply within a second.
+tool	keep
+editor	keep
+compiler	keep
+commit	keep
+build	keep
+deploy	keep
+cache	keep
+index	keep
+latency	keep
+throughput	keep
+performance	keep
+pattern	keep
+building block	keep
+data	dữ liệu
+memory	bộ nhớ
+network	mạng
+user	người dùng

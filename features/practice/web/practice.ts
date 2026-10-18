@@ -194,8 +194,7 @@ function createField(label: string, value: string | HTMLElement, class_name = 'f
   return field;
 }
 
-// What you work from. Reference answers and planted mistakes are left out: they would give the answer away. While
-// writing, error correction's text is in the answer box, so the left side gives only the instruction.
+// What you work from. Reference answers and planted mistakes are left out: they would give the answer away.
 function exerciseFields(exercise: Exercise, is_writing = false): HTMLElement[] {
   switch (exercise.type) {
     case 'sentence_translation':
@@ -210,8 +209,9 @@ function exerciseFields(exercise: Exercise, is_writing = false): HTMLElement[] {
       ];
     case 'error_correction': {
       const label = `Find and fix ${exercise.mistakes.length} ${exercise.mistakes.length === 1 ? 'mistake' : 'mistakes'}`;
+      // While writing, the original stays here unchanged to compare against; the box on the right holds your copy.
       return is_writing
-        ? [createField(label, 'The text is in the box. Edit it in place: change only what is wrong, and leave the rest as it is.')]
+        ? [createField(label, exercise.text_en), createElement('p', 'note', 'Edit the copy in the box: change only what is wrong, and leave the rest as it is.')]
         : [createField(`${label} · original text`, exercise.text_en)];
     }
   }

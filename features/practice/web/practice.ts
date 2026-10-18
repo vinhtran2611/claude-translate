@@ -1,11 +1,12 @@
 // The Practice page: the exercise list with type filters, the import dialog, the writing screen, an attempt with its
 // feedback, and the history of attempts. Routes are hashes, so Back works: #/ (list), #/exercise/<id> (write),
-// #/attempt/<n> (an answer and its feedback) and #/history.
+// #/attempt/<n> (an answer and its feedback), #/history and #/errors (the error log).
 import { createElement, dateGroupOf, fetchJson, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type {
-  AttemptDetail, AttemptStatus, AttemptSummary, Bands, ErrorCorrection, KeyResult, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
+  AttemptDetail, AttemptStatus, AttemptSummary, Bands, ErrorCorrection, ErrorLog, KeyResult, CreateAttemptRequest, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, ImportProblem, ImportResult,
 } from '../api.ts';
 import { categoryLabelOf } from '../categories.ts';
+import { renderErrorLog, type CategoryFilter } from './error-log.ts';
 
 const TYPE_LABELS: Record<ExerciseType, string> = {
   sentence_translation: 'Sentence translation',
@@ -32,6 +33,8 @@ const DRAFT_STORAGE_PREFIX = 'practice.draft.';
 const EXERCISE_HASH = /^#\/exercise\/([a-z0-9][a-z0-9-]{0,63})$/;
 const ATTEMPT_HASH = /^#\/attempt\/(\d+)$/;
 const HISTORY_HASH = '#/history';
+const ERRORS_HASH = '#/errors';
+const ERRORS_FILTER_STORAGE_KEY = 'practice.errors_filter';
 const POLL_INTERVAL_MS = 1000;
 
 const home_view = requiredElement('#home-view', HTMLElement);
@@ -40,6 +43,9 @@ const history_view = requiredElement('#history-view', HTMLElement);
 const history_filters_element = requiredElement('#history-filters', HTMLElement);
 const history_card = requiredElement('#history-card', HTMLElement);
 const back_link = requiredElement('#back-link', HTMLAnchorElement);
+const errors_view = requiredElement('#errors-view', HTMLElement);
+const errors_filters_element = requiredElement('#errors-filters', HTMLElement);
+const errors_card = requiredElement('#errors-card', HTMLElement);
 const filters_element = requiredElement('#filters', HTMLElement);
 const start_row = requiredElement('#start-row', HTMLElement);
 const start_button = requiredElement('#start-button', HTMLButtonElement);
@@ -60,7 +66,9 @@ let filter: ExerciseType | 'all' = (TYPE_ORDER as string[]).includes(readStored(
   ? readStored(FILTER_STORAGE_KEY) as ExerciseType : 'all';
 let history_filter: ExerciseType | 'all' = (TYPE_ORDER as string[]).includes(readStored(HISTORY_FILTER_STORAGE_KEY) ?? '')
   ? readStored(HISTORY_FILTER_STORAGE_KEY) as ExerciseType : 'all';
-// Where "←" on an exercise or attempt goes back to: the list or History, whichever was shown last.
+// A category name, checked against the log when it is drawn.
+let errors_filter: CategoryFilter = (readStored(ERRORS_FILTER_STORAGE_KEY) ?? 'all') as CategoryFilter;
+// Where "←" on an exercise or attempt goes back to: the list, History or the error log, whichever was shown last.
 let last_list_hash = '#/';
 // The last failed import's problems, for Copy errors.
 let last_import_errors: ImportProblem[] = [];
@@ -634,6 +642,17 @@ async function renderHistory(generation: number): Promise<void> {
   }
 }
 
+async function renderErrors(generation: number): Promise<void> {
+  const log = await fetchJson<ErrorLog>('/api/practice/error-log');
+  if (generation !== route_generation) return;
+  const draw = (category: CategoryFilter): void => {
+    errors_filter = category;
+    writeStored(ERRORS_FILTER_STORAGE_KEY, category);
+    renderErrorLog(errors_card, errors_filters_element, log, category, draw);
+  };
+  draw(errors_filter);
+}
+
 async function loadExercises(): Promise<void> {
   exercises = await fetchJson<ExerciseSummary[]>('/api/practice/exercises');
 }
@@ -644,14 +663,20 @@ async function route(): Promise<void> {
   const exercise_match = EXERCISE_HASH.exec(location.hash);
   const attempt_match = ATTEMPT_HASH.exec(location.hash);
   const is_history = location.hash === HISTORY_HASH;
-  home_view.hidden = exercise_match !== null || attempt_match !== null || is_history;
+  const is_errors = location.hash === ERRORS_HASH;
+  home_view.hidden = exercise_match !== null || attempt_match !== null || is_history || is_errors;
   history_view.hidden = !is_history;
+  errors_view.hidden = !is_errors;
   exercise_view.hidden = exercise_match === null && attempt_match === null;
   if (home_view.hidden === false) last_list_hash = '#/';
   if (is_history) last_list_hash = HISTORY_HASH;
+  if (is_errors) last_list_hash = ERRORS_HASH;
   back_link.href = last_list_hash;
-  back_link.textContent = last_list_hash === HISTORY_HASH ? '← History' : '← Exercises';
-  if (is_history) {
+  back_link.textContent = last_list_hash === HISTORY_HASH ? '← History' : last_list_hash === ERRORS_HASH ? '← Error log' : '← Exercises';
+  if (is_errors) {
+    errors_card.replaceChildren(createElement('p', 'detail detail-meta', 'Loading…'));
+    await renderErrors(generation);
+  } else if (is_history) {
     history_card.replaceChildren(createElement('p', 'detail detail-meta', 'Loading…'));
     await renderHistory(generation);
   } else if (exercise_match) {

@@ -95,6 +95,7 @@ and error correction. Every attempt is kept in History.
 | Submit | **Submit** or `⌘↵`. Your answer is saved first, then graded (about 5–20 s) |
 | After feedback | **Next** (`⌘↵`) opens the next new exercise of the same type; **Try again** gives an empty box for the same exercise |
 | Grading failed | your answer is kept; **Grade again** retries with the same answer |
+| Error log | **Error log** above the list: which kinds of mistake you make most, how many mistakes per 100 words you made each week (the last 12 weeks), and every past mistake with its fix and rule, newest first. The chips at the top (or a click on a bar) show one kind only |
 | History | **History** above the list: every attempt, newest first, grouped by day, with type filters. Click one to see it as it was, with its feedback; a failed one has **Grade again** right in the list |
 
 - **Feedback** lists each error with the exact words, the fix, its category (`features/practice/categories.ts`), major

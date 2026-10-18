@@ -19,6 +19,7 @@ const EXAMPLE_FILE_PATH = join(FEATURE_DIRECTORY, 'examples', 'exercises.example
 // so a relative import resolves the same for tsc and the browser.
 const WEB_MODULE_PATHS = new Map([
   ['/practice/web/practice.ts', join(WEB_DIRECTORY, 'practice.ts')],
+  ['/practice/web/error-log.ts', join(WEB_DIRECTORY, 'error-log.ts')],
   ['/practice/categories.ts', join(FEATURE_DIRECTORY, 'categories.ts')],
 ]);
 const EXERCISE_PATH = /^\/api\/practice\/exercises\/([a-z0-9][a-z0-9-]{0,63})$/;
@@ -153,6 +154,8 @@ export function createPracticeFeature({ database_path }: { database_path: string
       else res.writeHead(404).end('No such exercise');
     } else if (req.method === 'POST' && pathname === '/api/practice/exercises/import') {
       await handleImport(req, res, store, imports_directory);
+    } else if (req.method === 'GET' && pathname === '/api/practice/error-log') {
+      sendJson(res, 200, store.readErrorLog());
     } else if (req.method === 'GET' && pathname === '/api/practice/attempts') {
       const { searchParams } = new URL(req.url ?? '', 'http://localhost');
       const type = searchParams.get('type');

@@ -1,11 +1,12 @@
 // The one place that reads and writes the practice database (docs/practice-proposal.md §6).
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction, openDatabase } from '../../../shared/server/sqlite.ts';
-import type { AttemptAnswer, AttemptDetail, AttemptSummary, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, LastAttempt } from '../api.ts';
+import type { AttemptAnswer, AttemptDetail, AttemptSummary, ErrorLog, Exercise, ExerciseDetail, ExerciseSummary, ExerciseType, Feedback, LastAttempt } from '../api.ts';
 import { exerciseTitleOf } from './exercise-import.ts';
 
 const SCHEMA_VERSION = 1;
 const ATTEMPT_LIST_LIMIT = 200;
+const ERROR_LOG_LIMIT = 2_000;
 
 // attempts is created now, so the grading milestone needs no migration. An attempt keeps a snapshot of its exercise
 // and has no foreign key to it: replacing an exercise never changes or breaks history. AUTOINCREMENT: an id is never reused.
@@ -79,6 +80,8 @@ export interface PracticeStore {
   readAttempt(attempt_id: number): AttemptDetail | null;
   // Newest first, at most ATTEMPT_LIST_LIMIT; a filter left out (null) matches every attempt.
   listAttempts(filters: { type: ExerciseType | null; exercise_id: string | null }): AttemptSummary[];
+  // Every error of every graded attempt, read from the stored feedback; nothing is stored twice.
+  readErrorLog(): ErrorLog;
   // A server stopped mid-grading leaves 'grading' rows nobody will finish: they become failed / interrupted.
   failInterruptedGradings(): number;
 }
@@ -122,6 +125,17 @@ export function openPracticeStore(database_path: string): PracticeStore {
     SELECT id, exercise_id, exercise_type, exercise_snapshot_json, status, error_count, overall_band, submitted_at FROM attempts
     WHERE ($type IS NULL OR exercise_type = $type) AND ($exercise_id IS NULL OR exercise_id = $exercise_id)
     ORDER BY id DESC LIMIT ${ATTEMPT_LIST_LIMIT}`);
+  const select_graded_attempts = database.prepare(`SELECT id, submitted_at, word_count FROM attempts WHERE status = 'graded' ORDER BY id`);
+  // Errors in answer order within an attempt, newest attempt first.
+  const select_mistakes = database.prepare(`
+    SELECT attempt.id AS attempt_id, attempt.exercise_id, attempt.exercise_type, attempt.submitted_at,
+           json_extract(error.value, '$.original') AS original, json_extract(error.value, '$.correction') AS correction,
+           json_extract(error.value, '$.category') AS category, json_extract(error.value, '$.severity') AS severity,
+           json_extract(error.value, '$.explanation') AS explanation, json_extract(error.value, '$.rule') AS rule
+    FROM attempts AS attempt, json_each(attempt.feedback_json, '$.errors') AS error
+    WHERE attempt.status = 'graded'
+    ORDER BY attempt.submitted_at DESC, attempt.id DESC, error.key
+    LIMIT ${ERROR_LOG_LIMIT}`);
   const fail_interrupted = database.prepare(`
     UPDATE attempts SET status = 'failed', error_kind = 'interrupted', error_message = 'The server stopped while grading.'
     WHERE status = 'grading'`);
@@ -211,9 +225,16 @@ export function openPracticeStore(database_path: string): PracticeStore {
       .map(({ exercise_snapshot_json, ...columns }) => ({ ...columns, title: exerciseTitleOf(JSON.parse(exercise_snapshot_json) as Exercise) }));
   }
 
+  function readErrorLog(): ErrorLog {
+    return {
+      graded_attempts: select_graded_attempts.all() as unknown as ErrorLog['graded_attempts'],
+      mistakes: select_mistakes.all() as unknown as ErrorLog['mistakes'],
+    };
+  }
+
   function failInterruptedGradings(): number {
     return Number(fail_interrupted.run().changes);
   }
 
-  return { importExercises, listExercises, readExercise, createAttempt, restartGrading, finishGrading, readAttempt, listAttempts, failInterruptedGradings };
+  return { importExercises, listExercises, readExercise, createAttempt, restartGrading, finishGrading, readAttempt, listAttempts, readErrorLog, failInterruptedGradings };
 }

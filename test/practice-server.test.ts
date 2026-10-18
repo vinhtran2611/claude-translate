@@ -223,3 +223,18 @@ test('error correction is graded mistake by mistake, with one key result per pla
   assert.equal(failed.error_kind, 'invalid_feedback');
   assert.match(failed.error_message, /key_results must be a list of 7/);
 });
+
+test('the error log lists every error of graded attempts, newest first, with the words written', async () => {
+  const log = await (await fetch(`${server.base_url}/api/practice/error-log`)).json();
+  const attempts = await (await fetch(`${server.base_url}/api/practice/attempts`)).json();
+  const graded = attempts.filter((attempt: { status: string }) => attempt.status === 'graded');
+  assert.equal(log.graded_attempts.length, graded.length);
+  assert.ok(log.graded_attempts.every((attempt: { word_count: number }) => attempt.word_count > 0));
+  const expected_count = graded.reduce((total: number, attempt: { error_count: number }) => total + attempt.error_count, 0);
+  assert.equal(log.mistakes.length, expected_count);
+  const times = log.mistakes.map((mistake: { submitted_at: string }) => mistake.submitted_at);
+  assert.deepEqual(times, [...times].sort().reverse());
+  assert.deepEqual(Object.keys(log.mistakes[0]).sort(),
+    ['attempt_id', 'category', 'correction', 'exercise_id', 'exercise_type', 'explanation', 'original', 'rule', 'severity', 'submitted_at']);
+  assert.ok(log.mistakes.some((mistake: { original: string; rule: string }) => mistake.original === 'choose living' && mistake.rule === 'choose + to + verb.'));
+});

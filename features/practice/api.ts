@@ -242,3 +242,25 @@ export interface AttemptSummary {
   overall_band: number | null;
   submitted_at: string;
 }
+
+// GET /api/practice/error-log: every error from graded attempts, for the error log page. The page groups and filters
+// them itself, so one request draws the whole page.
+export interface ErrorLog {
+  // Every graded attempt, oldest first: the words written, to turn counts into errors per 100 words.
+  graded_attempts: { id: number; submitted_at: string; word_count: number }[];
+  // Newest first, at most 2,000.
+  mistakes: ErrorLogEntry[];
+}
+
+export interface ErrorLogEntry {
+  attempt_id: number;
+  exercise_id: string;
+  exercise_type: ExerciseType;
+  submitted_at: string;
+  original: string;
+  correction: string;
+  category: ErrorCategory;
+  severity: 'major' | 'minor';
+  explanation: string;
+  rule: string;
+}

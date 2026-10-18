@@ -152,6 +152,50 @@
   .errors-title { margin: 18px 0 0; }
   .errors-title + .error-list { margin-top: 8px; }
 
+  /* The error log. Both charts are one series in the accent colour; text keeps the text colours. */
+  .log-body { padding: 22px 24px 24px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .stat { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .stat-label { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .stat-value { margin: 4px 0 0; font-size: 22px; font-weight: 600; color: var(--ink); }
+  .stat-note { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+  .chart-section { margin-top: 26px; }
+  .section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+  .bar-list { display: grid; gap: 2px; }
+  .bar-row {
+    display: grid; grid-template-columns: 11em minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 4px 6px;
+    border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer;
+  }
+  .bar-row:hover, .bar-row[aria-pressed="true"] { background: var(--hover); }
+  .bar-row:focus-visible, .column:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .bar-row.is-dimmed .bar { opacity: 0.3; }
+  .bar-label { font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .bar { height: 14px; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--accent); }
+  .bar-value { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .column-chart { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2px; height: 170px; border-bottom: 1px solid var(--line); padding: 18px 0 0 28px; }
+  .scale-line { position: absolute; left: 28px; right: 0; top: 18px; border-top: 1px solid var(--line); pointer-events: none; }
+  .scale-value { position: absolute; left: -28px; top: -8px; width: 24px; text-align: right; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .column { display: flex; flex-direction: column; min-width: 0; border-radius: 6px; outline: none; }
+  .column:hover { background: var(--hover); }
+  .column-plot { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+  .column-bar { width: min(24px, 70%); border-radius: 4px 4px 0 0; background: var(--accent); }
+  .column-value { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+  .column-label { position: relative; top: 22px; height: 0; font-size: 11.5px; color: var(--muted); text-align: center; white-space: nowrap; }
+  .column-chart + * { margin-top: 0; }
+  .chart-section:has(.column-chart) { padding-bottom: 22px; }
+  .log-list { margin-top: 0; counter-reset: none; }
+  .log-card { padding-left: 14px; }
+  .log-card::before { content: none; }
+  .log-meta { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .log-meta a { color: var(--link); }
+  .more-button { margin-top: 10px; }
+  .chart-tooltip {
+    position: fixed; z-index: 10; max-width: 280px; padding: 6px 9px; border-radius: 8px; background: var(--button);
+    color: var(--button-text); font-size: 12.5px; line-height: 1.4; pointer-events: none; box-shadow: var(--popover-shadow);
+  }
+  .chart-tooltip[hidden] { display: none; }
+
   .import-dialog {
     width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
     background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);
@@ -188,6 +232,10 @@
   <section id="home-view" hidden>
     <div class="toolbar">
       <div class="filters" id="filters" role="toolbar" aria-label="Exercise type"></div>
+      <a class="ghost-button link-button" href="#/errors">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19V11M12 19V5M19 19v-6"/></svg>
+        Error log
+      </a>
       <a class="ghost-button link-button" href="#/history">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
         History
@@ -211,6 +259,16 @@
       <div class="filters" id="history-filters" role="toolbar" aria-label="Exercise type"></div>
     </div>
     <div class="card" id="history-card"></div>
+  </section>
+
+  <section id="errors-view" hidden>
+    <div class="toolbar">
+      <a class="ghost-button back-link" href="#/">← Exercises</a>
+    </div>
+    <div class="toolbar">
+      <div class="filters" id="errors-filters" role="toolbar" aria-label="Kind of mistake"></div>
+    </div>
+    <div class="card" id="errors-card"></div>
   </section>
 
   <section id="exercise-view" hidden>

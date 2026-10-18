@@ -1,4 +1,4 @@
-// The modular-monolith rule (docs/practice-proposal.md §7.1): code in features/<name>/ imports only from its own
+// The modular-monolith rule (docs/practice-proposal.md §6): code in features/<name>/ imports only from its own
 // feature and from shared/, never from another feature or from the legacy server/ and web/ folders.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

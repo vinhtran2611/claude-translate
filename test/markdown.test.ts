@@ -1,10 +1,10 @@
-// Tests for web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
+// Tests for shared/web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
 // Spec data and fixtures are read from vendor/ and fixtures/ next to this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { Pair } from '../shared/api.ts';
-import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../web/markdown.ts';
+import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../shared/web/markdown.ts';
 
 interface SpecExample {
   markdown: string;
@@ -24,7 +24,7 @@ globalThis.document = {
     return { set innerHTML(html: string) { value = ENTITIES[html]?.characters ?? html; }, get value() { return value; } };
   },
 } as unknown as Document;
-const { parseInline, parseCellBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../web/markdown.ts');
+const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../shared/web/markdown.ts');
 
 const escape = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const encodeHref = (url: string | null): string => encodeURI(url ?? '').replace(/%25([0-9a-fA-F]{2})/g, '%$1');
@@ -173,4 +173,35 @@ test('streaming: no raw syntax flashes in the real entries; the fixture flashes 
       assert.deepEqual(result.unstable_cells, []);
     }
   }
+});
+
+test('a whole document: headings, nested numbered and bullet lists, quotes, tables, and a list keeps counting', () => {
+  const kinds = (blocks: Block[]) => blocks.map((block) => block.kind);
+  const evaluation = '**Not yet.** One idea.\n\n## Fix first\n1. **A.** First line\n   second line\n2. **B.**\n   - sub one\n   - sub two\n3. **C.**\n\nSmall slips: capitals.\n\n## Corrected version\n> Fixed text.\n> More.\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |';
+  const blocks = parseDocumentBlocks(evaluation);
+  assert.deepEqual(kinds(blocks), ['paragraph', 'heading', 'list', 'paragraph', 'heading', 'quote', 'thematic_break', 'table']);
+  const list = blocks[2] as Extract<Block, { kind: 'list' }>;
+  assert.deepEqual([list.is_ordered, list.start, list.items.length], [true, 1, 3]);
+  assert.deepEqual(kinds(list.items[1]), ['paragraph', 'list']);
+  assert.deepEqual(list.items[0][0], { kind: 'paragraph', children: [
+    { kind: 'strong', children: [{ kind: 'text', text: 'A.' }] }, { kind: 'text', text: ' First line' }, { kind: 'line_break' }, { kind: 'text', text: 'second line' },
+  ] });
+  // A numbered list split by a paragraph goes on from its own number, so the numbers a reader sees are consecutive.
+  const split = parseDocumentBlocks('1. one\n\nA note.\n\n2. two') as Extract<Block, { kind: 'list' }>[];
+  assert.deepEqual(kinds(split), ['list', 'paragraph', 'list']);
+  assert.equal(split[2].start, 2);
+  assert.deepEqual(parseDocumentBlocks('```ts\nlet a = 1;\n```'), [{ kind: 'code_block', language: 'ts', text: 'let a = 1;' }]);
+  assert.deepEqual(parseDocumentBlocks(''), []);
+});
+
+test('a document still arriving holds back a bare list mark or heading mark, and reads its last paragraph provisionally', () => {
+  const kinds = (text: string) => parseDocumentBlocks(text, true).map((block) => block.kind);
+  assert.deepEqual(kinds('Verdict.\n\n-'), ['paragraph']);
+  assert.deepEqual(kinds('Verdict.\n\n2.'), ['paragraph']);
+  assert.deepEqual(kinds('Verdict.\n\n##'), ['paragraph']);
+  assert.deepEqual(kinds('Verdict.\n\n## Fix'), ['paragraph', 'heading']);
+  assert.deepEqual(kinds('Verdict.\n\n- one'), ['paragraph', 'list']);
+  // An unclosed "**" is not shown as asterisks while the words that close it are still on their way.
+  assert.deepEqual(parseDocumentBlocks('Wrong: **not yet', true)[0], { kind: 'paragraph', children: parseInline('Wrong: **not yet', { is_streaming: true }) });
+  assert.deepEqual(parseDocumentBlocks('Wrong: **not yet')[0], { kind: 'paragraph', children: parseInline('Wrong: **not yet') });
 });

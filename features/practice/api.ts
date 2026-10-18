@@ -1,266 +1,258 @@
-// The Practice contract: the exercise file format and the HTTP API between features/practice/server and
-// features/practice/web (see docs/practice-proposal.md §4 and §7.4). Types only, erased before anything runs.
-import type { ErrorCategory } from './categories.ts';
+// The Practice contract: the import file format and the HTTP API between features/practice/server and
+// features/practice/web (docs/practice-import-format.md). Types only, erased before anything runs.
+import type { Effort, EffortOption, ModelOption } from '../../shared/api.ts';
 
-export type ExerciseType = 'sentence_translation' | 'paragraph_translation' | 'essay_translation' | 'free_writing' | 'error_correction';
-export type EssayType = 'opinion' | 'discussion' | 'advantages_disadvantages' | 'problem_solution' | 'two_part';
+// ---- The import file: one file is one project ----
 
-// One import file. schema_version is 1; 1 to 500 exercises.
-export interface ExerciseFile {
-  schema_version: 1;
-  exercises: Exercise[];
-}
+export type RewriteLength = 'sentence' | 'paragraph' | 'essay';
 
-export type Exercise = SentenceTranslation | ParagraphTranslation | EssayTranslation | FreeWriting | ErrorCorrection;
-
-interface ExerciseBase {
-  // Unique across all your files: ^[a-z0-9][a-z0-9-]{0,63}$, e.g. "w03-s01".
-  id: string;
-  // A short label for lists; default: the first words of the text.
-  title?: string;
-  topic?: string;
-  // The grammar or vocabulary points the exercise trains, e.g. ["present perfect"].
-  focus?: string[];
-}
-
-export interface SentenceTranslation extends ExerciseBase {
-  type: 'sentence_translation';
-  text_vi: string;
-  // One good translation; the grader treats it as one option, not the only one.
-  reference_en?: string;
-}
-
-export interface ParagraphTranslation extends ExerciseBase {
-  type: 'paragraph_translation';
-  text_vi: string;
-  reference_en?: string;
-}
-
-export interface EssayTranslation extends ExerciseBase {
-  type: 'essay_translation';
-  // The Task 2 question, in Vietnamese.
-  prompt_vi: string;
-  // A full sample answer in Vietnamese; paragraphs separated by a blank line.
-  essay_vi: string;
-  reference_prompt_en?: string;
-  reference_essay_en?: string;
-}
-
-export interface FreeWriting extends ExerciseBase {
-  type: 'free_writing';
-  prompt_en: string;
-  essay_type: EssayType;
-  // Default 250.
-  min_words?: number;
-  // Default 40; shown only, never enforced.
-  time_limit_minutes?: number;
-  // Shown after grading, never before you write.
-  sample_essay_en?: string;
-}
-
-export interface ErrorCorrection extends ExerciseBase {
-  type: 'error_correction';
-  length: 'sentence' | 'paragraph' | 'essay';
-  // English text with planted mistakes.
-  text_en: string;
-  mistakes: PlantedMistake[];
-  // text_en with every mistake fixed.
-  corrected_en: string;
+export interface RewriteContent {
+  instruction: string;
+  text: string;
+  length: RewriteLength;
+  // 'vi' makes it a translation. Default 'en'.
+  source_lang?: 'en' | 'vi';
+  // The answer box starts with `text`: error correction.
+  prefill?: boolean;
+  // Up to 3 chips the grader checks.
+  constraints?: string[];
+  // Planted mistakes; each `wrong` appears once in `text`.
+  mistakes?: PlantedMistake[];
+  // A model answer for the grader only.
+  reference?: string;
 }
 
 export interface PlantedMistake {
-  // Exact words from text_en; they appear exactly once in it.
   wrong: string;
-  correct: string;
-  category: ErrorCategory;
+  right: string;
   note?: string;
 }
 
-// A problem in an import file; path names the field, e.g. "exercises[3].text_vi".
-export interface ImportProblem {
-  path: string;
-  message: string;
+export interface WriteContent {
+  prompt: string;
+  // Default 250.
+  min_words?: number;
+  // A guide, never a limit.
+  minutes?: number;
+  // Shown after grading.
+  sample?: string;
 }
 
-// POST /api/practice/exercises/import: 200 with this, or 400 with { errors: ImportProblem[] } and nothing imported.
-export interface ImportResult {
-  added: number;
-  updated: number;
-  warnings: ImportProblem[];
+export interface ChoiceOption {
+  text: string;
+  why: string;
+  correct?: boolean;
 }
 
-// GET /api/practice/exercises, in file order.
-export interface ExerciseSummary {
-  id: string;
-  type: ExerciseType;
-  title: string;
+// One correct option is single choice; two or more is multi-select.
+export interface ChoiceContent {
+  question: string;
+  context?: string;
+  options: ChoiceOption[];
+}
+
+export interface FillGap {
+  // A string or a list of accepted answers.
+  answer: string | string[];
+  hint?: string;
+  why?: string;
+}
+
+// `text` holds the markers {{1}} {{2}} ..., one per gap, in order.
+export interface FillContent {
+  text: string;
+  gaps: FillGap[];
+  instruction?: string;
+}
+
+export interface FlashcardContent {
+  front: string;
+  back: string;
+  hint?: string;
+  example?: string;
+}
+
+export interface ContentByType {
+  rewrite: RewriteContent;
+  write: WriteContent;
+  choice: ChoiceContent;
+  fill: FillContent;
+  flashcard: FlashcardContent;
+}
+
+export type ExerciseType = keyof ContentByType;
+
+// An exercise as the file means it, and as an attempt keeps it: type, topic, tags and content.
+export interface ExerciseBody<Type extends ExerciseType = ExerciseType> {
+  type: Type;
   topic: string | null;
-  attempt_count: number;
-  last_attempt: LastAttempt | null;
-  // Whether this version of the app can grade the type.
-  is_gradable: boolean;
+  tags: string[];
+  content: ContentByType[Type];
 }
 
-// GET /api/practice/exercises/:id
-export interface ExerciseDetail {
-  id: string;
-  exercise: Exercise;
+export interface FileExercise extends ExerciseBody {
+  // The file's id: a-z 0-9 -, unique in the file.
+  key: string;
 }
 
-// What Claude returns for one answer (docs/practice-proposal.md §5.4), checked by the server before it is stored.
-export interface Feedback {
-  feedback_version: 1;
-  categories_version: 1;
-  // 1–3 short sentences.
-  summary: string;
-  // 0–2 short items.
-  strengths: string[];
-  // 0–40, in answer order.
-  errors: FeedbackError[];
-  // The answer with only the errors fixed.
-  corrected_text: string;
-  // 1–3 lessons, most important first.
-  remember: string[];
-  // Translation types.
-  meaning?: 'complete' | 'minor_loss' | 'major_loss';
-  // Sentence and paragraph translation: how a strong writer would say it.
-  natural_version?: string;
-  // Essay translation: your English task with only its errors fixed (corrected_text is the essay).
-  corrected_prompt_text?: string;
-  // Free writing: all 4 criteria. Essay translation: lexical_resource and grammatical_range_accuracy only, since the
-  // ideas and structure come from the Vietnamese sample.
-  bands?: Bands;
-  // Error correction: one per planted mistake, in the exercise's order.
-  key_results?: KeyResult[];
+export interface ProjectFile {
+  name: string;
+  description: string;
+  exercises: FileExercise[];
 }
 
-// Did you fix one planted mistake? Any correct fix counts, not only the listed one.
-export interface KeyResult {
-  // Index in the exercise's mistakes.
-  mistake_index: number;
-  status: 'fixed' | 'partly' | 'missed';
-  // What you wrote in that place.
-  learner_text: string;
-  comment?: string;
+// ---- Answers and results ----
+
+export type Rating = 'unknown' | 'almost' | 'known';
+
+export interface AnswerByType {
+  rewrite: { text: string };
+  write: { text: string };
+  // Option indexes.
+  choice: { chosen: number[] };
+  fill: { gaps: string[] };
+  flashcard: { rating: Rating };
 }
 
-// Estimates from a model, often off by 0.5 to 1.0; the page always calls them estimates.
-export interface Bands {
-  task_response?: Criterion;
-  coherence_cohesion?: Criterion;
-  lexical_resource: Criterion;
-  grammatical_range_accuracy: Criterion;
+// What the AI grader wrote for every type but a flashcard: free text (Markdown) and how it was made. It is shown as written, never parsed.
+// thinking_text is the grader's thinking summary ('' when it did not think), thinking_ms how long it thought (null: it did not).
+// effort is null for an attempt graded before the picker existed.
+export interface AiResult {
+  text: string;
+  thinking_text: string;
+  thinking_ms: number | null;
+  model: string;
+  effort: Effort | null;
+  ms: number;
 }
 
-export interface Criterion {
-  // 0 to 9 in steps of 0.5.
-  band: number;
-  // 1 to 2 sentences.
-  comment: string;
-  // One concrete action towards the next band.
-  next_step: string;
+export interface ResultByType {
+  rewrite: AiResult;
+  write: AiResult;
+  choice: AiResult;
+  fill: AiResult;
+  flashcard: { rating: Rating };
 }
 
-export interface FeedbackError {
-  // Essay translation only: which of your two texts the error is in.
-  part?: 'prompt' | 'essay';
-  // Exact words from the answer.
-  original: string;
-  correction: string;
-  category: ErrorCategory;
-  severity: 'major' | 'minor';
-  // Why it is wrong.
-  explanation: string;
-  // What to remember.
-  rule: string;
-}
+// ---- HTTP ----
 
 export type AttemptStatus = 'grading' | 'graded' | 'failed';
 
-export interface AttemptAnswer {
-  // The essay for essay types, else the whole answer.
-  text: string;
-  // Essay translation only: your English version of the task.
-  prompt_text?: string;
+// One attempt: all a reopened page needs. `exercise` is the snapshot: the exercise as it was when you answered.
+export interface AttemptView<Type extends ExerciseType = ExerciseType> {
+  id: number;
+  project_id: number;
+  exercise_id: number;
+  submitted_at: string;
+  status: AttemptStatus;
+  // The history line's result ("Graded", "Almost"); null until graded.
+  summary: string | null;
+  // Why grading failed; null otherwise.
+  error: string | null;
+  writing_ms: number | null;
+  exercise: ExerciseBody<Type>;
+  answer: AnswerByType[Type];
+  // null unless graded.
+  result: ResultByType[Type] | null;
 }
 
-// POST /api/practice/attempts -> 201 { attempt_id }: the answer is saved before grading starts.
-export interface CreateAttemptRequest {
-  exercise_id: string;
-  answer: AttemptAnswer;
+// What an AI grading runs with: the model and effort the person picked (the same options as Claude Translate).
+export interface GradingSettings {
+  model_id: string;
+  effort: Effort;
+}
+
+// GET /api/practice/grading-options
+export interface GradingOptions {
+  models: ModelOption[];
+  efforts: EffortOption[];
+  default_model_id: string;
+  default_effort: Effort;
+}
+
+// POST /api/practice/attempts. The answer's shape depends on the exercise's type. model_id and effort are the grading's
+// settings (a flashcard ignores them): the defaults apply when one is left out, and a value that is not offered is a 400.
+export interface CreateAttemptRequest extends Partial<GradingSettings> {
+  exercise_id: number;
+  answer: AnswerByType[ExerciseType];
   // From opening the exercise to Submit; null when unknown.
   writing_ms: number | null;
 }
 
-// GET /api/practice/attempts/:id
-export interface AttemptDetail {
+// POST /api/practice/attempts/:id/regrade body: the settings of the new grading, as above.
+export type RegradeRequest = Partial<GradingSettings>;
+
+// GET /api/practice/attempts/:id/stream: Server-Sent Events (`event: name` + `data: json`), the same wire format as Claude Translate's.
+// A grading in progress sends `snapshot` first (what it has produced so far), then the rest as it happens. Whatever else the
+// stream says, `done`, `error` and `finished` mean the same: read the attempt for the final state.
+export interface GradingStreamEvents {
+  snapshot: { thinking_text: string; thinking_ms: number | null; text: string; model_id: string; effort: Effort; elapsed_ms: number };
+  thinking_delta: { text: string };
+  thinking_done: { duration_ms: number };
+  text_delta: { text: string };
+  retry: { attempt: number; max_retries: number; error: string };
+  fallback: { from_model_id: string; to_model_id: string };
+  done: Record<string, never>;
+  error: { message: string };
+  // The attempt is not being graded (it is done, failed or a flashcard).
+  finished: Record<string, never>;
+}
+
+// GET /api/practice/exercises/:id
+export interface ExerciseView extends ExerciseBody {
   id: number;
-  exercise_id: string;
-  exercise_type: ExerciseType;
-  // The exercise exactly as it was when you answered.
-  exercise_snapshot: Exercise;
-  answer: AttemptAnswer;
-  word_count: number;
-  writing_ms: number | null;
-  status: AttemptStatus;
-  // null unless status is 'graded'.
-  feedback: Feedback | null;
-  // The model's last raw reply; '' when there was none.
-  raw_output: string;
-  error_kind: string | null;
-  error_message: string | null;
-  error_count: number | null;
-  major_error_count: number | null;
-  // Free writing only: the mean of the 4 criteria, rounded down to 0.5; computed by the server.
-  overall_band: number | null;
-  requested_model_id: string;
-  served_model_id: string | null;
-  effort: string;
-  submitted_at: string;
-  graded_at: string | null;
-  grading_ms: number | null;
+  project_id: number;
 }
 
-// The latest attempt of an exercise, as the list shows it.
-export interface LastAttempt {
+// One exercise in a list: what a person needs to pick it.
+export interface ExerciseItem {
   id: number;
-  status: AttemptStatus;
-  error_count: number | null;
-  overall_band: number | null;
-  submitted_at: string;
+  type: ExerciseType;
+  // "Rewrite sentence", "Multiple choice" (text.ts).
+  kind: string;
+  preview: string;
+  topic: string | null;
+  // It has a graded attempt.
+  done: boolean;
 }
 
-// GET /api/practice/attempts?type=&exercise_id=, newest first, at most 200.
-export interface AttemptSummary {
-  id: number;
-  exercise_id: string;
-  exercise_type: ExerciseType;
-  // From the exercise as it was when you answered.
-  title: string;
-  status: AttemptStatus;
-  error_count: number | null;
-  overall_band: number | null;
-  submitted_at: string;
-}
-
-// GET /api/practice/error-log: every error from graded attempts, for the error log page. The page groups and filters
-// them itself, so one request draws the whole page.
-export interface ErrorLog {
-  // Every graded attempt, oldest first: the words written, to turn counts into errors per 100 words.
-  graded_attempts: { id: number; submitted_at: string; word_count: number }[];
-  // Newest first, at most 2,000.
-  mistakes: ErrorLogEntry[];
-}
-
-export interface ErrorLogEntry {
+// The latest attempt of an exercise, for the History bar.
+export interface HistoryItem {
   attempt_id: number;
-  exercise_id: string;
-  exercise_type: ExerciseType;
+  exercise_id: number;
+  kind: string;
+  preview: string;
+  status: AttemptStatus;
+  summary: string | null;
   submitted_at: string;
-  original: string;
-  correction: string;
-  category: ErrorCategory;
-  severity: 'major' | 'minor';
-  explanation: string;
-  rule: string;
+}
+
+export interface ProjectSummary {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  // null until the first attempt.
+  last_activity_at: string | null;
+  exercise_count: number;
+  done_count: number;
+  type_counts: Partial<Record<ExerciseType, number>>;
+}
+
+// GET /api/practice/projects/:id
+export interface ProjectDetail {
+  project: ProjectSummary;
+  // In file order.
+  exercises: ExerciseItem[];
+  // One per exercise tried, newest first.
+  history: HistoryItem[];
+}
+
+// POST /api/practice/projects { name, description, file } -> 201 { id }.
+// POST /api/practice/projects/:id/exercises { file } -> 200 { added }.
+// `file` is the file's text. 400 { errors } when it has problems; nothing is imported.
+export interface ImportRequest {
+  name?: string;
+  description?: string;
+  file: string;
 }

@@ -6,7 +6,7 @@ import type {
   Effort, ErrorKind, HistoryEntry, Language, Mode, ModeOption, Outcome, Pair, PairType, StreamEvent, TranslateRequest, TranslationOptions,
 } from '../shared/api.ts';
 import {
-  EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
+  DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
 } from '../shared/server/claude-runner.ts';
 import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
@@ -26,15 +26,15 @@ const GLOSSARY_PATH = join(PROMPTS_DIRECTORY, 'glossary.tsv');
 const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
 const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
 // The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
-const WEB_MODULE_PATHS = new Map(['app.ts', 'markdown.ts', 'source-check.ts'].map((name) => [`/${name}`, join(WEB_DIRECTORY, name)]));
+const WEB_MODULE_PATHS = new Map(['app.ts', 'source-check.ts'].map((name) => [`/${name}`, join(WEB_DIRECTORY, name)]));
 const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'history.sqlite');
-const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice.sqlite');
+const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice-v2.sqlite');
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
 const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(HISTORY_DATABASE_PATH), 'server.log');
 const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');
 // Each database gets one copy a day; the check runs at start and then hourly, so a server left running past
 // midnight still makes the next day's copy.
-const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice' }];
+const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice-v2' }];
 const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const PORT = Number(process.env.PORT ?? 8787);
 
@@ -55,8 +55,6 @@ const MODE_OPTIONS: ModeConfig[] = [
   { mode: 'translate', label: 'As pasted', description: 'Keeps your text exactly as pasted.', source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate.md') },
   { mode: 'translate_markdown', label: 'Markdown', description: 'Tidies pasted text into headings, lists and paragraphs, then translates. Words never change.', source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate_markdown.md') },
 ];
-const DEFAULT_MODEL_ID = 'claude-sonnet-5-5';
-const DEFAULT_EFFORT: Effort = 'low';
 const DEFAULT_MODE: Mode = 'translate';
 // Output is the ceiling, not input: the reply restates the source and adds the translation, ~1.05 output tokens per
 // source char (measured en->vi), so 100k chars leaves ~20k of MAX_OUTPUT_TOKENS for thinking.
@@ -487,13 +485,13 @@ function translationOptionsResponse(): TranslationOptions {
 mkdirSync(dirname(SERVER_LOG_PATH), { recursive: true });
 configureLogFile(SERVER_LOG_PATH);
 const history_store = openHistoryStore(HISTORY_DATABASE_PATH);
-// Every feature but translate, which is still served from server/ and web/ (see docs/practice-proposal.md §8 M6).
+// Every feature but translate, which is still served from server/ and web/ (see docs/practice-proposal.md §6).
 const features: Feature[] = [createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH })];
 // URLs mirror the folders, so a page module's relative import of shared/web/ui.ts resolves the same for tsc and the browser.
 const SHARED_WEB_FILES = new Map([
   ['/shared/web/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
 ]);
-const SHARED_WEB_MODULE_PATHS = new Map(['ui.ts'].map((name) => [`/shared/web/${name}`, join(SHARED_WEB_DIRECTORY, name)]));
+const SHARED_WEB_MODULE_PATHS = new Map(['ui.ts', 'markdown.ts', 'model-picker.ts'].map((name) => [`/shared/web/${name}`, join(SHARED_WEB_DIRECTORY, name)]));
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // A rebinding page can retry without end; one line per Host names it without flooding the log.

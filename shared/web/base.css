@@ -1,6 +1,9 @@
-/* The look every page shares: colour tokens (light, dark by system setting, or forced by data-theme), the base
-   body, and the buttons and chips. Copied from web/index.html, which keeps its own inline copy until translate
-   moves to features/translate/ (docs/practice-proposal.md §8 M6). Served at /shared/web/base.css. */
+/* The look every page shares, copied from Claude Translate (web/index.html, which keeps its own inline copy until translate
+   moves to features/translate/, docs/practice-proposal.md §6): colour tokens (light, dark by system setting, or forced by
+   data-theme), the masthead, the History sidebar, buttons, chips and menus, the card with its header bar, the thinking
+   disclosure and the Markdown elements. The dark colours are written twice, for the system setting and for data-theme;
+   keep the two blocks identical (test/practice-web.test.ts checks it). Served at /shared/web/base.css. */
+
 :root {
   --page: #f4f1ea;
   --surface: #fffdf8;
@@ -32,6 +35,9 @@
   --code-edge: rgba(29, 27, 22, 0.085);
   --block-fill: rgba(29, 27, 22, 0.032);
   --link: #a4472a;
+  --accent-soft: rgba(193, 95, 60, 0.1);
+  --ok: #2f6b3f;
+  --ok-soft: rgba(47, 107, 63, 0.11);
 }
 /* Screen only, like the data-theme, docked-sidebar grid and 760px rules: paper always gets the light tokens and desktop layout. */
 @media screen and (prefers-color-scheme: dark) {
@@ -65,6 +71,9 @@
     --code-edge: rgba(237, 232, 221, 0.11);
     --block-fill: rgba(237, 232, 221, 0.045);
     --link: #eb9c7e;
+    --accent-soft: rgba(227, 137, 106, 0.14);
+    --ok: #86c79a;
+    --ok-soft: rgba(134, 199, 154, 0.12);
   }
 }
 @media screen {
@@ -98,10 +107,14 @@
     --code-edge: rgba(237, 232, 221, 0.11);
     --block-fill: rgba(237, 232, 221, 0.045);
     --link: #eb9c7e;
+    --accent-soft: rgba(227, 137, 106, 0.14);
+    --ok: #86c79a;
+    --ok-soft: rgba(134, 199, 154, 0.12);
   }
 }
-
 * { box-sizing: border-box; }
+/* Keeps the caret from scrolling under the sticky direction bar and pane footer. */
+html { scroll-padding-top: 64px; scroll-padding-bottom: 72px; }
 body {
   margin: 0;
   background: var(--page);
@@ -110,12 +123,138 @@ body {
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
 }
-button, input, textarea { font: inherit; color: inherit; }
+button { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
 
+.shell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* width: 100% is load-bearing: as a grid item (sidebar docked) auto margins alone shrink it to fit-content. */
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 40px 32px 48px;
+}
+
+/* min-height matches the sidebar toggle, so hiding the toggle (sidebar open) does not move the card up. */
 .masthead { display: flex; align-items: center; gap: 9px; min-height: 34px; padding-left: 2px; }
 .masthead > svg { width: 18px; height: 18px; color: var(--accent); }
+
+/* One <dialog> in two modes: on wide screens show() docks it as the first column of the body grid,
+   pushing the page right; on narrow screens showModal() makes it an overlay drawer. */
+@media screen { body:has(> #history-sidebar[open]:not(:modal)) { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); } }
+.sidebar { margin: 0; padding: 0; border: 0; max-width: none; max-height: none; color: var(--ink); background: var(--sidebar-bg); }
+.sidebar[open] { display: flex; flex-direction: column; height: 100dvh; }
+.sidebar[open]:not(:modal) { position: sticky; top: 0; width: var(--sidebar-width); box-shadow: inset -1px 0 0 var(--line); }
+.sidebar:modal { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); box-shadow: var(--shadow); animation: drawer-in 0.18s ease-out; }
+.sidebar::backdrop { background: var(--backdrop); }
+@keyframes drawer-in { from { transform: translateX(-100%); } }
+/* 40px top padding puts the toggle on the masthead row; 92px total puts the search field level with the settings bar. */
+.sidebar-top { flex: none; height: 92px; padding: 40px 12px 0; }
+/* Puts the close button where the masthead's open button was, so the toggle does not jump. */
+.sidebar:modal .sidebar-top { padding-left: 26px; }
+@media (max-width: 760px) { .sidebar:modal .sidebar-top { height: 72px; padding: 20px 0 0 10px; } }
+.ghost-button.icon-button { width: 34px; padding: 0; justify-content: center; color: var(--muted); }
+.ghost-button.icon-button svg { width: 18px; height: 18px; }
+.ghost-button.icon-button:hover { color: var(--ink); }
+#sidebar-open-button { margin-left: -8px; }
+#masthead-new-button { margin-left: -8px; }
+body:has(> #history-sidebar[open]) :is(#sidebar-open-button, #masthead-new-button) { display: none; }
+
+.sidebar-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin: 0 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.sidebar-search:focus-within { border-color: var(--accent); }
+.sidebar-search svg { flex: none; width: 16px; height: 16px; }
+.sidebar-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; color: var(--ink); }
+.sidebar-search input::placeholder { color: var(--muted); }
+.sidebar-search input::-webkit-search-cancel-button { display: none; }
+.sidebar-search-hint { font-size: 12px; color: var(--faint); }
+.sidebar-search:has(input:not(:placeholder-shown)) .sidebar-search-hint { display: none; }
+
+.sidebar-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  margin: 8px 8px 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-row:hover { background: var(--sidebar-hover); }
+.sidebar-row svg { flex: none; width: 18px; height: 18px; }
+
+.history-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.history-status { margin: 0; padding: 14px 18px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.history-status[hidden] { display: none; }
+.history-list { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0 8px 16px; list-style: none; }
+.history-group-label { padding: 14px 10px 4px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.history-item { position: relative; }
+.history-item[hidden] { display: none; }
+.history-open-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.history-open-button:hover { background: var(--sidebar-hover); }
+.history-open-button[aria-current="true"] { background: var(--sidebar-active); color: var(--ink); }
+.history-open-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.history-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-item:is(:hover, :focus-within) .history-item-title { padding-right: 26px; }
+.history-partial-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+.history-item:is(:hover, :focus-within) .history-partial-mark { display: none; }
+.history-delete-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  translate: 0 -50%;
+}
+.history-delete-button svg { width: 15px; height: 15px; }
+.history-item:is(:hover, :focus-within) .history-delete-button { opacity: 1; }
+.history-delete-button:hover { color: var(--danger); background: var(--danger-soft); }
+@media (hover: none) { .history-delete-button { opacity: 1; width: 40px; height: 34px; } }
+.history-list-limit { padding: 10px; font-size: 12px; color: var(--faint); }
 .wordmark { font-family: "Newsreader", Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
 .wordmark span { color: var(--muted); }
+/* The same as shared/web/base.css, which the Practice page uses. */
 .masthead-nav { display: flex; gap: 2px; margin-left: 14px; }
 .masthead-link {
   display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px;
@@ -123,32 +262,378 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .masthead-link:hover { background: var(--hover); color: var(--ink); }
 .masthead-link[aria-current="page"] { color: var(--ink); background: var(--hover); }
+.masthead-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.workspace {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: clip;
+  transition: border-color 0.2s;
+}
+.workspace:focus-within { border-color: var(--line-strong); }
+
+.direction-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  transition: box-shadow 0.2s;
+}
+.direction-bar.is-stuck { box-shadow: 0 1px 0 var(--line), 0 8px 16px -12px rgba(0, 0, 0, 0.25); }
+/* Label and actions share one wrapping flex row, so they can never overlap: when the half
+   gets too narrow the actions drop to a second line instead. */
+.bar-half {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  column-gap: 12px;
+  row-gap: 6px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 32px;
+}
+.bar-half.target { background: var(--surface-tint); padding-right: 16px; }
+.direction-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  height: 36px;
+  padding-top: 8px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.bar-actions {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+.bar-actions > button { flex: none; }
+/* flex-basis 0: a long status shrinks into an ellipsis instead of pushing Copy onto a new line. */
+.bar-half.target .bar-actions { flex-basis: 0; min-width: 96px; }
+.run-activity { flex: none; width: 13px; height: 13px; margin-right: -5px; color: var(--accent); animation: run-activity 1.4s ease-in-out infinite; }
+.run-activity[hidden] { display: none; }
+/* A quarter turn per cycle: the four-point star looks the same at 90deg, so the loop has no seam. */
+@keyframes run-activity { 50% { transform: rotate(45deg) scale(0.7); } 100% { transform: rotate(90deg); } }
+.direction-role { color: var(--muted); }
+.language-name { font-weight: 500; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.skeleton { flex: 1 0 auto; min-height: 216px; display: none; flex-direction: column; gap: 16px; padding: 28px 32px 12px; }
+.pane.target.is-waiting .skeleton { display: flex; }
+.pane.target.is-waiting .pane-text { display: none; }
+.skeleton span {
+  flex: none;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--skeleton) 0%, var(--surface) 50%, var(--skeleton) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+.skeleton span:last-child { width: 62%; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.footer-note { flex: 1; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.footer-note.is-over-limit { color: var(--danger); }
 
 .ghost-button {
-  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 0; border-radius: 9px;
-  background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 .ghost-button:hover { background: var(--hover); color: var(--ink); }
 .ghost-button[hidden] { display: none; }
 .ghost-button:disabled { background: transparent; color: var(--faint); cursor: default; }
 .ghost-button svg { width: 15px; height: 15px; }
+/* min-width fits "Copied", so the label swap does not push the run info sideways. */
+#copy-button { color: var(--ink); min-width: 90px; justify-content: center; }
+:is(#copy-button, #copy-source-button).is-done { color: var(--accent); }
+#copy-source-button { width: 34px; padding: 0; justify-content: center; }
 
 .primary-button {
-  display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border: 0; border-radius: 10px;
-  background: var(--button); color: var(--button-text); font-size: 13.5px; font-weight: 600; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
   transition: opacity 0.15s, transform 0.1s;
 }
 .primary-button:hover { opacity: 0.88; }
 .primary-button:active { transform: translateY(1px); }
 .primary-button:disabled { background: var(--hover); color: var(--faint); opacity: 1; cursor: default; transform: none; }
+.shortcut-hint { font-size: 13px; font-weight: 400; opacity: 0.55; letter-spacing: 0.04em; }
 
-.chip {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--line);
-  border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: 13px; font-weight: 500;
-  white-space: nowrap; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+.thinking[hidden] { display: none; }
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
 }
-.chip:hover { border-color: var(--line-strong); color: var(--ink); }
-.chip[aria-pressed="true"] { border-color: var(--button); background: var(--button); color: var(--button-text); }
-.chip .chip-count { color: inherit; opacity: 0.6; font-variant-numeric: tabular-nums; }
-:is(.chip, .ghost-button, .primary-button, .masthead-link):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thinking-toggle::-webkit-details-marker { display: none; }
+.thinking-toggle:hover { background: var(--hover); color: var(--ink); }
+.thinking-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thinking-icon { flex: none; width: 13px; height: 13px; color: var(--accent); }
+.thinking-chevron { flex: none; width: 13px; height: 13px; transition: transform 0.15s; }
+.thinking[open] .thinking-chevron { transform: rotate(90deg); }
+/* The summary is English whatever the direction: smaller and set off by a rule so it never reads as translation. */
+.thinking-text {
+  margin: 4px 0 2px;
+  padding: 1px 0 1px 13px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 14px;
+  line-height: 1.6;
+  color: color-mix(in oklab, var(--ink-soft) 50%, var(--muted));
+  overflow-wrap: anywhere;
+  max-width: 68ch;
+}
+.thinking-text > * + * { margin-top: 0.6em; }
+.thinking-text .md-code { color: inherit; border: 0; }
+.thinking-text code { font: 0.88em ui-monospace, "SF Mono", Menlo, monospace; padding: 1px 4px; border-radius: 4px; background: var(--hover); }
+.thinking.is-live .thinking-label {
+  background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--ink) 50%, var(--muted) 65%, var(--muted) 100%) 0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.8s linear infinite;
+}
+@media (forced-colors: active) { .thinking.is-live .thinking-label { color: CanvasText; background: none; animation: none; } }
+
+/* Markdown inside a .doc-content element. Every class here is written by renderCellContent / renderDocument. One flow unit
+   separates blocks, the same 12px that separates paragraphs in a translated cell. */
+.doc-content { --md-flow: 0.75em; --list-indent: 1.75em; --heading-size: 16px; --heading-leading: 1.55; overflow-wrap: anywhere; }
+.doc-content > * + * { margin-top: var(--md-flow); }
+/* Zero specificity, so the "* + *" flow rules always set the gap between blocks. */
+:where(.md-p, .md-heading, .md-quote, .md-list) { margin: 0; }
+
+/* The size of a heading is set where the document is placed (--heading-size, --heading-leading). */
+.md-heading { font-size: var(--heading-size); line-height: var(--heading-leading); font-weight: 600; letter-spacing: -0.006em; text-wrap: pretty; }
+.md-h1 { letter-spacing: -0.014em; }
+.md-h2 { letter-spacing: -0.01em; }
+.md-h5, .md-h6 { color: var(--ink-soft); }
+
+.md-list-item { position: relative; padding-left: var(--list-indent); }
+/* Anchored by its right edge, so "10." grows leftwards and item text stays aligned from 1. to 99. */
+.md-marker { position: absolute; top: 0; right: calc(100% - var(--list-indent) + 0.6em); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
+.md-marker.is-bullet { right: calc(100% - var(--list-indent) + 0.75em); }
+.md-marker.is-task {
+  top: 0.42em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--faint);
+  border-radius: 4px;
+}
+.md-marker.is-task.is-checked {
+  border-color: var(--accent);
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat;
+}
+.md-list-body > * + * { margin-top: calc(var(--md-flow) * 0.66); }
+
+.md-quote { padding-left: 1em; border-left: 3px solid var(--line-strong); color: var(--ink-soft); }
+.md-quote > * + * { margin-top: var(--md-flow); }
+.md-quote .md-quote { border-left-color: var(--line); }
+.md-list { padding-left: 1.5em; }
+.md-list > li + li { margin-top: 0.15em; }
+.md-list > li::marker { color: var(--muted); }
+
+.md-code {
+  padding: 0.08em 0.32em;
+  border: 1px solid var(--code-edge);
+  border-radius: 0.36em;
+  background: var(--code-fill);
+  color: var(--code-ink);
+  font: 0.86em/1 ui-monospace, "SF Mono", Menlo, monospace;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.md-heading .md-code { font-size: 0.84em; }
+.md-link .md-code { color: inherit; }
+
+.md-code-block { border: 1px solid var(--line); border-radius: 10px; background: var(--block-fill); overflow: hidden; }
+.md-code-language { padding: 8px 14px 0; font-size: 11.5px; font-weight: 500; letter-spacing: 0.03em; color: var(--muted); }
+.md-code-block pre { margin: 0; padding: 11px 14px 12px; overflow-x: auto; font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; tab-size: 4; }
+.md-code-language + pre { padding-top: 5px; }
+
+/* overflow-wrap: anywhere (inherited from the cell) would let a column shrink below its longest word, which is
+   how "Model" broke as "Mode / l"; break-word keeps words whole and lets the wrapper scroll instead. */
+.md-table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.md-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14.5px; line-height: 1.5; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
+/* min-width: an auto-layout column whose words are short ("GPT-2", "2019") otherwise gets only its min-content
+   width when a long column takes the rest, and breaks after the hyphen. */
+.md-table th, .md-table td { min-width: 5em; padding: 7px 12px; text-align: start; vertical-align: top; }
+.md-table th { font-weight: 600; background: var(--block-fill); border-bottom: 1px solid var(--line); }
+.md-table tbody tr + tr > td { border-top: 1px solid var(--line); }
+
+.md-link {
+  color: var(--link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklab, var(--link) 38%, transparent);
+  text-underline-offset: 0.22em;
+  transition: text-decoration-color 0.15s;
+}
+a.md-link:hover { text-decoration-color: currentColor; }
+.md-link-inert { text-decoration: underline dotted color-mix(in oklab, var(--muted) 70%, transparent); text-underline-offset: 0.22em; cursor: help; }
+
+.md-footnote-ref { font-size: 0.7em; line-height: 0; vertical-align: super; }
+.md-footnote-ref a { padding: 0 0.12em; color: var(--link); font-weight: 600; text-decoration: none; }
+.md-footnote { display: grid; grid-template-columns: 1.6em minmax(0, 1fr); font-size: 14px; line-height: 1.6; color: var(--ink-soft); }
+.md-footnote-label { color: var(--link); font-weight: 600; font-variant-numeric: tabular-nums; text-decoration: none; }
+.md-footnote-label::after { content: "."; }
+
+.md-hr { height: 0; margin: 10px 0; border: 0; border-top: 1px solid var(--line-strong); }
+
+.md-image { display: inline-flex; align-items: baseline; gap: 0.35em; }
+.md-image-icon {
+  flex: none;
+  align-self: center;
+  width: 0.95em;
+  height: 0.95em;
+  background: currentColor;
+  opacity: 0.7;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Crect x='3.5' y='4.5' width='17' height='15' rx='3'/%3E%3Ccircle cx='9' cy='10' r='1.6'/%3E%3Cpath d='M20 16l-5-5-8.5 8.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Crect x='3.5' y='4.5' width='17' height='15' rx='3'/%3E%3Ccircle cx='9' cy='10' r='1.6'/%3E%3Cpath d='M20 16l-5-5-8.5 8.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.md-link-definition { font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
+.md-link-definition-label { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-soft); }
+.md-link-definition-label::before { content: "["; }
+.md-link-definition-label::after { content: "]: "; }
+
+.md-caret { display: inline-block; width: 2px; height: 1.1em; margin-left: 2px; vertical-align: -0.18em; background: var(--accent); animation: caret 1s steps(1) infinite; }
+
+/* The settings every translation runs with. 36px tall like the sidebar search field, which it lines up with. */
+.settings-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; }
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 9px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.settings-chip:hover, .settings-chip[aria-expanded="true"] { border-color: var(--line-strong); color: var(--ink); }
+.settings-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-chip .chip-icon { flex: none; width: 15px; height: 15px; color: var(--muted); }
+.settings-chip .effort-glyph { color: var(--muted); }
+.settings-chip .chip-chevron { flex: none; width: 13px; height: 13px; margin-left: -1px; color: var(--faint); }
+.chip-label-short { display: none; }
+.model-chip { anchor-name: --model-picker; }
+.effort-glyph { flex: none; width: 13px; height: 12px; }
+.effort-glyph rect { fill: currentColor; opacity: 0.3; }
+.effort-glyph rect.is-filled { opacity: 1; }
+
+.settings-menu {
+  position-area: bottom span-right;
+  position-try-fallbacks: flip-inline, flip-block;
+  width: 316px;
+  max-width: calc(100vw - 24px);
+  margin: 6px 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--popover-shadow);
+}
+.model-menu { position-anchor: --model-picker; }
+.settings-menu:popover-open { animation: menu-in 0.14s ease-out; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+.menu-label { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 10px 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.menu-keys { font-size: 11.5px; font-weight: 400; color: var(--faint); letter-spacing: 0.04em; }
+.menu-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  padding: 7px 10px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-option:hover { background: var(--hover); }
+.menu-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--hover); }
+.menu-option-name { display: flex; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 500; color: var(--ink); }
+.menu-option-default { font-size: 11.5px; font-weight: 400; color: var(--faint); }
+.menu-option-description { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.menu-option-check { width: 16px; height: 16px; color: var(--accent); visibility: hidden; }
+.menu-option[aria-checked="true"] .menu-option-check { visibility: visible; }
+.model-menu-separator { height: 1px; margin: 6px 4px; background: var(--line); }
+.effort-control { padding: 0 4px 6px; }
+.effort-segments { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 2px; margin: 0 6px; padding: 3px; border-radius: 10px; background: var(--hover); }
+.effort-option {
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.effort-option:hover { color: var(--ink); }
+.effort-option[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-strong), 0 1px 2px rgba(29, 27, 22, 0.08); }
+.effort-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.effort-description { margin: 7px 10px 2px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.model-menu-quota { display: flex; align-items: center; gap: 8px; margin: 6px 4px 0; padding: 9px 6px 3px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.model-menu-quota[hidden] { display: none; }
+.quota-mark { flex: none; width: 6px; height: 6px; margin: 0 2px; border-radius: 50%; background: var(--warning); }
+.model-menu-quota strong { font-weight: 500; color: var(--warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media screen and (max-width: 760px) { .shell { padding: 20px 16px 24px; gap: 14px; } }
+
+/* Phones: both chip labels in their short form, and a menu that cannot hang off a trigger near the edge spans the 16px gutters. */
+@media screen and (max-width: 760px) {
+  .chip-label-full { display: none; }
+  .chip-label-short { display: inline; }
+  .settings-menu { position-area: none; top: calc(anchor(bottom) + 6px); left: 16px; right: 16px; width: auto; max-width: none; margin: 0; }
+}

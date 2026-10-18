@@ -1,177 +1,181 @@
-// Practice's routes: the page at /practice and the API under /api/practice (docs/practice-proposal.md §7.4).
-import { mkdirSync, writeFileSync } from 'node:fs';
+// Practice's routes: the page at /practice and the API under /api/practice (docs/practice-proposal.md §5).
+import { readdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { AttemptAnswer, CreateAttemptRequest, ExerciseType, ImportResult } from '../api.ts';
-import { checkExerciseFile, MAX_IMPORT_FILE_BYTES } from './exercise-import.ts';
-import { countWords } from './feedback-validate.ts';
-import { gradeAttempt, gradingSettingsOf, isGradable, MAX_ANSWER_CHARS } from './grading.ts';
-import { openPracticeStore, type PracticeStore } from './practice-store.ts';
+import type { AnswerByType, AttemptView, CreateAttemptRequest, GradingOptions, GradingSettings, ProjectFile, RegradeRequest } from '../api.ts';
+import { checkProjectFile, MAX_FILE_CHARS } from '../import-check.ts';
+import { createGrader } from './ai-grading.ts';
+import { checkAnswer, graderOf, rateFlashcard } from './answers.ts';
+import { openPracticeStore, type PracticeStore } from './store.ts';
 
 // features/practice/: this file is features/practice/server/routes.ts.
 const FEATURE_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
 const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
-const EXAMPLE_FILE_PATH = join(FEATURE_DIRECTORY, 'examples', 'exercises.example.json');
-// The page's modules, served as JavaScript with their types stripped. URLs mirror the folders under features/practice/,
+const DOCS_DIRECTORY = join(dirname(dirname(FEATURE_DIRECTORY)), 'docs');
+// What the browser may fetch. Modules are served with their types stripped. Every .ts and .css under web/ is listed (so a
+// new file needs no entry here), and so are the modules the server shares; URLs mirror the folders under features/practice/,
 // so a relative import resolves the same for tsc and the browser.
-const WEB_MODULE_PATHS = new Map([
-  ['/practice/web/practice.ts', join(WEB_DIRECTORY, 'practice.ts')],
-  ['/practice/web/error-log.ts', join(WEB_DIRECTORY, 'error-log.ts')],
-  ['/practice/categories.ts', join(FEATURE_DIRECTORY, 'categories.ts')],
+const WEB_FILES = readdirSync(WEB_DIRECTORY, { recursive: true, encoding: 'utf8' }).filter((name) => /\.(ts|css)$/.test(name));
+const MODULES = new Map([
+  ...WEB_FILES.filter((name) => name.endsWith('.ts')).map((name): [string, string] => [`/practice/web/${name}`, join(WEB_DIRECTORY, name)]),
+  ...['import-check.ts', 'text.ts'].map((name): [string, string] => [`/practice/${name}`, join(FEATURE_DIRECTORY, name)]),
 ]);
-const EXERCISE_PATH = /^\/api\/practice\/exercises\/([a-z0-9][a-z0-9-]{0,63})$/;
-const ATTEMPT_PATH = /^\/api\/practice\/attempts\/(\d+)$/;
-const REGRADE_PATH = /^\/api\/practice\/attempts\/(\d+)\/regrade$/;
+const FILES = new Map([
+  ['/practice', { path: join(WEB_DIRECTORY, 'practice.html'), content_type: 'text/html; charset=utf-8' }],
+  ...WEB_FILES.filter((name) => name.endsWith('.css')).map((name) => [`/practice/web/${name}`, { path: join(WEB_DIRECTORY, name), content_type: 'text/css; charset=utf-8' }] as const),
+  ['/practice/example-project.json', { path: join(FEATURE_DIRECTORY, 'examples', 'example-project.json'), content_type: 'application/json; charset=utf-8' }],
+  ['/practice/format-guide.md', { path: join(DOCS_DIRECTORY, 'practice-import-format.md'), content_type: 'text/plain; charset=utf-8' }],
+]);
+// Arbitrary: a file of MAX_FILE_CHARS, escaped inside JSON, with room to spare.
+const MAX_IMPORT_BODY_BYTES = 4 * MAX_FILE_CHARS;
 // Arbitrary: far above the longest answer, below anything that could hurt the server.
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
-// Essay translation's English task: a few sentences.
-const MAX_PROMPT_ANSWER_CHARS = 3_000;
 
-function rejectAttempt(res: ServerResponse, status_code: number, reason: string): void {
-  log('warn', null, 'http', `${status_code} POST /api/practice/attempts: ${reason}`);
-  res.writeHead(status_code).end(reason);
+type Params = number[];
+type Handler = (req: IncomingMessage, res: ServerResponse, params: Params) => Promise<void> | void;
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function reject(res: ServerResponse, status_code: number, reason: string): void {
+  res.writeHead(status_code, { 'Content-Type': 'text/plain; charset=utf-8' }).end(reason);
 }
 
-// Saves the answer first (so nothing is lost if grading fails), answers 201, then grades in the background.
-async function handleCreateAttempt(req: IncomingMessage, res: ServerResponse, store: PracticeStore): Promise<void> {
-  let body: Partial<CreateAttemptRequest>;
+// The body as an object, or a 400 already sent and null.
+async function readObjectBody(req: IncomingMessage, res: ServerResponse, max_bytes: number): Promise<Record<string, unknown> | null> {
   try {
-    body = (await readJsonBody(req, MAX_ATTEMPT_BODY_BYTES)) as Partial<CreateAttemptRequest>;
+    const body = await readJsonBody(req, max_bytes);
+    if (isObject(body)) return body;
   } catch {
-    rejectAttempt(res, 400, 'Body must be JSON');
-    return;
+    // Answered below.
   }
-  const detail = typeof body.exercise_id === 'string' ? store.readExercise(body.exercise_id) : null;
-  if (detail === null) {
-    rejectAttempt(res, 404, 'No such exercise');
-    return;
-  }
-  const { exercise } = detail;
-  if (!isGradable(exercise.type)) {
-    rejectAttempt(res, 400, `${exercise.type} cannot be graded yet`);
-    return;
-  }
-  const text = typeof body.answer?.text === 'string' ? body.answer.text.trim().normalize('NFC') : '';
-  if (text === '' || text.length > MAX_ANSWER_CHARS[exercise.type]) {
-    rejectAttempt(res, 400, `answer.text must be non-empty and at most ${MAX_ANSWER_CHARS[exercise.type]} characters`);
-    return;
-  }
-  const writing_ms = Number.isInteger(body.writing_ms) && (body.writing_ms as number) >= 0 ? body.writing_ms as number : null;
-  const answer: AttemptAnswer = { text };
-  if (exercise.type === 'essay_translation') {
-    const prompt_text = typeof body.answer?.prompt_text === 'string' ? body.answer.prompt_text.trim().normalize('NFC') : '';
-    if (prompt_text === '' || prompt_text.length > MAX_PROMPT_ANSWER_CHARS) {
-      rejectAttempt(res, 400, `answer.prompt_text must be non-empty and at most ${MAX_PROMPT_ANSWER_CHARS} characters`);
-      return;
-    }
-    answer.prompt_text = prompt_text;
-  }
-  const word_count = countWords(text);
-  const { model_id: requested_model_id, effort } = gradingSettingsOf(exercise.type);
-  const attempt_id = store.createAttempt({ exercise, answer, word_count, writing_ms, requested_model_id, effort });
-  sendJson(res, 201, { attempt_id });
-  gradeAttempt(store, attempt_id, exercise, answer, word_count);
+  reject(res, 400, 'Body must be a JSON object');
+  return null;
 }
 
-// A failed attempt is graded again with the same answer and the exercise as it was then.
-function handleRegrade(res: ServerResponse, store: PracticeStore, attempt_id: number): void {
-  const attempt = store.readAttempt(attempt_id);
-  if (attempt === null) {
-    res.writeHead(404).end('No such attempt');
-    return;
-  }
-  if (!store.restartGrading(attempt_id)) {
-    res.writeHead(409).end('Only a failed attempt can be graded again');
-    return;
-  }
-  res.writeHead(202).end();
-  gradeAttempt(store, attempt_id, attempt.exercise_snapshot, attempt.answer, attempt.word_count);
-}
-
-function sendProblems(res: ServerResponse, message: string): void {
-  sendJson(res, 400, { errors: [{ path: '', message }] });
-}
-
-// A copy of every imported file goes to <data>/practice-imports/, so the originals are never lost.
-function saveImportCopy(imports_directory: string, file_name: string, body: unknown): string {
-  mkdirSync(imports_directory, { recursive: true });
-  const safe_name = basename(file_name).replace(/[^\w.-]+/g, '_').replace(/\.json$/i, '') || 'import';
-  const copy_name = `${new Date().toISOString().replace(/[:.]/g, '-')}-${safe_name}.json`;
-  writeFileSync(join(imports_directory, copy_name), `${JSON.stringify(body, null, 2)}\n`);
-  return copy_name;
-}
-
-async function handleImport(req: IncomingMessage, res: ServerResponse, store: PracticeStore, imports_directory: string): Promise<void> {
-  const file_name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'import.json'));
-  let body: unknown;
-  try {
-    body = await readJsonBody(req, MAX_IMPORT_FILE_BYTES);
-  } catch (error) {
-    const message = (error as Error).message.startsWith('body is larger') ? 'the file is larger than 2 MB' : 'the file is not valid JSON';
-    log('warn', null, 'import', `${file_name}: ${message}`);
-    sendProblems(res, message);
-    return;
-  }
-  const { exercises, errors, warnings } = checkExerciseFile(body);
-  if (errors.length > 0) {
-    log('warn', null, 'import', `${file_name}: ${errors.length} ${errors.length === 1 ? 'error' : 'errors'}, nothing imported`);
-    sendJson(res, 400, { errors });
-    return;
-  }
-  const copy_name = saveImportCopy(imports_directory, file_name, body);
-  const { added, updated } = store.importExercises(exercises, copy_name);
-  const warning_text = warnings.length > 0 ? `  ${warnings.length} ${warnings.length === 1 ? 'warning' : 'warnings'}` : '';
-  log(warnings.length > 0 ? 'warn' : 'info', null, 'import', `${file_name}  ${added} added  ${updated} updated${warning_text}`);
-  const result: ImportResult = { added, updated, warnings };
-  sendJson(res, 200, result);
+// An import body's file, checked: the file, or the problems already sent as a 400 and null.
+function checkedFile(res: ServerResponse, body: Record<string, unknown>): ProjectFile | null {
+  const { file, errors } = checkProjectFile(typeof body.file === 'string' ? body.file : '');
+  if (errors !== null) sendJson(res, 400, { errors });
+  return file;
 }
 
 export function createPracticeFeature({ database_path }: { database_path: string }): Feature {
   // Throws on a newer or damaged file, so the server stops at startup, not mid-request.
-  const store = openPracticeStore(database_path);
+  const store: PracticeStore = openPracticeStore(database_path);
   const interrupted_count = store.failInterruptedGradings();
   if (interrupted_count > 0) log('warn', null, 'practice', `${interrupted_count} grading(s) were interrupted by a restart; Grade again redoes them`);
-  const imports_directory = join(dirname(database_path), 'practice-imports');
+
+  const grader = createGrader(store);
+  const grading_options: GradingOptions = {
+    models: MODEL_OPTIONS.map(({ model_id, label, short_label, description }) => ({ model_id, label, short_label, description })),
+    efforts: EFFORT_OPTIONS, default_model_id: DEFAULT_MODEL_ID, default_effort: DEFAULT_EFFORT,
+  };
+
+  // The grading settings a request names, each the default when left out; null, with a 400 sent, when one is not offered.
+  // Checked here because the CLI does not: an unknown --effort only prints a warning and runs at its default.
+  function settingsOf(res: ServerResponse, { model_id = DEFAULT_MODEL_ID, effort = DEFAULT_EFFORT }: RegradeRequest): GradingSettings | null {
+    const problem = modelOptionOf(model_id) === undefined ? `model_id must be one of ${MODEL_OPTIONS.map((option) => option.model_id).join(', ')}`
+      : !isEffort(effort) ? `effort must be one of ${EFFORT_OPTIONS.map((option) => option.effort).join(', ')}` : null;
+    if (problem === null) return { model_id, effort };
+    reject(res, 400, problem);
+    return null;
+  }
+
+  async function createProject(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await readObjectBody(req, res, MAX_IMPORT_BODY_BYTES);
+    if (body === null) return;
+    const file = checkedFile(res, body);
+    if (file === null) return;
+    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : file.name;
+    const description = typeof body.description === 'string' ? body.description.trim() : file.description;
+    if (name.length > 80 || description.length > 500) return reject(res, 400, 'name is at most 80 characters and description at most 500');
+    const id = store.createProject({ ...file, name, description });
+    log('info', null, 'import', `project ${id} "${name}"  ${file.exercises.length} exercises`);
+    sendJson(res, 201, { id });
+  }
+
+  async function addExercises(req: IncomingMessage, res: ServerResponse, [project_id]: Params): Promise<void> {
+    const body = await readObjectBody(req, res, MAX_IMPORT_BODY_BYTES);
+    if (body === null) return;
+    const file = checkedFile(res, body);
+    if (file === null) return;
+    const added = store.addExercises(project_id, file.exercises);
+    if (added === null) return reject(res, 404, 'No such project');
+    if ('duplicate_keys' in added) {
+      const errors = file.exercises.flatMap(({ key }, index) => (added.duplicate_keys.includes(key) ? [`Exercise ${index + 1}: id "${key}" is already in this project.`] : []));
+      return sendJson(res, 400, { errors });
+    }
+    log('info', null, 'import', `project ${project_id}  ${added.added} exercises added`);
+    sendJson(res, 200, added);
+  }
+
+  // A flashcard is graded at once by your rating; every other answer is saved first, then graded in the background.
+  async function createAttempt(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES) as Partial<CreateAttemptRequest> | null;
+    if (!body) return;
+    const exercise = Number.isInteger(body.exercise_id) ? store.readExercise(body.exercise_id as number) : null;
+    if (exercise === null) return reject(res, 404, 'No such exercise');
+    const { answer, problem } = checkAnswer(exercise, body.answer);
+    if (answer === null) return reject(res, 400, problem);
+    const settings = settingsOf(res, body as RegradeRequest);
+    if (settings === null) return;
+    const writing_ms = Number.isInteger(body.writing_ms) && (body.writing_ms as number) >= 0 ? body.writing_ms as number : null;
+    const grader_kind = graderOf(exercise.type);
+    const attempt = store.createAttempt({ exercise, answer, writing_ms, grader: grader_kind, outcome: grader_kind === 'ai' ? null : rateFlashcard(answer as AnswerByType['flashcard']) });
+    sendJson(res, 201, attempt);
+    if (grader_kind === 'ai') grader.start(attempt, settings);
+  }
+
+  // A failed attempt is graded again with the same answer and the exercise as it was then, with the settings now chosen.
+  async function regrade(req: IncomingMessage, res: ServerResponse, [attempt_id]: Params): Promise<void> {
+    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES);
+    if (body === null) return;
+    const settings = settingsOf(res, body as RegradeRequest);
+    if (settings === null) return;
+    if (store.readAttempt(attempt_id) === null) return reject(res, 404, 'No such attempt');
+    if (!store.restartGrading(attempt_id)) return reject(res, 409, 'Only a failed attempt can be graded again');
+    const attempt = store.readAttempt(attempt_id) as AttemptView;
+    sendJson(res, 202, attempt);
+    grader.start(attempt, settings);
+  }
+
+  const found = (res: ServerResponse, body: unknown, what: string): void => (body === null ? reject(res, 404, `No such ${what}`) : sendJson(res, 200, body));
+  const ID = '(\\d{1,9})';
+  const routes: [method: string, pattern: RegExp, handler: Handler][] = [
+    ['GET', /^\/api\/practice\/grading-options$/, (_req, res) => sendJson(res, 200, grading_options)],
+    ['GET', /^\/api\/practice\/projects$/, (_req, res) => sendJson(res, 200, store.listProjects())],
+    ['POST', /^\/api\/practice\/projects$/, createProject],
+    ['GET', new RegExp(`^/api/practice/projects/${ID}$`), (_req, res, [id]) => found(res, store.readProject(id), 'project')],
+    ['POST', new RegExp(`^/api/practice/projects/${ID}/exercises$`), addExercises],
+    ['GET', new RegExp(`^/api/practice/exercises/${ID}$`), (_req, res, [id]) => found(res, store.readExercise(id), 'exercise')],
+    ['POST', /^\/api\/practice\/attempts$/, createAttempt],
+    ['GET', new RegExp(`^/api/practice/attempts/${ID}$`), (_req, res, [id]) => found(res, store.readAttempt(id), 'attempt')],
+    ['POST', new RegExp(`^/api/practice/attempts/${ID}/regrade$`), regrade],
+    ['GET', new RegExp(`^/api/practice/attempts/${ID}/stream$`), (_req, res, [id]) => (store.readAttempt(id) === null ? reject(res, 404, 'No such attempt') : grader.watch(res, id))],
+  ];
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    const exercise_match = EXERCISE_PATH.exec(pathname);
-    const attempt_match = ATTEMPT_PATH.exec(pathname);
-    const regrade_match = REGRADE_PATH.exec(pathname);
-    if (req.method === 'GET' && pathname === '/practice') {
-      await sendFile(res, join(WEB_DIRECTORY, 'practice.html'), 'text/html; charset=utf-8');
-    } else if (req.method === 'GET' && WEB_MODULE_PATHS.has(pathname)) {
-      await sendModule(res, WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && pathname === '/practice/exercises.example.json') {
-      await sendFile(res, EXAMPLE_FILE_PATH, 'application/json; charset=utf-8');
-    } else if (req.method === 'GET' && pathname === '/api/practice/exercises') {
-      sendJson(res, 200, store.listExercises(isGradable));
-    } else if (req.method === 'GET' && exercise_match) {
-      const detail = store.readExercise(exercise_match[1]);
-      if (detail) sendJson(res, 200, detail);
-      else res.writeHead(404).end('No such exercise');
-    } else if (req.method === 'POST' && pathname === '/api/practice/exercises/import') {
-      await handleImport(req, res, store, imports_directory);
-    } else if (req.method === 'GET' && pathname === '/api/practice/error-log') {
-      sendJson(res, 200, store.readErrorLog());
-    } else if (req.method === 'GET' && pathname === '/api/practice/attempts') {
-      const { searchParams } = new URL(req.url ?? '', 'http://localhost');
-      const type = searchParams.get('type');
-      sendJson(res, 200, store.listAttempts({ type: type === null || type === '' ? null : type as ExerciseType, exercise_id: searchParams.get('exercise_id') || null }));
-    } else if (req.method === 'POST' && pathname === '/api/practice/attempts') {
-      await handleCreateAttempt(req, res, store);
-    } else if (req.method === 'GET' && attempt_match) {
-      const attempt = store.readAttempt(Number(attempt_match[1]));
-      if (attempt) sendJson(res, 200, attempt);
-      else res.writeHead(404).end('No such attempt');
-    } else if (req.method === 'POST' && regrade_match) {
-      handleRegrade(res, store, Number(regrade_match[1]));
-    } else {
-      return false;
+    if (req.method === 'GET' && FILES.has(pathname)) {
+      const { path, content_type } = FILES.get(pathname) as { path: string; content_type: string };
+      await sendFile(res, path, content_type);
+      return true;
     }
-    return true;
+    if (req.method === 'GET' && MODULES.has(pathname)) {
+      await sendModule(res, MODULES.get(pathname) as string);
+      return true;
+    }
+    for (const [method, pattern, handler] of routes) {
+      const match = req.method === method ? pattern.exec(pathname) : null;
+      if (match !== null) {
+        await handler(req, res, match.slice(1).map(Number));
+        return true;
+      }
+    }
+    return false;
   }
 
   return { name: 'practice', handle };

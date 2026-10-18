@@ -13,7 +13,7 @@ const DATABASE_PATH = process.env.ENGLISH_LOG_DATABASE_PATH ?? join(APP_DIRECTOR
 const SCHEMA_VERSION = 1;
 const MIN_WORDS = 4;
 
-// The same names as the Practice error categories, so one error log can count both later.
+// A fixed list of category names, so the corrections can be counted by kind.
 export const CATEGORIES = [
   'article', 'singular_plural', 'subject_verb_agreement', 'verb_tense', 'verb_form', 'word_form', 'word_choice',
   'collocation', 'preposition', 'pronoun', 'sentence_structure', 'run_on', 'punctuation', 'spelling', 'linking',

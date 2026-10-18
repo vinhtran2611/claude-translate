@@ -1,7 +1,8 @@
 // The page: the text box, the side-by-side pairs, the history sidebar and the settings menus. Loaded by index.html;
 // the server strips its types as it serves it.
-import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, quoteContentOf, renderCellContent } from './markdown.ts';
+import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, quoteContentOf, renderCellContent } from '../shared/web/markdown.ts';
 import { findSourceDivergence } from './source-check.ts';
+import { foldForSearch, historyGroupOf } from '../shared/web/ui.ts';
 import type {
   Effort, EffortOption, ErrorKind, HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, QuotaWarning, StreamEvent,
   TranslationOptions,
@@ -429,20 +430,6 @@ function historyTitleOf(input_preview: string): string {
     .trim();
 }
 
-// Section a timestamp falls in, counted from local midnight: Today, Yesterday, Previous 7 days,
-// Previous 30 days, then the month ("September", or "April 2025" in another year).
-function historyGroupOf(created_at: string, now = new Date()): string {
-  const created = new Date(created_at);
-  const today_start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days_before_today = Math.ceil((today_start.getTime() - created.getTime()) / 86400000);
-  if (created >= today_start) return 'Today';
-  if (days_before_today <= 1) return 'Yesterday';
-  if (days_before_today <= 7) return 'Previous 7 days';
-  if (days_before_today <= 30) return 'Previous 30 days';
-  const month_format: Intl.DateTimeFormatOptions = { month: 'long', ...(created.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) };
-  return created.toLocaleDateString('en-US', month_format);
-}
-
 function describeHistoryTooltip(summary: HistorySummary): string {
   const created = new Date(summary.created_at);
   const time = created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -451,11 +438,6 @@ function describeHistoryTooltip(summary: HistorySummary): string {
   const partial_note = summary.outcome === 'done' ? '' : ' · partial';
   const choice_label = `${modeNoteOf(summary.mode)}${choiceLabelOf({ model_id: summary.served_model_id, effort: summary.effort })}`;
   return `${summary.source_language.toUpperCase()} → ${summary.target_language.toUpperCase()} · ${day_label} ${time} · ${choice_label}${partial_note}`;
-}
-
-// Case- and diacritic-insensitive: "dich" finds "dịch", "doan" finds "đoạn".
-function foldForSearch(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase();
 }
 
 function matchesHistorySearch(summary: HistorySummary, folded_query_words: string[]): boolean {

@@ -1,0 +1,201 @@
+{
+  "format": 2,
+  "project": {
+    "name": "IELTS Writing Task 2 – Example",
+    "description": "One or more exercises of every type: rewrite, translation, error correction, free writing, multiple choice, fill in the blanks and flashcards."
+  },
+  "exercises": [
+    {
+      "id": "ex-01",
+      "type": "rewrite",
+      "topic": "transport",
+      "content": {
+        "instruction": "Rewrite the sentence using the passive voice. Keep the meaning.",
+        "length": "sentence",
+        "text": "Many cities have built new cycle lanes to reduce traffic.",
+        "constraints": [
+          "Use the passive voice",
+          "Keep the meaning"
+        ],
+        "reference": "New cycle lanes have been built in many cities to reduce traffic."
+      }
+    },
+    {
+      "id": "ex-02",
+      "type": "rewrite",
+      "topic": "technology",
+      "content": {
+        "instruction": "Rewrite the paragraph in a more formal style. Replace informal words and join short sentences.",
+        "length": "paragraph",
+        "text": "Lots of people think social media is bad for kids. It takes up too much of their time, and they get stressed out about it. But I think it's not all bad, because kids can talk to friends and learn stuff online.",
+        "constraints": [
+          "Formal register",
+          "Linking words"
+        ]
+      }
+    },
+    {
+      "id": "ex-03",
+      "type": "rewrite",
+      "topic": "urbanisation",
+      "content": {
+        "instruction": "Translate into natural English.",
+        "length": "sentence",
+        "source_lang": "vi",
+        "text": "Ngày càng nhiều người trẻ chọn sống ở các thành phố lớn để có cơ hội việc làm tốt hơn."
+      }
+    },
+    {
+      "id": "ex-04",
+      "type": "rewrite",
+      "topic": "education",
+      "tags": [
+        "agreement",
+        "articles"
+      ],
+      "content": {
+        "instruction": "Fix the mistakes.",
+        "length": "sentence",
+        "prefill": true,
+        "text": "Many student prefer online classes because it saves a time.",
+        "mistakes": [
+          {
+            "wrong": "student",
+            "right": "students",
+            "note": "Plural noun after many."
+          },
+          {
+            "wrong": "it saves",
+            "right": "they save",
+            "note": "The verb agrees with classes."
+          },
+          {
+            "wrong": "a time",
+            "right": "time",
+            "note": "Time is uncountable here."
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-05",
+      "type": "write",
+      "topic": "transport",
+      "content": {
+        "prompt": "Some people think that governments should spend more money on public transport than on building new roads. To what extent do you agree or disagree?",
+        "min_words": 250,
+        "minutes": 40
+      }
+    },
+    {
+      "id": "ex-06",
+      "type": "choice",
+      "topic": "grammar",
+      "tags": [
+        "second conditional"
+      ],
+      "content": {
+        "question": "If more people ____ public transport, city centres would be much less crowded.",
+        "options": [
+          {
+            "text": "use",
+            "why": "Present simple does not fit an unreal situation. The if-clause needs a past form."
+          },
+          {
+            "text": "used",
+            "correct": true,
+            "why": "Second conditional: if + past simple, would + verb."
+          },
+          {
+            "text": "will use",
+            "why": "Never put will in an if-clause."
+          },
+          {
+            "text": "would use",
+            "why": "Would belongs in the result clause, not in the if-clause."
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-07",
+      "type": "choice",
+      "topic": "linking words",
+      "tags": [
+        "linking"
+      ],
+      "content": {
+        "question": "Which TWO words show contrast?",
+        "options": [
+          {
+            "text": "However",
+            "correct": true,
+            "why": "However introduces a contrast."
+          },
+          {
+            "text": "Moreover",
+            "why": "Moreover adds a point."
+          },
+          {
+            "text": "Although",
+            "correct": true,
+            "why": "Although introduces a contrast inside one sentence."
+          },
+          {
+            "text": "Therefore",
+            "why": "Therefore shows a result."
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-08",
+      "type": "fill",
+      "topic": "grammar",
+      "tags": [
+        "present perfect"
+      ],
+      "content": {
+        "instruction": "Type the missing words.",
+        "text": "Prices {{1}} sharply in recent years, so many families {{2}} to cut their spending.",
+        "gaps": [
+          {
+            "answer": [
+              "have risen",
+              "have been rising"
+            ],
+            "hint": "rise",
+            "why": "Present perfect for a change up to now."
+          },
+          {
+            "answer": "have had",
+            "hint": "have",
+            "why": "Present perfect again: the result is still true now."
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-09",
+      "type": "flashcard",
+      "topic": "IELTS vocabulary",
+      "content": {
+        "front": "mitigate",
+        "hint": "verb · /ˈmɪtɪɡeɪt/",
+        "back": "to make something less severe, serious or harmful",
+        "example": "New laws aim to mitigate the effects of air pollution."
+      }
+    },
+    {
+      "id": "ex-10",
+      "type": "flashcard",
+      "topic": "IELTS vocabulary",
+      "content": {
+        "front": "resilient",
+        "hint": "adjective",
+        "back": "able to recover quickly after a problem",
+        "example": "Resilient economies recover faster after a crisis."
+      }
+    }
+  ]
+}

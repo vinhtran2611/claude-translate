@@ -84,50 +84,39 @@ translation's mode, not the one on screen.
 
 ## Practice
 
-http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing practice. The full
-design is in [docs/practice-proposal.md](docs/practice-proposal.md). All 5 v1 exercise types work
-(milestones M1 to M5): sentence, paragraph and essay translation, free writing (Task 2 essays, with estimated bands)
-and error correction. Every attempt is kept in History.
+http://localhost:8787/practice (or **Practice** at the top of the page) is for IELTS Writing, grammar and vocabulary practice.
+The design is in [docs/practice-proposal.md](docs/practice-proposal.md).
 
-| Action | How |
-|---|---|
-| Start | **Start next** (or `⌘↵`) opens the first exercise you have not done yet; or click any exercise |
-| Submit | **Submit** or `⌘↵`. Your answer is saved first, then graded (about 5–20 s) |
-| After feedback | **Next** (`⌘↵`) opens the next new exercise of the same type; **Try again** gives an empty box for the same exercise |
-| Grading failed | your answer is kept; **Grade again** retries with the same answer |
-| Error log | **Error log** above the list: which kinds of mistake you make most, how many mistakes per 100 words you made each week (the last 12 weeks), and every past mistake with its fix and rule, newest first. The chips at the top (or a click on a bar) show one kind only |
-| History | **History** above the list: every attempt, newest first, grouped by day, with type filters. Click one to see it as it was, with its feedback; a failed one has **Grade again** right in the list |
+1. **Make a project.** Ask Claude for a JSON file of exercises in the format of
+   [docs/practice-import-format.md](docs/practice-import-format.md) (the file is one project; five types: `rewrite` for translating,
+   rewriting and error correction, `write` for essays, `choice`, `fill` and `flashcard`). On **Projects → New project** choose,
+   drop or paste the file. The page shows "12 exercises found" or the numbered problems; if there is any problem nothing is imported.
+   [features/practice/examples/example-project.json](features/practice/examples/example-project.json) has one of each (also **Download an
+   example file** on that page). **Add exercises…** in a project adds another file to it.
+2. **Do exercises.** A project opens on **Next exercise**. An exercise is **Problem** and **Your answer** side by side and the
+   **Evaluation** across the full width below, all in the look of the translator. Next to **Submit** (or `⌘↵`) is the same model and effort
+   control as in Translate (`Sonnet 5.5 · Low`, `⌘/`; remembered in the browser). **Submit** saves your answer, then Claude grades it:
+   the evaluation streams in as it is written, with a "Thought for 12s" line above it, and the header ends with the model, effort and time
+   (`Sonnet 5.5 · High · 20.1s`) and **Copy**. It goes on if you close the page: come back and the words so far are there, and the rest follow.
+   **Try again** makes a new attempt; **Next exercise** opens the next one not done.
+3. **Look back.** The sidebar on the left is Translate's: collapse it with the icon or `⌘\` (a drawer on a window narrower than 1280px;
+   open or closed is one choice for both pages), search with `⌘K`, **New exercise** opens the next exercise not done. It lists the latest
+   attempt of each exercise in groups (Today, Yesterday, Previous 7 days…) as a two-line preview and `type · result`. Click one to see it
+   exactly as it was, read-only, with **Try again**. Answers you started but did not send come first, under *Drafts*; they are kept in
+   the browser. Outside a project the sidebar lists the projects instead.
 
-- **Feedback** lists each error with the exact words, the fix, its category (`features/practice/categories.ts`), major
-  or minor, why it is wrong and a rule to remember, then the corrected text, a natural version and 1–3 lessons.
-- **Essays.** Free writing has one big box; the footer shows the word count against the minimum (amber while under it)
-  and the time you have spent, which is never a limit. Essay translation has two boxes: the task in English, then the
-  essay. Free writing is banded on all 4 IELTS criteria, and the overall band is their mean rounded down to 0.5 (the
-  safe side; IELTS publishes no exact rule for one task). Essay translation gets Lexical Resource and Grammar only,
-  since the ideas come from the Vietnamese sample. Bands from a model are estimates, often off by 0.5 to 1. A free
-  writing exercise's sample essay is shown only after grading.
-- **Error correction.** The box starts with the text and its planted mistakes; edit it in place (**Reset text** brings
-  the original back). The feedback ticks off each planted mistake as fixed, partly fixed or missed (any correct fix
-  counts), then lists the errors still in your text, including any new one you made while editing.
-- **Grading** uses `claude -p` through the same runner as translate (`shared/server/claude-runner.ts`), with Sonnet 5.5
-  (Low effort for sentences, paragraphs and error correction, Medium for essays: about 30 s) and the prompts in `features/practice/prompts/`, read at every grading, so an edit applies at once.
-  Grading continues on the server if you close the page. The reply must be one JSON object; anything else fails the
-  attempt with the raw reply shown.
-- **Drafts** are kept in the browser while you type, until the server has saved the answer. The browser's spellcheck
-  and autocorrect are off in the answer box, so it cannot fix your mistakes for you.
-
-- **Exercises** come from JSON files you make with Claude: the prompt is in the proposal (§4.4), and
-  [features/practice/examples/exercises.example.json](features/practice/examples/exercises.example.json) shows one
-  exercise of each of the 5 types.
-- **Import file** checks the whole file first. If anything is wrong, nothing is imported and every problem is listed
-  with its place (`exercises[3].text_vi: required`); **Copy errors** copies them for Claude to fix. An `id` you already
-  imported is replaced, so to fix an exercise, fix the file and import it again.
-- Stored in SQLite at `data/practice.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), separate from translate history.
-  Every imported file is also copied to `data/practice-imports/`. Every attempt keeps a copy of the exercise as it
-  was, your answer and the full feedback; nothing is deleted.
-- **Backups:** once a day (at start, then checked hourly) the server copies `data/history.sqlite` and
-  `data/practice.sqlite` to `data/backups/<name>-YYYY-MM-DD.sqlite` and keeps the newest 30 of each. To restore, stop
-  the server and copy a backup over the live file.
+- **Grading** uses `claude -p` through the same runner as translate (`shared/server/claude-runner.ts`), the model and effort you pick
+  (the options and the default are Translate's; the server refuses any other with a 400), with one prompt for every type: [features/practice/prompts/grade.md](features/practice/prompts/grade.md).
+  Edit it and the next grading uses it; no restart. The request has the prompt, the exercise as stored (the right options, accepted
+  answers, reasons and reference too) and your answer; the reply is Markdown, drawn by the same renderer as Translate's output
+  (`shared/web/markdown.ts`), streaming. Essays get estimated IELTS bands, which are estimates and can be off by 0.5 to 1. A failed grading
+  shows the error and **Grade again**, which uses the model and effort now picked.
+- **Flashcards** are not graded: flip the card, choose *Didn't know*, *Almost* or *Knew it*; the back shows in the Evaluation area.
+- Stored in SQLite at `data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), separate from translate history. Every
+  attempt keeps a copy of the exercise as it was, your answer and the evaluation; nothing is deleted. Data from the old Practice
+  (`data/practice.sqlite`) is not read: import your files again.
+- **Backups:** once a day (at start, then checked hourly) the server copies `data/history.sqlite` and `data/practice-v2.sqlite` to
+  `data/backups/<name>-YYYY-MM-DD.sqlite` and keeps the newest 30 of each. To restore, stop the server and copy a backup over the live file.
 
 ## History
 
@@ -196,7 +185,7 @@ the price of exact pairing.
 
 ### Markdown
 
-`web/markdown.ts` is the one Markdown renderer (no dependencies). The pair's type decides the block;
+`shared/web/markdown.ts` is the one Markdown renderer (no dependencies). The pair's type decides the block;
 inside it, inline Markdown follows CommonMark 0.31.2 plus the GitHub extensions people paste:
 `~~strikethrough~~`, bare URLs, tables (pipe or tab-separated), task lists and footnotes.
 
@@ -237,7 +226,7 @@ as it is.
 
 1. `start.sh` checks requirements, then runs `node server/server.ts`.
 2. `server/server.ts` serves `web/index.html` on `127.0.0.1` only and handles `POST /translate`.
-   The page's modules (`web/app.ts`, `web/markdown.ts`, `web/source-check.ts`) are served as JavaScript with
+   The page's modules (`web/app.ts`, `web/source-check.ts`; `shared/web/markdown.ts` too, at `/shared/web/markdown.ts`) are served as JavaScript with
    their types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
    they stream and forwards them to the page as Server-Sent Events.
@@ -439,18 +428,18 @@ changing them. A new mode also needs its value in the `mode` CHECK of `server/hi
 | `server/history-store.ts` | the only code that reads or writes the history database |
 | `shared/api.ts` | types only: the HTTP contract (requests, stream events, history) both sides import |
 | `shared/server/` | code every feature uses: `claude-runner.ts` (runs one `claude -p` request: flags, fallback, timeouts, retries, quota), `log.ts`, `http.ts`, `sqlite.ts` |
-| `shared/web/` | `base.css` (colours, buttons, chips) and `ui.ts` (page helpers), served at `/shared/web/` |
-| `features/practice/` | the Practice feature: `server/` (routes, store, file check), `web/` (the page), `api.ts`, `categories.ts`, `examples/`. A feature imports only from itself and `shared/` (`test/boundaries.test.ts`) |
-| `docs/practice-proposal.md` | the Practice design and its milestones |
+| `shared/web/` | `base.css` (Translate's look for the Practice page: tokens, masthead, sidebar, buttons, cards, Markdown), `markdown.ts` (the Markdown renderer: parse and draw one cell, or a whole streaming document), `model-picker.ts` (the model and effort control), `ui.ts` (page helpers), served at `/shared/web/` |
+| `features/practice/` | the Practice feature: `server/` (routes, store, answer check, AI grading), `web/` (the page: `practice.ts` the router, `exercise.ts` the screen every type shares, `templates/` one file per type), `prompts/grade.md`, `api.ts`, `import-check.ts`, `examples/`. A feature imports only from itself and `shared/` (`test/boundaries.test.ts`) |
+| `docs/` | `practice-proposal.md` (the Practice design) and `practice-import-format.md` (the file format) |
 | `web/index.html` | the page's markup and styles; follows the system light/dark theme |
 | `web/app.ts` | the page's code: text box, language detection, pairs, history sidebar, menus |
-| `web/markdown.ts` | the Markdown renderer (parse and draw one cell), served at `/markdown.ts` |
 | `web/source-check.ts` | the check that the left column kept every input word, served at `/source-check.ts` |
 | `web/favicon.svg` | the tab and bookmark icon, served at `/favicon.svg` |
 | `test/` | `markdown.test.ts`, `source-check.test.ts`, the CommonMark spec and HTML entity tables, and real documents as fixtures; `translate-server.test.ts` and `practice-*.test.ts` run the real server against a fake `claude` (`test/fake-claude/claude`) |
 | `prompts/` | the system prompt: `core.md`, `style-vi.md`, `style-en.md`, `glossary.tsv` and one `source-*.md` per mode |
 | `package.json`, `tsconfig.json` | `npm run typecheck` (TypeScript, dev only) and `npm test` |
 | `data/history.sqlite` | your translation history (created on first start) |
+| `data/practice-v2.sqlite` | your Practice projects, exercises and attempts (created on first start) |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`): Node runs it as is, and
 `npm install` is needed only for `npm run typecheck`.

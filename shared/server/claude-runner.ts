@@ -27,6 +27,9 @@ export const EFFORT_OPTIONS: EffortOption[] = [
   { effort: 'medium', label: 'Medium', description: 'Thinks through tricky passages.' },
   { effort: 'high', label: 'High', description: 'Thinks longest. Slowest, uses the most.' },
 ];
+// What a page starts with before the person picks: the same for every feature.
+export const DEFAULT_MODEL_ID = 'claude-sonnet-5-5';
+export const DEFAULT_EFFORT: Effort = 'low';
 export const MAX_OUTPUT_TOKENS = 128_000;
 // A token is the start of a thinking block or any content delta. Even at --effort low the model may think first, for
 // seconds on a long input, and its first summarized thinking_delta lags the block start by 1.4-1.9s (measured); only

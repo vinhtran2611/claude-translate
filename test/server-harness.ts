@@ -39,7 +39,7 @@ export async function startTestServer(): Promise<TestServer> {
       PORT: String(port),
       PATH: `${FAKE_CLAUDE_DIRECTORY}:${process.env.PATH}`,
       HISTORY_DATABASE_PATH: join(data_directory, 'history.sqlite'),
-      PRACTICE_DATABASE_PATH: join(data_directory, 'practice.sqlite'),
+      PRACTICE_DATABASE_PATH: join(data_directory, 'practice-v2.sqlite'),
       FAKE_CLAUDE_LOG: claude_log_path,
       NO_COLOR: '1',
     },

@@ -10,291 +10,47 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/shared/web/base.css">
-<style>
-  .shell { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 960px; margin: 0 auto; padding: 40px 32px 64px; }
-  @media (max-width: 760px) { .shell { padding: 20px 16px 48px; } }
-
-  :is(.toolbar, .start-row) + .card { margin-top: 14px; }
-  .back-link, .link-button { text-decoration: none; }
-  .toolbar + .toolbar { margin-top: 10px; }
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
-
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
-  .empty { padding: 40px 28px; text-align: center; color: var(--ink-soft); font-size: 14.5px; line-height: 1.6; }
-  .empty h2 { margin: 0 0 6px; font-size: 17px; color: var(--ink); }
-  .empty p { margin: 0 0 18px; }
-  .empty a { color: var(--link); }
-
-  .group + .group { border-top: 1px solid var(--line); }
-  .group-title { margin: 0; padding: 16px 20px 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-  .exercise-list { list-style: none; margin: 0; padding: 0 8px 8px; }
-  .exercise-row {
-    display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%;
-    padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer;
-    text-decoration: none; color: var(--ink);
-  }
-  .exercise-row:hover { background: var(--hover); }
-  .exercise-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .exercise-id { font: 12.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
-  .exercise-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
-  .exercise-status { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-  .exercise-status.is-new { color: var(--accent); }
-
-  .detail { padding: 24px 28px 28px; }
-  .detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 18px; }
-  .detail-head h2 { margin: 0; font-size: 17px; }
-  .detail-meta { font-size: 13px; color: var(--muted); }
-  .field { margin: 0 0 18px; }
-  .field-label { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-  .field-text { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .focus-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-  .focus-list li { padding: 3px 10px; border-radius: 999px; background: var(--block-fill); font-size: 13px; color: var(--ink-soft); }
-  .note { margin: 22px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--surface-tint); color: var(--muted); font-size: 13.5px; }
-
-  .start-row { display: flex; margin-top: 14px; }
-  .start-row[hidden] { display: none; }
-  .shortcut-hint { font-size: 13px; font-weight: 400; opacity: 0.55; letter-spacing: 0.04em; }
-  .exercise-status.is-failed { color: var(--danger); }
-
-  /* The writing screen and an attempt: the exercise on the left, your English on the right; stacked when narrow. */
-  .work { display: grid; grid-template-columns: 1fr 1fr; }
-  @media (max-width: 760px) { .work { grid-template-columns: 1fr; } }
-  .work-side { min-width: 0; padding: 22px 24px 20px; }
-  .work-side + .work-side { border-left: 1px solid var(--line); }
-  @media (max-width: 760px) { .work-side + .work-side { border-left: 0; border-top: 1px solid var(--line); } }
-  .answer-box {
-    display: block; width: 100%; min-height: 9em; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
-    background: var(--surface-tint); font-size: 15px; line-height: 1.65; resize: vertical;
-  }
-  .answer-box:focus { outline: none; border-color: var(--line-strong); background: var(--surface); }
-  .answer-box.is-long { min-height: 16em; }
-  .work-footer { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
-  .footer-note { flex: 1; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-
-  .result { border-top: 1px solid var(--line); padding: 20px 24px 22px; }
-  .result-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-  .result-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.3; } }
-  .result-summary { margin: 10px 0 0; font-size: 15px; line-height: 1.6; }
-  .meaning-badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--block-fill); color: var(--ink-soft); }
-  .meaning-badge.is-major_loss { color: var(--danger); background: var(--danger-soft); }
-  .meaning-badge.is-minor_loss { color: var(--warning); background: var(--warning-soft); }
-  .strengths { margin: 8px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--ink-soft); }
-  .strengths li::before { content: "+ "; color: var(--accent); font-weight: 600; }
-  .error-list { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: error; }
-  .error-card { counter-increment: error; position: relative; padding: 12px 14px 12px 42px; border: 1px solid var(--line); border-radius: 12px; }
-  .error-card + .error-card { margin-top: 8px; }
-  .error-card::before { content: counter(error); position: absolute; left: 14px; top: 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
-  .error-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-  .error-fix { font-size: 15px; }
-  .error-fix del { color: var(--danger); text-decoration-thickness: 1px; }
-  .error-fix ins { color: var(--ink); text-decoration: none; font-weight: 600; }
-  .error-tag { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .error-tag.is-major { color: var(--danger); }
-  .error-line { margin: 6px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft); }
-  .error-line b { color: var(--ink); font-weight: 600; }
-  .no-errors { margin: 16px 0 0; font-size: 14px; color: var(--ink-soft); }
-  .version-block { margin: 18px 0 0; }
-  .version-block .field-text { font-size: 15px; }
-  .remember { margin: 18px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--surface-tint); }
-  .remember ul { margin: 4px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
-  .result-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 18px; }
-  .failure { padding: 12px 14px; border: 1px solid var(--danger); border-radius: 12px; background: var(--danger-soft); }
-  .failure-title { margin: 0; font-size: 14px; font-weight: 600; }
-  .failure-text { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
-  .raw-output { margin-top: 10px; font-size: 13px; }
-  .raw-output pre { max-height: 240px; overflow: auto; padding: 10px; border-radius: 8px; background: var(--block-fill); white-space: pre-wrap; overflow-wrap: anywhere; }
-
-  /* History: one row per attempt, newest first, grouped by day like translate's sidebar. */
-  .history-row {
-    display: grid; grid-template-columns: 3.5em 9.5em 6.5em minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%;
-    padding: 9px 12px; border-radius: 10px; color: var(--ink); text-decoration: none; cursor: pointer;
-  }
-  .history-row:hover { background: var(--hover); }
-  .history-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .history-time { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .history-type { font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .history-end { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-  .history-end .ghost-button { height: 28px; padding: 0 9px; font-size: 12.5px; color: var(--ink); }
-  @media (max-width: 760px) {
-    .history-row { grid-template-columns: 3.5em minmax(0, 1fr) auto; }
-    .history-type, .history-row .exercise-id { display: none; }
-  }
-
-  .answer-box.is-short { min-height: 5em; }
-  .answer-box.is-essay { min-height: 26em; }
-  .box-gap { margin-top: 16px; }
-  .footer-note.is-under { color: var(--warning); }
-  .band-block { margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-tint); }
-  .band-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-  .band-overall { font-family: "Newsreader", Georgia, serif; font-size: 22px; font-weight: 500; }
-  .band-note { font-size: 12.5px; color: var(--muted); }
-  .criterion-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
-  @media (max-width: 760px) { .criterion-list { grid-template-columns: 1fr; } }
-  .criterion-title { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; font-weight: 600; }
-  .criterion-band { font-variant-numeric: tabular-nums; color: var(--accent); }
-  .criterion .error-line { margin-top: 4px; }
-  .sample-essay { margin-top: 14px; font-size: 14px; }
-  .sample-essay summary { cursor: pointer; color: var(--ink-soft); font-weight: 500; }
-  .sample-essay .field-text { margin-top: 8px; font-size: 14.5px; }
-  .work-side > .footer-note { margin: 6px 0 0; }
-
-  .checklist { margin: 16px 0 0; }
-  .checklist-title { margin: 0 0 8px; font-size: 14.5px; font-weight: 600; }
-  .checklist-list { margin: 0; padding: 0; list-style: none; }
-  .checklist-item { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
-  .checklist-item + .checklist-item { margin-top: 6px; }
-  .checklist-mark { font-size: 15px; font-weight: 700; line-height: 1.4; }
-  .checklist-item.is-fixed .checklist-mark { color: var(--accent); }
-  .checklist-item.is-partly .checklist-mark { color: var(--warning); }
-  .checklist-item.is-missed .checklist-mark { color: var(--danger); }
-  .errors-title { margin: 18px 0 0; }
-  .errors-title + .error-list { margin-top: 8px; }
-
-  /* The error log. Both charts are one series in the accent colour; text keeps the text colours. */
-  .log-body { padding: 22px 24px 24px; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-  .stat { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
-  .stat-label { margin: 0; font-size: 12.5px; color: var(--muted); }
-  .stat-value { margin: 4px 0 0; font-size: 22px; font-weight: 600; color: var(--ink); }
-  .stat-note { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-soft); }
-  .chart-section { margin-top: 26px; }
-  .section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
-  .bar-list { display: grid; gap: 2px; }
-  .bar-row {
-    display: grid; grid-template-columns: 11em minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 4px 6px;
-    border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer;
-  }
-  .bar-row:hover, .bar-row[aria-pressed="true"] { background: var(--hover); }
-  .bar-row:focus-visible, .column:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .bar-row.is-dimmed .bar { opacity: 0.3; }
-  .bar-label { font-size: 13px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .bar { height: 14px; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--accent); }
-  .bar-value { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-  .column-chart { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2px; height: 170px; border-bottom: 1px solid var(--line); padding: 18px 0 0 28px; }
-  .scale-line { position: absolute; left: 28px; right: 0; top: 18px; border-top: 1px solid var(--line); pointer-events: none; }
-  .scale-value { position: absolute; left: -28px; top: -8px; width: 24px; text-align: right; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .column { display: flex; flex-direction: column; min-width: 0; border-radius: 6px; outline: none; }
-  .column:hover { background: var(--hover); }
-  .column-plot { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
-  .column-bar { width: min(24px, 70%); border-radius: 4px 4px 0 0; background: var(--accent); }
-  .column-value { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin-bottom: 3px; }
-  .column-label { position: relative; top: 22px; height: 0; font-size: 11.5px; color: var(--muted); text-align: center; white-space: nowrap; }
-  .column-chart + * { margin-top: 0; }
-  .chart-section:has(.column-chart) { padding-bottom: 22px; }
-  .log-list { margin-top: 0; counter-reset: none; }
-  .log-card { padding-left: 14px; }
-  .log-card::before { content: none; }
-  .log-meta { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-  .log-meta a { color: var(--link); }
-  .more-button { margin-top: 10px; }
-  .chart-tooltip {
-    position: fixed; z-index: 10; max-width: 280px; padding: 6px 9px; border-radius: 8px; background: var(--button);
-    color: var(--button-text); font-size: 12.5px; line-height: 1.4; pointer-events: none; box-shadow: var(--popover-shadow);
-  }
-  .chart-tooltip[hidden] { display: none; }
-
-  .import-dialog {
-    width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px;
-    background: var(--surface); color: var(--ink); box-shadow: var(--popover-shadow);
-  }
-  .import-dialog::backdrop { background: var(--backdrop); }
-  .import-body { padding: 22px 22px 18px; }
-  .import-body h2 { margin: 0 0 14px; font-size: 16px; }
-  .drop-zone {
-    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 16px; border: 1.5px dashed var(--line-strong);
-    border-radius: 12px; color: var(--ink-soft); font-size: 14px; text-align: center;
-  }
-  .drop-zone.is-over { border-color: var(--accent); background: var(--surface-tint); }
-  .import-result { margin-top: 14px; font-size: 14px; line-height: 1.55; }
-  .import-result:empty { display: none; }
-  .import-result .result-file { font-weight: 600; }
-  .import-result.is-error .result-file { color: var(--danger); }
-  .problem-list { max-height: 220px; overflow: auto; margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--block-fill); list-style: none; }
-  .problem-list li { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-  .problem-path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--ink-soft); }
-  .import-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--line); }
-</style>
+<link rel="stylesheet" href="/practice/web/practice.css">
 </head>
 <body>
+<dialog class="sidebar" id="history-sidebar" aria-label="History">
+  <div class="sidebar-top">
+    <button class="ghost-button icon-button" id="sidebar-close-button" aria-label="Hide history" title="Hide history (⌘\)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg>
+    </button>
+  </div>
+  <label class="sidebar-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+    <input id="history-search" type="search" placeholder="Search" aria-label="Search history" autocomplete="off" spellcheck="false">
+    <span class="sidebar-search-hint">⌘K</span>
+  </label>
+  <button class="sidebar-row" id="new-exercise-button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8.5v7M8.5 12h7"/></svg>
+    <span class="row-label">New exercise</span>
+  </button>
+  <div class="history-scroll">
+    <p class="history-status" id="history-status" hidden></p>
+    <ol class="history-list" id="history-list"></ol>
+  </div>
+</dialog>
 <div class="shell">
   <header class="masthead">
+    <button class="ghost-button icon-button" id="sidebar-open-button" aria-label="Show history"
+            aria-controls="history-sidebar" aria-expanded="false" title="Show history (⌘\)" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg>
+    </button>
+    <button class="ghost-button icon-button" id="masthead-new-button" aria-label="New exercise" title="New exercise" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8.5v7M8.5 12h7"/></svg>
+    </button>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.5l2.2 6.6 6.8 2.4-6.8 2.4L12 20.5l-2.2-6.6-6.8-2.4 6.8-2.4z"/></svg>
-    <span class="wordmark">Claude <span>Practice</span></span>
+    <span class="wordmark">Claude <span>Translate</span></span>
     <nav class="masthead-nav" aria-label="Pages">
       <a class="masthead-link" href="/">Translate</a>
       <a class="masthead-link" href="/practice" aria-current="page">Practice</a>
     </nav>
   </header>
-
-  <section id="home-view" hidden>
-    <div class="toolbar">
-      <div class="filters" id="filters" role="toolbar" aria-label="Exercise type"></div>
-      <a class="ghost-button link-button" href="#/errors">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19V11M12 19V5M19 19v-6"/></svg>
-        Error log
-      </a>
-      <a class="ghost-button link-button" href="#/history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
-        History
-      </a>
-      <button class="ghost-button" id="import-button">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
-        Import file
-      </button>
-    </div>
-    <div class="start-row" id="start-row" hidden>
-      <button class="primary-button" id="start-button"></button>
-    </div>
-    <div class="card" id="exercise-card"></div>
-  </section>
-
-  <section id="history-view" hidden>
-    <div class="toolbar">
-      <a class="ghost-button back-link" href="#/">← Exercises</a>
-    </div>
-    <div class="toolbar">
-      <div class="filters" id="history-filters" role="toolbar" aria-label="Exercise type"></div>
-    </div>
-    <div class="card" id="history-card"></div>
-  </section>
-
-  <section id="errors-view" hidden>
-    <div class="toolbar">
-      <a class="ghost-button back-link" href="#/">← Exercises</a>
-    </div>
-    <div class="toolbar">
-      <div class="filters" id="errors-filters" role="toolbar" aria-label="Kind of mistake"></div>
-    </div>
-    <div class="card" id="errors-card"></div>
-  </section>
-
-  <section id="exercise-view" hidden>
-    <div class="toolbar">
-      <a class="ghost-button back-link" href="#/" id="back-link">← Exercises</a>
-    </div>
-    <div class="card" id="exercise-detail"></div>
-  </section>
+  <main class="page" id="main" tabindex="-1"></main>
 </div>
-
-<dialog class="import-dialog" id="import-dialog" aria-labelledby="import-title">
-  <div class="import-body">
-    <h2 id="import-title">Import exercises</h2>
-    <div class="drop-zone" id="drop-zone">
-      <span>Drop a .json file here, or</span>
-      <button class="primary-button" id="choose-file-button">Choose file</button>
-      <input type="file" id="file-input" accept=".json,application/json" hidden>
-    </div>
-    <div class="import-result" id="import-result" aria-live="polite"></div>
-  </div>
-  <div class="import-actions">
-    <button class="ghost-button" id="copy-errors-button" hidden>Copy errors</button>
-    <button class="primary-button" id="import-done-button">Done</button>
-  </div>
-</dialog>
-
 <script type="module" src="/practice/web/practice.ts"></script>
 </body>
 </html>

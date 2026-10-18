@@ -1,75 +1,94 @@
-// Tests for the exercise file check (features/practice/server/exercise-import.ts).
+// The import file check (features/practice/import-check.ts): the example is valid, and every rule gives one clear line.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { checkExerciseFile, exerciseTitleOf } from '../features/practice/server/exercise-import.ts';
+import { checkProjectFile } from '../features/practice/import-check.ts';
 
-const EXAMPLE_FILE = JSON.parse(readFileSync(new URL('../features/practice/examples/exercises.example.json', import.meta.url), 'utf8'));
+const EXAMPLE = JSON.parse(readFileSync(new URL('../features/practice/examples/example-project.json', import.meta.url), 'utf8'));
+const exercise = (id: string, type: string, content: object, extra: object = {}) => ({ id, type, content, ...extra });
+const fileWith = (...exercises: object[]) => JSON.stringify({ format: 2, project: { name: 'P' }, exercises });
+const problemsOf = (text: string) => checkProjectFile(text).errors;
 
-const fileWith = (...exercises: unknown[]) => ({ schema_version: 1, exercises });
-const sentence = (fields: Record<string, unknown> = {}) => ({ id: 's1', type: 'sentence_translation', text_vi: 'Xin chào.', ...fields });
-const paths = (file: unknown) => checkExerciseFile(file).errors.map((error) => error.path);
-
-test('the shipped example file passes with no errors and no warnings', () => {
-  const { exercises, errors, warnings } = checkExerciseFile(EXAMPLE_FILE);
-  assert.deepEqual(errors, []);
-  assert.deepEqual(warnings, []);
-  assert.equal(exercises.length, 5);
+test('the example file is valid and covers all five types', () => {
+  const { file, errors } = checkProjectFile(JSON.stringify(EXAMPLE));
+  assert.equal(errors, null);
+  assert.equal(file?.name, 'IELTS Writing Task 2 – Example');
+  assert.deepEqual([...new Set(file?.exercises.map((entry) => entry.type))].sort(), ['choice', 'fill', 'flashcard', 'rewrite', 'write']);
+  assert.equal(file?.exercises[0].key, 'ex-01');
+  assert.equal(file?.exercises[0].topic, 'transport');
+  assert.deepEqual(file?.exercises[0].tags, []);
 });
 
-test('file level: wrong schema_version, no exercises, unknown top-level field', () => {
-  assert.deepEqual(paths({ schema_version: 2, exercises: [sentence()] }), ['schema_version']);
-  assert.deepEqual(paths({ schema_version: 1, exercises: [] }), ['exercises']);
-  assert.deepEqual(paths({ schema_version: 1, exercises: [sentence()], extra: true }), ['extra']);
-  assert.deepEqual(paths([sentence()]), ['']);
+test('text that is not JSON says where', () => {
+  assert.deepEqual(problemsOf('{\n  "format": 2,\n  oops\n}'), ['Not valid JSON (line 3).']);
+  assert.deepEqual(problemsOf('[]'), ['The file must be one JSON object.']);
 });
 
-test('a missing required field, an empty string and an unknown field are errors with their path', () => {
-  assert.deepEqual(paths(fileWith({ id: 's1', type: 'sentence_translation' })), ['exercises[0].text_vi']);
-  assert.deepEqual(paths(fileWith(sentence({ text_vi: '   ' }))), ['exercises[0].text_vi']);
-  assert.deepEqual(paths(fileWith(sentence({ refrence_en: 'Hello.' }))), ['exercises[0].refrence_en']);
+test('the file level: format, project, exercises and unknown fields', () => {
+  assert.deepEqual(problemsOf('{"format": 1, "exercises": [], "extra": 1}'), [
+    'extra is not a known field.', 'format must be 2.', 'project is missing.', 'exercises must be a list of 1 to 500 items.',
+  ]);
+  assert.deepEqual(problemsOf('{"format": 2, "project": {"name": " "}, "exercises": []}'), [
+    'project.name must be a non-empty text.', 'exercises must be a list of 1 to 500 items.',
+  ]);
 });
 
-test('bad id, duplicate id and unknown type', () => {
-  assert.deepEqual(paths(fileWith(sentence({ id: 'S 1' }))), ['exercises[0].id']);
-  assert.deepEqual(paths(fileWith(sentence(), sentence())), ['exercises[1].id']);
-  assert.deepEqual(paths(fileWith(sentence({ type: 'listening' }))), ['exercises[0].type']);
+test('each problem is one line with the exercise number and type', () => {
+  const text = fileWith(
+    exercise('a', 'choice', { question: 'Q', options: [{ text: 'x', why: 'y' }, { text: 'z', why: 'w' }] }),
+    exercise('b', 'flashcard', { front: 'f' }),
+    exercise('a', 'flashcard', { front: 'f', back: 'b', colour: 'red' }),
+    exercise('Bad Id', 'nope', {}),
+    { type: 'write' },
+  );
+  assert.deepEqual(problemsOf(text), [
+    'Exercise 1 (choice): content.options: no option is marked correct.',
+    'Exercise 2 (flashcard): content.back is missing.',
+    'Exercise 3 (flashcard): content.colour is not a known field.',
+    'Exercise 3 (flashcard): id "a" is already used by exercise 1.',
+    'Exercise 4: type must be one of: rewrite, write, choice, fill, flashcard.',
+    'Exercise 4: id may use only a-z, 0-9 and -.',
+    'Exercise 5 (write): id is missing.',
+    'Exercise 5 (write): content is missing.',
+  ]);
 });
 
-test('text limits and number ranges', () => {
-  assert.deepEqual(paths(fileWith(sentence({ text_vi: 'a'.repeat(501) }))), ['exercises[0].text_vi']);
-  const free_writing = { id: 'f1', type: 'free_writing', prompt_en: 'Discuss.', essay_type: 'opinion' };
-  assert.deepEqual(paths(fileWith(free_writing)), []);
-  assert.deepEqual(paths(fileWith({ ...free_writing, min_words: 10 })), ['exercises[0].min_words']);
-  assert.deepEqual(paths(fileWith({ ...free_writing, essay_type: 'story' })), ['exercises[0].essay_type']);
+test('a choice needs 2 to 6 options, each with a reason', () => {
+  const one = exercise('c', 'choice', { question: 'Q', options: [{ text: 'x', why: 'y', correct: true }] });
+  assert.deepEqual(problemsOf(fileWith(one)), ['Exercise 1 (choice): content.options must be a list of 2 to 6 items.']);
+  const no_reason = exercise('c', 'choice', { question: 'Q', options: [{ text: 'x', correct: true }, { text: 'y' }] });
+  assert.deepEqual(problemsOf(fileWith(no_reason)), ['Exercise 1 (choice): content.options[0].why is missing.', 'Exercise 1 (choice): content.options[1].why is missing.']);
 });
 
-test('error correction: each wrong must appear exactly once; a corrected_en mismatch is only a warning', () => {
-  const correction = (fields: Record<string, unknown>) => ({
-    id: 'c1', type: 'error_correction', length: 'sentence', text_en: 'He go to school and he go home.',
-    mistakes: [{ wrong: 'He go to', correct: 'He goes to', category: 'subject_verb_agreement' }],
-    corrected_en: 'He goes to school and he go home.', ...fields,
-  });
-  assert.deepEqual(checkExerciseFile(fileWith(correction({}))).errors, []);
-  assert.deepEqual(paths(fileWith(correction({ mistakes: [{ wrong: 'go', correct: 'goes', category: 'subject_verb_agreement' }] }))),
-    ['exercises[0].mistakes[0].wrong']);
-  assert.deepEqual(paths(fileWith(correction({ mistakes: [{ wrong: 'she go', correct: 'she goes', category: 'subject_verb_agreement' }] }))),
-    ['exercises[0].mistakes[0].wrong']);
-  assert.deepEqual(paths(fileWith(correction({ mistakes: [{ wrong: 'He go to', correct: 'He goes to', category: 'grammar' }] }))),
-    ['exercises[0].mistakes[0].category']);
-  const { errors, warnings } = checkExerciseFile(fileWith(correction({ corrected_en: 'Something else.' })));
-  assert.deepEqual(errors, []);
-  assert.deepEqual(warnings.map((warning) => warning.path), ['exercises[0].corrected_en']);
+test('fill markers match the gaps one to one, in order', () => {
+  const gaps = [{ answer: 'a' }, { answer: ['b', 'c'] }];
+  assert.equal(problemsOf(fileWith(exercise('f', 'fill', { text: 'A {{1}} B {{2}}.', gaps }))), null);
+  assert.deepEqual(problemsOf(fileWith(exercise('f', 'fill', { text: 'A {{1}} B {{3}}.', gaps }))),
+    ['Exercise 1 (fill): content.text: the markers must be {{1}} to {{2}} in order, one per gap (found {{1}} {{3}}).']);
+  assert.deepEqual(problemsOf(fileWith(exercise('f', 'fill', { text: 'No markers.', gaps }))),
+    ['Exercise 1 (fill): content.text: the markers must be {{1}} to {{2}} in order, one per gap (found none).']);
+  assert.deepEqual(problemsOf(fileWith(exercise('f', 'fill', { text: 'A {{1}}.', gaps: [{ answer: [] }] }))), ['Exercise 1 (fill): content.gaps[0].answer must be a non-empty text.']);
 });
 
-test('strings are trimmed and turned into NFC', () => {
-  const decomposed = 'Việt Nam'; // "Việt Nam" with combining marks (NFD)
-  const { exercises } = checkExerciseFile(fileWith(sentence({ text_vi: `  ${decomposed}  ` })));
-  assert.equal((exercises[0] as { text_vi: string }).text_vi, 'Việt Nam'.normalize('NFC'));
-  assert.notEqual(decomposed, 'Việt Nam'.normalize('NFC'));
+test('each planted mistake appears once in the text', () => {
+  const content = { instruction: 'Fix.', length: 'sentence', prefill: true, text: 'Many student like it and student agree.' };
+  assert.deepEqual(problemsOf(fileWith(exercise('r', 'rewrite', { ...content, mistakes: [{ wrong: 'student', right: 'students' }, { wrong: 'nowhere', right: 'x' }] }))), [
+    'Exercise 1 (rewrite): content.mistakes[0].wrong "student" must appear exactly once in text (found 2).',
+    'Exercise 1 (rewrite): content.mistakes[1].wrong "nowhere" must appear exactly once in text (found 0).',
+  ]);
 });
 
-test('a title falls back to the start of the main text', () => {
-  assert.equal(exerciseTitleOf(sentence() as never), 'Xin chào.');
-  assert.equal(exerciseTitleOf(sentence({ title: 'Greeting' }) as never), 'Greeting');
+test('field kinds, limits and the number of exercises', () => {
+  const write = (content: object) => problemsOf(fileWith(exercise('w', 'write', content)));
+  assert.deepEqual(write({ prompt: 'P', min_words: 0, minutes: 'x' }), [
+    'Exercise 1 (write): content.min_words must be a whole number from 1 to 2000.', 'Exercise 1 (write): content.minutes must be a whole number from 1 to 180.',
+  ]);
+  assert.deepEqual(write({ prompt: 'P'.repeat(2_001) }), ['Exercise 1 (write): content.prompt is longer than 2000 characters.']);
+  assert.deepEqual(problemsOf(fileWith(exercise('r', 'rewrite', { instruction: 'I', text: 'T', length: 'page', constraints: ['a', 'b', 'c', 'd'] }))), [
+    'Exercise 1 (rewrite): content.length must be one of: sentence, paragraph, essay.', 'Exercise 1 (rewrite): content.constraints must be a list of 1 to 3 items.',
+  ]);
+  assert.deepEqual(problemsOf(fileWith(exercise('t', 'flashcard', { front: 'f', back: 'b' }, { tags: Array(11).fill('x') }))), ['Exercise 1 (flashcard): tags must be a list of 0 to 10 items.']);
+  const many = Array.from({ length: 501 }, (_, index) => exercise(`k${index}`, 'flashcard', { front: 'f', back: 'b' }));
+  assert.deepEqual(problemsOf(fileWith(...many)), ['exercises must be a list of 1 to 500 items.']);
+  assert.deepEqual(problemsOf(' '.repeat(2_000_001)), ['The file is larger than 2 MB.']);
 });

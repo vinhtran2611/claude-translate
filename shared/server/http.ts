@@ -26,13 +26,16 @@ export function sendJson(res: ServerResponse, status_code: number, body: unknown
   res.end(JSON.stringify(body));
 }
 
+// The file is read before the status line is sent, so a missing file is a 500, not an empty 200.
 export async function sendFile(res: ServerResponse, path: string, content_type: string): Promise<void> {
+  const content = await readFile(path);
   res.writeHead(200, { 'Content-Type': content_type, 'Cache-Control': 'no-cache' });
-  res.end(await readFile(path));
+  res.end(content);
 }
 
 // A page module, served as JavaScript with its types stripped, so the browser runs the same file tsc checks.
 export async function sendModule(res: ServerResponse, path: string): Promise<void> {
+  const source = stripTypeScriptTypes(await readFile(path, 'utf8'));
   res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(stripTypeScriptTypes(await readFile(path, 'utf8')));
+  res.end(source);
 }

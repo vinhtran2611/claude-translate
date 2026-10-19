@@ -258,7 +258,8 @@ Base path: `/api/practice`. JSON in, JSON out, `snake_case` fields, ISO 8601 UTC
 | 18 | `POST /api/practice/attempts/{id}/regrade` | `{ model_id?, effort? }` | `202 Attempt` (`status: "grading"`) | `404`, `409 not_failed`, `400 invalid` |
 | 19 | `DELETE /api/practice/attempts/{id}` | — | `204` | `404`, `409 grading_in_progress` |
 
-19 endpoints, each with one job. A few notes:
+19 endpoints, each with one job (§10 adds 4 more: rename a project, rename and move an exercise, and the order). A few
+notes:
 
 - **#5 and #9 are upserts.** The same `PUT` sent twice gives the same result (the second one is `200`, version unchanged).
   This is what makes the API safe for an agent to retry.
@@ -449,9 +450,15 @@ have only a few format-2 files, and the generator prompt is one edit.
   "limits": {
     "import_body_bytes": 2000000, "exercises_per_import": 500, "exercise_body_bytes": 200000,
     "attempt_body_bytes": 262144, "key_pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "attempts_page_max": 200
-  }
+  },
+  "endpoints": [
+    { "method": "GET", "path": "/api/practice", "query": [], "about": "This index: version, limits, types and every endpoint." },
+    { "method": "GET", "path": "/api/practice/projects", "query": ["archived"], "about": "List projects, newest activity first." }
+  ]
 }
 ```
+
+(`endpoints` was added later, §10.5; the example shows two of the 23.)
 
 ### 4.2 JSON Schema per exercise type
 
@@ -798,4 +805,36 @@ whole list in its new order, as `GET …/exercises` gives it).
 **Import keeps following the file's order**, also for exercises that already exist (as built, §2.6 and §3.5). The file is
 the full intent of the agent that wrote it; if a re-import kept the old order, a fixed file could never change the order.
 Exercises that are not in the file keep their order after the file's ones.
+
+### 10.5 Every endpoint in the index
+
+`GET /api/practice` now has `endpoints`: one item per endpoint, `{ method, path, query, about }`, for example
+`{ "method": "POST", "path": "/api/practice/projects/{p}/rename", "query": ["dry_run"], "about": "Give a project a new key: { key }. Attempts stay linked." }`.
+`{p}` is a project key, `{e}` an exercise key, `{id}` an attempt's number; `query` lists the parameters the endpoint takes
+(any other is a `400`).
+
+The list is made from the server's own route table: each route is written with this readable path and its line, and the
+URL pattern is made from the path. So the list cannot miss an endpoint or show a wrong path. 23 endpoints today.
+
+### 10.6 The new endpoints, together
+
+| Method and path | Body | Success | Typical errors |
+|---|---|---|---|
+| `POST /api/practice/projects/{p}/rename` | `{ key }` | `200 Project` | `404`, `409 key_taken`, `400 invalid` |
+| `POST /api/practice/projects/{p}/exercises/{e}/rename` | `{ key }` | `200 Exercise` | `404`, `409 key_taken`, `400 invalid` |
+| `POST /api/practice/projects/{p}/exercises/{e}/move` | `{ project }` | `200 Exercise` | `404`, `409 key_taken`, `400 invalid` |
+| `PUT /api/practice/projects/{p}/order` | `{ keys }` | `200 { items: ExerciseItem[] }` | `404`, `400 invalid` |
+
+All four take `?dry_run=true`.
+
+### 10.7 Not built
+
+| Not building | Why |
+|---|---|
+| Rename by `PUT` with a new key in the body | Surprising, and a typo would rename by accident (§10.1). |
+| Move and rename in one call | Two small calls are clearer; a clash says "rename first" (§10.3). |
+| Set one exercise's `position` | `PUT /order` with one key does the same, with one rule for import and API (§10.4). |
+| Redirects from an old key to the new one | Needs a table of old keys forever. Keys change rarely, by you, on purpose. |
+| Moving many exercises in one call | Not needed yet; one call per exercise is fine at this size. |
+| The page UI for rename, move and order | The task is the API; the page can call these endpoints later. |
 

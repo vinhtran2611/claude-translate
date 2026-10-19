@@ -43,7 +43,8 @@ const ATTEMPTS_PAGE_DEFAULT = 50;
 const ATTEMPTS_PAGE_MAX = 200;
 const ATTEMPT_STATUSES: AttemptStatus[] = ['grading', 'graded', 'failed'];
 
-const API_INDEX: ApiIndex = {
+// The index without its list of endpoints, which is made from the routes.
+const API_INDEX: Omit<ApiIndex, 'endpoints'> = {
   api: 'practice',
   version: 3,
   docs: '/practice/format-guide.md',
@@ -60,7 +61,11 @@ const SCHEMAS = new Map([['exercise', exerciseSchema()], ['import', importSchema
 type Handler = (req: IncomingMessage, res: ServerResponse, params: string[], query: URLSearchParams) => Promise<void> | void;
 interface Route {
   method: string;
+  // As people write it, like /api/practice/projects/{p}; listed in the index.
+  path: string;
   pattern: RegExp;
+  // One line for the index.
+  about: string;
   // The query parameters it takes; any other is a 400.
   query?: string[];
   handler: Handler;
@@ -463,40 +468,59 @@ export function createPracticeFeature({ database_path }: { database_path: string
     grader.watch(res, attempt_id);
   }
 
-  // The parts of a path: a project or exercise key (checked by the handler that needs it), or an attempt's number.
-  const KEY = '([^/]+)';
-  const ID = '(\\d{1,9})';
-  function route(method: string, path: string, handler: Handler, query?: string[]): Route {
-    return { method, pattern: new RegExp(`^/api/practice${path}$`), handler, query };
+  // The parts of a readable path: {p} a project key and {e} an exercise key (checked by the handler that needs it), {id} an
+  // attempt's number, {name} a schema's name.
+  function patternOf(path: string): RegExp {
+    const pattern = path
+      .replaceAll('.', '\\.')
+      .replaceAll('{p}', '([^/]+)')
+      .replaceAll('{e}', '([^/]+)')
+      .replaceAll('{id}', '(\\d{1,9})')
+      .replaceAll('{name}', '([a-z]+)');
+    return new RegExp(`^${pattern}$`);
+  }
+  function route(method: string, path: string, about: string, handler: Handler, query?: string[]): Route {
+    const full_path = `/api/practice${path}`;
+    return { method, path: full_path, pattern: patternOf(full_path), about, handler, query };
   }
   const routes: Route[] = [
-    route('GET', '', (_req, res) => sendJson(res, 200, API_INDEX)),
-    route('GET', '/schemas/([a-z]+)\\.json', (_req, res, [name]) => found(res, SCHEMAS.get(name) ?? null, `schema "${name}"`)),
-    route('GET', '/grading-options', (_req, res) => sendJson(res, 200, grading_options)),
+    route('GET', '', 'This index: version, limits, types and every endpoint.', (_req, res) => sendJson(res, 200, api_index)),
+    route('GET', '/schemas/{name}.json', 'JSON Schema of an exercise (exercise) or an import file (import).',
+      (_req, res, [name]) => found(res, SCHEMAS.get(name) ?? null, `schema "${name}"`)),
+    route('GET', '/grading-options', 'The models and efforts the AI grader can use.', (_req, res) => sendJson(res, 200, grading_options)),
 
-    route('GET', '/projects', listProjects, ['archived']),
-    route('GET', `/projects/${KEY}`, (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
-    route('PUT', `/projects/${KEY}`, putProject, ['dry_run']),
-    route('DELETE', `/projects/${KEY}`, deleteProject, ['with_attempts']),
-    route('POST', `/projects/${KEY}/rename`, renameProject, ['dry_run']),
-    route('GET', `/projects/${KEY}/export`, exportProject),
-    route('POST', '/import', importFile, ['dry_run']),
+    route('GET', '/projects', 'List projects, newest activity first.', listProjects, ['archived']),
+    route('GET', '/projects/{p}', 'Read one project.', (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
+    route('PUT', '/projects/{p}', 'Create or replace a project: { name, description?, archived? }.', putProject, ['dry_run']),
+    route('DELETE', '/projects/{p}', 'Delete a project; with attempts only with ?with_attempts=true.', deleteProject, ['with_attempts']),
+    route('POST', '/projects/{p}/rename', 'Give a project a new key: { key }. Attempts stay linked.', renameProject, ['dry_run']),
+    route('GET', '/projects/{p}/export', 'The project as an import file (format 3).', exportProject),
+    route('POST', '/import', 'Import a format 3 file: upsert the project and its exercises by key.', importFile, ['dry_run']),
 
-    route('GET', `/projects/${KEY}/exercises`, listExercises, ['type', 'tag']),
-    route('PUT', `/projects/${KEY}/order`, putOrder, ['dry_run']),
-    route('GET', `/projects/${KEY}/exercises/${KEY}`, readExercise),
-    route('PUT', `/projects/${KEY}/exercises/${KEY}`, putExercise, ['dry_run']),
-    route('DELETE', `/projects/${KEY}/exercises/${KEY}`, deleteExercise),
-    route('POST', `/projects/${KEY}/exercises/${KEY}/rename`, renameExercise, ['dry_run']),
-    route('POST', `/projects/${KEY}/exercises/${KEY}/move`, moveExercise, ['dry_run']),
+    route('GET', '/projects/{p}/exercises', 'List a project\'s exercises in order.', listExercises, ['type', 'tag']),
+    route('PUT', '/projects/{p}/order', 'Set the order: { keys }; the keys not listed follow in their order.', putOrder, ['dry_run']),
+    route('GET', '/projects/{p}/exercises/{e}', 'Read one exercise with its content.', readExercise),
+    route('PUT', '/projects/{p}/exercises/{e}', 'Create or replace an exercise.', putExercise, ['dry_run']),
+    route('DELETE', '/projects/{p}/exercises/{e}', 'Delete an exercise; its attempts stay.', deleteExercise),
+    route('POST', '/projects/{p}/exercises/{e}/rename', 'Give an exercise a new key: { key }. Attempts follow it.', renameExercise, ['dry_run']),
+    route('POST', '/projects/{p}/exercises/{e}/move', 'Move an exercise to another project: { project }. Attempts follow it.', moveExercise, ['dry_run']),
 
-    route('POST', `/projects/${KEY}/exercises/${KEY}/attempts`, createAttempt),
-    route('GET', '/attempts', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),
-    route('GET', `/attempts/${ID}`, (_req, res, [id]) => found(res, store.readAttempt(Number(id)), 'attempt')),
-    route('DELETE', `/attempts/${ID}`, deleteAttempt),
-    route('POST', `/attempts/${ID}/regrade`, regrade),
-    route('GET', `/attempts/${ID}/stream`, watchAttempt),
+    route('POST', '/projects/{p}/exercises/{e}/attempts', 'Answer an exercise; AI grading starts in the background.', createAttempt),
+    route('GET', '/attempts', 'List attempts, newest first.', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),
+    route('GET', '/attempts/{id}', 'Read one attempt.', (_req, res, [id]) => found(res, store.readAttempt(Number(id)), 'attempt')),
+    route('DELETE', '/attempts/{id}', 'Delete an attempt (not while it is graded).', deleteAttempt),
+    route('POST', '/attempts/{id}/regrade', 'Grade a failed attempt again: { model_id?, effort? }.', regrade),
+    route('GET', '/attempts/{id}/stream', 'Follow a grading as server-sent events.', watchAttempt),
   ];
+  const api_index: ApiIndex = {
+    ...API_INDEX,
+    endpoints: routes.map((one_route) => ({
+      method: one_route.method,
+      path: one_route.path,
+      query: one_route.query ?? [],
+      about: one_route.about,
+    })),
+  };
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
     if (req.method === 'GET' && FILES.has(pathname)) {

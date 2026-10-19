@@ -69,6 +69,22 @@ test('the index tells an agent the version, the types and the limits', async () 
   assert.equal(index.limits.attempts_page_max, 200);
 });
 
+test('the index lists every endpoint with its method, path, parameters and one line', async () => {
+  const index = await get('');
+  assert.equal(index.endpoints.length, 23);
+  const lines = index.endpoints.map((endpoint: any) => `${endpoint.method} ${endpoint.path}`);
+  assert.ok(lines.includes('GET /api/practice'));
+  assert.ok(lines.includes('POST /api/practice/projects/{p}/rename'));
+  assert.ok(lines.includes('POST /api/practice/projects/{p}/exercises/{e}/rename'));
+  assert.ok(lines.includes('POST /api/practice/projects/{p}/exercises/{e}/move'));
+  assert.ok(lines.includes('PUT /api/practice/projects/{p}/order'));
+  assert.ok(lines.includes('GET /api/practice/attempts/{id}/stream'));
+  for (const endpoint of index.endpoints) assert.ok(endpoint.about.length > 0, endpoint.path);
+
+  const attempts = index.endpoints.find((endpoint: any) => endpoint.method === 'GET' && endpoint.path === '/api/practice/attempts');
+  assert.deepEqual(attempts.query, ['project', 'exercise', 'status', 'since', 'before', 'limit']);
+});
+
 test('the exercise schema has one entry per type, made from the checker', async () => {
   const schema = await get('/schemas/exercise.json');
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');

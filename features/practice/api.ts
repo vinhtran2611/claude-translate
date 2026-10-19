@@ -169,6 +169,9 @@ export interface ApiIndex {
     import_body_bytes: number; exercises_per_import: number; exercise_body_bytes: number; attempt_body_bytes: number;
     key_pattern: string; attempts_page_max: number;
   };
+  // Every endpoint, so an agent finds them all from this one URL. path: {p} a project key, {e} an exercise key, {id} an
+  // attempt's number. query: the parameters it takes.
+  endpoints: { method: string; path: string; query: string[]; about: string }[];
 }
 
 // A list: wrapped, so it can get a field later. next_before: the `before` of the next page, when there is one.

@@ -292,10 +292,16 @@ export function checkExerciseInput(value: unknown, url_key: string): { exercise:
 // The body of PUT /projects/:key, with the defaults filled in: the project, or every problem.
 export function checkProjectInput(value: unknown): { project: Required<ProjectInput>; problems: null } | { project: null; problems: Problem[] } {
   const problems = new Problems();
-  if (isObject(value)) checkFields(value, PROJECT_INPUT_FIELDS, [], problems);
-  else problems.add([], 'wrong_type', 'The body must be a JSON object.');
+  if (!isObject(value)) {
+    problems.add([], 'wrong_type', 'The body must be a JSON object.');
+    return { project: null, problems: problems.list };
+  }
+  // GET gives "" for no description, so a PUT of what GET gave must take it back.
+  const fields = { ...value };
+  if (fields.description === '') delete fields.description;
+  checkFields(fields, PROJECT_INPUT_FIELDS, [], problems);
   if (problems.list.length > 0) return { project: null, problems: problems.list };
-  const { name, description = '', archived = false } = value as unknown as ProjectInput;
+  const { name, description = '', archived = false } = fields as unknown as ProjectInput;
   return { project: { name: name.trim(), description: description.trim(), archived }, problems: null };
 }
 

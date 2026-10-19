@@ -1,27 +1,30 @@
-// The Practice page: a hash router. Routes (the first match wins):
-//   #/                  projects            #/a/<attempt>          an attempt, read-only
-//   #/new               new project         #/p/<project>/x/<ex>   do an exercise
-//   #/p/<project>       next exercise       #/p/<project>/add      add exercises
+// The Practice page: a hash router. Projects and exercises are named by their keys, attempts by their number:
+//   #/                  projects
+//   #/new               import a file
+//   #/p/<project>       the project: the next exercise
+//   #/p/<project>/x/<exercise>   do an exercise
+//   #/a/<attempt>       an attempt, read-only
 // Each navigation aborts the previous one's requests and timers (its signal), so a slow answer can never draw over a newer page.
 import { requiredElement } from '../../../shared/web/ui.ts';
 import { ApiError } from './client.ts';
 import { h, link } from './dom.ts';
 import { showAttempt, showExercise } from './exercise.ts';
 import { pageTitleOf } from './format.ts';
-import { showAddExercises, showNewProject } from './import-view.ts';
+import { showImport } from './import-view.ts';
 import type { Page } from './page.ts';
 import { showProjectHome } from './project-home.ts';
 import { showProjects } from './projects.ts';
 import { hideSide } from './side.ts';
 
-type View = (page: Page, ...ids: number[]) => Promise<void>;
+// A view gets the parts of the hash the pattern captured: keys, or an attempt's number as text.
+type View = (page: Page, ...params: string[]) => Promise<void>;
 
+const KEY = '([a-z0-9][a-z0-9-]{0,63})';
 const ROUTES: { pattern: RegExp; view: View }[] = [
   { pattern: /^\/$/, view: showProjects },
-  { pattern: /^\/new$/, view: showNewProject },
-  { pattern: /^\/p\/(\d{1,9})$/, view: showProjectHome },
-  { pattern: /^\/p\/(\d{1,9})\/add$/, view: showAddExercises },
-  { pattern: /^\/p\/(\d{1,9})\/x\/(\d{1,9})$/, view: showExercise },
+  { pattern: /^\/new$/, view: showImport },
+  { pattern: new RegExp(`^/p/${KEY}$`), view: showProjectHome },
+  { pattern: new RegExp(`^/p/${KEY}/x/${KEY}$`), view: showExercise },
   { pattern: /^\/a\/(\d{1,9})$/, view: showAttempt },
 ];
 
@@ -46,7 +49,8 @@ async function navigate(): Promise<void> {
   if (route === undefined) return showMessage('Page not found', 'There is nothing at this address.', link('#/', '', '← Back to Projects'));
   const page: Page = { main, signal: own.signal, setTitle: (view) => { document.title = pageTitleOf(view); } };
   try {
-    await route.view(page, ...route.match!.slice(1).map(Number));
+    const params = route.match!.slice(1);
+    await route.view(page, ...params);
     if (!own.signal.aborted && !is_first_page) main.focus({ preventScroll: true });
     is_first_page = false;
   } catch (error) {

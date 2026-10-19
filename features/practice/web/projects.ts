@@ -4,7 +4,7 @@ import type { Project } from '../api.ts';
 import { listProjects } from './client.ts';
 import { h, link } from './dom.ts';
 import { pluralize, relativeDay, typeMix } from './format.ts';
-import type { Page } from './page.ts';
+import { reloadView, type Page } from './page.ts';
 import { showProjectsSide } from './side.ts';
 
 const SORTS = {
@@ -13,9 +13,18 @@ const SORTS = {
   created: { label: 'Newest', compare: (a: Project, b: Project) => b.created_at.localeCompare(a.created_at) },
 };
 
+// Archived projects are hidden unless this is on. It lasts until the page is reloaded.
+let is_showing_archived = false;
+
+function activityOf(project: Project): string {
+  if (project.archived) return 'Archived';
+  if (project.last_activity_at === null) return `Created ${relativeDay(project.created_at)} · not started`;
+  return `Last activity ${relativeDay(project.last_activity_at)}`;
+}
+
 function createCard(project: Project): HTMLAnchorElement {
-  const activity = project.last_activity_at === null ? `Created ${relativeDay(project.created_at)} · not started` : `Last activity ${relativeDay(project.last_activity_at)}`;
-  return link(`#/p/${project.id}`, 'project-card',
+  const activity = activityOf(project);
+  return link(`#/p/${project.key}`, 'project-card',
     h('div', 'project-icon', Array.from(project.name)[0].toUpperCase()),
     h('h2', '', project.name),
     h('p', 'count', `${pluralize(project.exercise_count, 'exercise')} · ${project.done_count} done`),
@@ -25,7 +34,7 @@ function createCard(project: Project): HTMLAnchorElement {
 
 export async function showProjects(page: Page): Promise<void> {
   page.setTitle('Projects');
-  const projects = await listProjects(page.signal);
+  const projects = await listProjects(is_showing_archived ? 'all' : 'false', page.signal);
   showProjectsSide(projects);
   const sort = Object.assign(h('select'), { id: 'sort' });
   sort.append(...Object.entries(SORTS).map(([value, { label }]) => Object.assign(h('option', '', label), { value })));
@@ -42,13 +51,24 @@ export async function showProjects(page: Page): Promise<void> {
   search.addEventListener('input', draw, { signal: page.signal });
   sort.addEventListener('change', draw);
   page.main.append(h('h1', '', 'Projects'));
+  const new_project = link('#/new', 'primary-button', 'New project');
+  const archived_toggle = createArchivedToggle();
   if (projects.length === 0) {
-    page.main.append(h('div', 'toolbar', h('span', 'grow'), link('#/new', 'primary-button', 'New project')),
-      h('p', 'empty-note', 'No projects yet. A project is one JSON file of exercises: choose New project to import one.'));
+    const toolbar = h('div', 'toolbar', archived_toggle, h('span', 'grow'), new_project);
+    const note = h('p', 'empty-note', 'No projects yet. A project is one JSON file of exercises: choose New project to import one.');
+    page.main.append(toolbar, note);
     return;
   }
-  page.main.append(
-    h('div', 'toolbar', h('label', 'settings-chip sort-chip', 'Sort by', sort), h('span', 'grow'), link('#/new', 'primary-button', 'New project')),
-    grid);
+  const toolbar = h('div', 'toolbar', h('label', 'settings-chip sort-chip', 'Sort by', sort), archived_toggle, h('span', 'grow'), new_project);
+  page.main.append(toolbar, grid);
   draw();
+}
+
+function createArchivedToggle(): HTMLElement {
+  const checkbox = Object.assign(h('input'), { type: 'checkbox', checked: is_showing_archived });
+  checkbox.addEventListener('change', () => {
+    is_showing_archived = checkbox.checked;
+    reloadView();
+  });
+  return h('label', 'settings-chip', checkbox, 'Show archived');
 }

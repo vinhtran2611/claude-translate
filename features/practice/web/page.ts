@@ -15,3 +15,8 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }
+
+// Draws the current page again, with fresh data from the server.
+export function reloadView(): void {
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}

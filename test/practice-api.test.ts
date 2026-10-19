@@ -194,6 +194,16 @@ test('PUT a project: 201 the first time, 200 and no change the second time', asy
   assert.equal(again.body.updated_at, created.body.updated_at);
 });
 
+test('a project read with GET can be sent back with PUT as it is (an empty description included)', async () => {
+  await call('PUT', '/projects/round', { name: 'Round' });
+  const project = await get('/projects/round');
+  assert.equal(project.description, '');
+
+  const reply = await call('PUT', '/projects/round', { name: project.name, description: project.description, archived: true });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.archived, true);
+});
+
 test('an archived project is hidden from the default list', async () => {
   await call('PUT', '/projects/old-week', { name: 'Old week', archived: true });
 

@@ -3,9 +3,11 @@
 // grading (the AI is working, its words streaming in), graded, failed. A template draws the insides of the panes (./templates/);
 // this file draws the cards, the buttons and the phases.
 import { createModelPicker, type ModelPicker } from '../../../shared/web/model-picker.ts';
-import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType, ProjectDetail } from '../api.ts';
+import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType } from '../api.ts';
 import { kindOf } from '../text.ts';
-import { ApiError, listExercises, readAttempt, readExercise, readGradingOptions, readProject, readProjectByKey, regrade, submitAttempt, watchGrading } from './client.ts';
+import {
+  ApiError, deleteExercise, errorText, readAttempt, readExercise, readGradingOptions, readProjectView, regrade, submitAttempt, watchGrading, type ProjectView,
+} from './client.ts';
 import { button, h, link } from './dom.ts';
 import { clearDraft, readDraft, writeDraft } from './drafts.ts';
 import { createEvaluation } from './evaluation.ts';
@@ -22,8 +24,13 @@ const PICKER_STORAGE_KEY = 'practice.grading';
 type Answer = AnswerByType[ExerciseType];
 
 interface Start {
-  exercise_id: number;
+  exercise_key: string;
+  // Drafts in the browser are kept under it. null once the exercise is deleted (only an old attempt can show that).
+  exercise_id: number | null;
+  // What the page shows: the exercise as it is now, or as the attempt saw it.
   exercise: ExerciseBody;
+  // The version shown. It is sent with the answer, so a change made meanwhile is caught (409 exercise_changed).
+  version: number;
   // The attempt being reopened; null for a new answer.
   attempt: Attempt | null;
 }
@@ -35,31 +42,41 @@ async function gradingPicker(signal: AbortSignal): Promise<ModelPicker> {
   return picker;
 }
 
-export async function showExercise(page: Page, project_id: number, exercise_id: number): Promise<void> {
-  const [detail, exercise, model_picker] = await Promise.all([readProject(project_id, page.signal), readExercise(exercise_id, page.signal), gradingPicker(page.signal)]);
-  if (exercise.project_id !== project_id) throw new ApiError(404, 'not_found', 'No such exercise.');
-  openScreen(page, detail, { exercise_id, exercise, attempt: null }, model_picker);
+export async function showExercise(page: Page, project_key: string, exercise_key: string): Promise<void> {
+  const [view, exercise, model_picker] = await Promise.all([
+    readProjectView(project_key, page.signal),
+    readExercise(project_key, exercise_key, page.signal),
+    gradingPicker(page.signal),
+  ]);
+  const start: Start = { exercise_key, exercise_id: exercise.id, exercise, version: exercise.version, attempt: null };
+  openScreen(page, view, start, model_picker);
 }
 
-export async function showAttempt(page: Page, attempt_id: number): Promise<void> {
-  const attempt = await readAttempt(attempt_id, page.signal);
-  // The routes still use numbers: the project's and the exercise's come from their keys.
-  const [project, items, model_picker] = await Promise.all([readProjectByKey(attempt.project, page.signal), listExercises(attempt.project, page.signal), gradingPicker(page.signal)]);
-  const detail = await readProject(project.id, page.signal);
-  const exercise_id = items.find((item) => item.key === attempt.exercise)?.id ?? 0;
-  openScreen(page, detail, { exercise_id, exercise: attempt.snapshot, attempt }, model_picker);
+export async function showAttempt(page: Page, attempt_id_text: string): Promise<void> {
+  const attempt = await readAttempt(Number(attempt_id_text), page.signal);
+  const [view, model_picker] = await Promise.all([readProjectView(attempt.project, page.signal), gradingPicker(page.signal)]);
+  const current = view.exercises.find((item) => item.key === attempt.exercise);
+  const start: Start = {
+    exercise_key: attempt.exercise, exercise_id: current?.id ?? null, exercise: attempt.snapshot, version: attempt.exercise_version, attempt,
+  };
+  openScreen(page, view, start, model_picker);
 }
 
-function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exercise, attempt: reopened }: Start, model_picker: ModelPicker): void {
+function openScreen(page: Page, first_view: ProjectView, start: Start, model_picker: ModelPicker): void {
   const { signal } = page;
+  const { exercise_key, exercise_id, exercise, version, attempt: reopened } = start;
   const template = templateOf(exercise.type);
-  const project_id = first_detail.project.id;
+  const project_key = first_view.project.key;
   const is_review = reopened !== null;
+  const is_exercise_deleted = exercise_id === null;
+  // Only a new answer keeps a draft: an old attempt is read-only.
+  const draft_id = is_review ? null : exercise_id;
   const opened_at = Date.now();
-  let detail = first_detail;
+  let view = first_view;
   let attempt = reopened;
   let phase: AttemptStatus | 'answering' = reopened?.status ?? 'answering';
-  let answer: Answer = reopened?.answer ?? readDraft(exercise_id, exercise.type, template.empty(exercise)) ?? template.empty(exercise);
+  let answer: Answer = reopened?.answer ?? template.empty(exercise);
+  if (draft_id !== null) answer = readDraft(draft_id, exercise.type, template.empty(exercise)) ?? answer;
   let is_revealed = false;
   let is_sending = false;
   let is_following = false;
@@ -68,7 +85,7 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
   let submit_button: HTMLButtonElement | null = null;
   let submit_error = h('p', 'form-error');
 
-  let toolbar = projectToolbar(detail);
+  let toolbar = createToolbar();
   const card = h('section', 'workspace');
   const evaluation = createEvaluation(model_picker.labelOf);
   page.main.append(toolbar, card, evaluation.element);
@@ -81,8 +98,9 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
       answer = changed;
       refreshStatus();
       if (submit_button !== null) submit_button.disabled = !template.isReady(exercise, answer);
-      if (template.isBlank(exercise, answer)) clearDraft(exercise_id);
-      else writeDraft(exercise_id, exercise.type, answer);
+      if (draft_id === null) return;
+      if (template.isBlank(exercise, answer)) clearDraft(draft_id);
+      else writeDraft(draft_id, exercise.type, answer);
     },
     submit: (chosen) => void send(chosen),
     reveal: () => { is_revealed = true; drawEvaluation(); },
@@ -92,12 +110,32 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
     status_line.replaceChildren(...(template.status?.(makeView(), Date.now() - opened_at) ?? []));
   }
 
-  const retryHref = `#/p/${project_id}/x/${exercise_id}`;
+  const retryHref = `#/p/${project_key}/x/${exercise_key}`;
+
+  // The chips; while answering, also Delete for this exercise.
+  function createToolbar(): HTMLElement {
+    if (is_review) return projectToolbar(view);
+    return projectToolbar(view, button('ghost-button', 'Delete exercise', () => void deleteThisExercise()));
+  }
+
+  // Its old attempts stay: they keep their own copy of the exercise.
+  async function deleteThisExercise(): Promise<void> {
+    if (!confirm('Delete this exercise? Your past answers to it are kept. This cannot be undone.')) return;
+    try {
+      await deleteExercise(project_key, exercise_key, signal);
+    } catch (error) {
+      if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(error)}`);
+      return;
+    }
+    if (draft_id !== null) clearDraft(draft_id);
+    location.hash = `#/p/${project_key}`;
+  }
 
   // The buttons in the answer side's header.
   function createAnswerActions(): HTMLElement[] {
     if (is_review) {
       const submitted = Object.assign(h('span', 'run-info', `Submitted ${formatDateTime(reopened.submitted_at)}`), { title: 'A saved copy: it cannot be edited' });
+      if (is_exercise_deleted) return [submitted, h('span', 'run-info', 'The exercise was deleted')];
       return [submitted, link(retryHref, 'primary-button', 'Try again')];
     }
     if (phase !== 'answering' || template.submitLabel === undefined) return [];
@@ -144,8 +182,9 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
   // The buttons in the Evaluation's header once it is final.
   function createEvaluationActions(): HTMLElement[] {
     if (is_review) return [];
-    const next = detail.exercises.find((candidate) => !candidate.done && candidate.id !== exercise_id);
-    return [link(retryHref, 'ghost-button', 'Try again'), link(next === undefined ? `#/p/${project_id}` : `#/p/${project_id}/x/${next.id}`, 'primary-button', 'Next exercise')];
+    const next = view.exercises.find((candidate) => !candidate.done && candidate.key !== exercise_key);
+    const next_href = next === undefined ? `#/p/${project_key}` : `#/p/${project_key}/x/${next.key}`;
+    return [link(retryHref, 'ghost-button', 'Try again'), link(next_href, 'primary-button', 'Next exercise')];
   }
 
   function drawEvaluation(): void {
@@ -174,13 +213,15 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
   // The sidebar and the toolbar follow what was done. A failed read keeps what the page already has.
   async function refreshDetail(): Promise<void> {
     try {
-      detail = await readProject(project_id, signal);
+      view = await readProjectView(project_key, signal);
     } catch {
       return;
     }
     if (signal.aborted) return;
-    showSide(detail, { attempt_id: attempt?.id, draft_exercise_id: attempt === null ? exercise_id : undefined });
-    const fresh = projectToolbar(detail);
+    // The sidebar marks the attempt once there is one, the draft before.
+    if (attempt === null) showSide(view, { draft_exercise_id: draft_id ?? undefined });
+    else showSide(view, { attempt_id: attempt.id });
+    const fresh = createToolbar();
     toolbar.replaceWith(fresh);
     toolbar = fresh;
   }
@@ -227,15 +268,20 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
     answer = final_answer;
     if (submit_button !== null) submit_button.disabled = true;
     try {
-      attempt = await submitAttempt(exercise_id, answer, Date.now() - opened_at, model_picker.settings(), signal);
+      const target = { project: project_key, key: exercise_key, version };
+      attempt = await submitAttempt(target, answer, Date.now() - opened_at, model_picker.settings(), signal);
     } catch (error) {
       is_sending = false;
       if (signal.aborted) return;
       if (submit_button !== null) submit_button.disabled = false;
-      submit_error.textContent = `Could not submit: ${(error as Error).message}. Your answer is still here.`;
+      if (error instanceof ApiError && error.code === 'exercise_changed') {
+        submit_error.textContent = 'This exercise was changed while you answered. Your answer is kept as a draft: reload the page to see the new version.';
+      } else {
+        submit_error.textContent = `Could not submit: ${errorText(error)} Your answer is still here.`;
+      }
       return;
     }
-    clearDraft(exercise_id);
+    if (draft_id !== null) clearDraft(draft_id);
     // A reload now shows this attempt, not an empty exercise.
     history.replaceState(null, '', `#/a/${attempt.id}`);
     await settle();
@@ -245,7 +291,7 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
     try {
       attempt = await regrade(attempt!.id, model_picker.settings(), signal);
     } catch (error) {
-      if (!signal.aborted) evaluation.failed(`Could not start grading: ${(error as Error).message}`, [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())]);
+      if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())]);
       return;
     }
     await settle();
@@ -259,7 +305,7 @@ function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exer
     }
   }, { signal });
 
-  showSide(detail, { attempt_id: reopened?.id, draft_exercise_id: reopened === null ? exercise_id : undefined });
+  showSide(view, { attempt_id: reopened?.id, draft_exercise_id: draft_id ?? undefined });
   draw();
   if (phase === 'grading') {
     evaluation.grading();

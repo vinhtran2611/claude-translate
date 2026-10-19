@@ -1,6 +1,7 @@
 # Practice API and data model: design review and proposal
 
-Status: **proposal for review**. Nothing here is built yet. Date: 2026-10-19.
+Status: **built** (steps 1 to 5 of §6; step 6, the agent guide, is still to do). Date: 2026-10-19. Where the code differs from
+this doc, §9 says how and why.
 
 This doc reviews the current Practice API and database, then proposes a replacement. It is written for one person, one
 machine, one SQLite file. Every choice below has **one** recommendation, the reason, and the cost. Section 8 lists what we
@@ -694,3 +695,23 @@ flag without asking you.
 | A validator library (ajv) | Generate the schema from our spec; keep our checker and its messages. |
 | Soft delete | Attempts keep their snapshots; soft delete adds a filter to every query. |
 | Renaming the database file | `practice-v2.sqlite` is only a name; the schema version is inside the file. |
+
+---
+
+## 9. Notes from building it
+
+Small differences from the text above, each the simplest fix that keeps its intent:
+
+- **Step 3 changed three shared paths at once.** `GET /attempts/{id}`, `POST /attempts/{id}/regrade` and `GET /projects` had the
+  same paths in the old and new APIs, so they answered in the new shapes (`Attempt` with `snapshot`; `{ items }`) from step 3,
+  and the page read those shapes from then on.
+- **An unknown `?project` in `GET /attempts` is a `404`**, like a key in a URL, not an empty list, so a typo is not silent.
+- **A dry-run `PUT` answers with the status a real one would** (`201` or `200`), with the object as it would be.
+- **`PUT /projects/{p}` accepts `"description": ""`**, because `GET` gives `""` for no description and a `GET` -> `PUT` round
+  trip must work. Everywhere else a text must be non-empty.
+- **The key rule is checked in the URL only for `PUT`** (`400` with path `#key`); a `GET` or `DELETE` with a key that cannot
+  exist is simply a `404`.
+- **`FileExercise` and `ProjectFile` stay** as the checker's output (texts trimmed, `topic` and `tags` filled in); `ImportFile`
+  is the file as written. Only the old request and response types were deleted.
+- **JSON errors give line and column** by walking the refused text with the JSON grammar, because V8 names a position only for
+  some mistakes.

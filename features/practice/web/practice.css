@@ -134,7 +134,7 @@ a.primary-button, a.ghost-button { text-decoration: none; }
 .card-section { padding: 20px 32px 24px; font-size: 16px; line-height: 1.65; }
 .card-section > * + * { margin-top: 12px; }
 
-/* ---- New project / add exercises ---- */
+/* ---- Import a file ---- */
 .field-label { display: block; margin: 0 0 6px; font-size: 14px; font-weight: 500; color: var(--ink-soft); }
 .field-label small { font-weight: 400; color: var(--muted); }
 .field-label:not(:first-child) { margin-top: 18px; }

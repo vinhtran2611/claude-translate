@@ -29,59 +29,91 @@ export function sendError(res: ServerResponse, status_code: number, code: string
   res.end(JSON.stringify(body));
 }
 
-// Where JSON.parse gave up: V8 names the position for some mistakes only, so the text is walked again by the JSON grammar.
-// Called only for text JSON.parse refused.
+// Finds where text stops being JSON: the offset of the first character that breaks the grammar (or text.length when the
+// text ends too early). Used only to say where a body that JSON.parse refused went wrong, because V8 names a position
+// for some mistakes only. It follows the grammar of RFC 8259 and builds no values.
 function jsonErrorOffset(text: string): number {
   let index = 0;
-  const fail = (): never => { throw index; };
-  const space = (): void => { while (/[ \t\n\r]/.test(text[index] ?? '')) index++; };
-  const literal = (word: string): void => { if (text.startsWith(word, index)) index += word.length; else fail(); };
-  const string = (): void => {
-    index++;
+
+  // Every helper moves index past what it read, or throws the offset where it failed.
+  function fail(): never {
+    throw index;
+  }
+
+  function skipSpace(): void {
+    while (index < text.length && ' \t\n\r'.includes(text[index])) index++;
+  }
+
+  function readWord(word: string): void {
+    if (!text.startsWith(word, index)) fail();
+    index += word.length;
+  }
+
+  function readString(): void {
+    index++; // the opening quote
     while (text[index] !== '"') {
       if (index >= text.length || text.charCodeAt(index) < 0x20) fail();
       if (text[index] === '\\') {
         index++;
-        if (text[index] === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 1, index + 5))) index += 4;
-        else if (!'"\\/bfnrt'.includes(text[index] ?? 'x')) fail();
+        const is_unicode = text[index] === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 1, index + 5));
+        if (is_unicode) index += 4;
+        else if (index >= text.length || !'"\\/bfnrt'.includes(text[index])) fail();
       }
       index++;
     }
-    index++;
-  };
-  const value = (): void => {
-    space();
+    index++; // the closing quote
+  }
+
+  function readNumber(): void {
+    const number = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(text.slice(index));
+    if (number === null) fail();
+    index += number[0].length;
+  }
+
+  // [ value, value ] or { "name": value, "name": value }
+  function readList(close: ']' | '}'): void {
+    index++; // the opening bracket
+    skipSpace();
+    if (text[index] === close) {
+      index++;
+      return;
+    }
+    while (true) {
+      if (close === '}') {
+        skipSpace();
+        if (text[index] !== '"') fail();
+        readString();
+        skipSpace();
+        if (text[index] !== ':') fail();
+        index++;
+      }
+      readValue();
+      skipSpace();
+      if (text[index] === close) {
+        index++;
+        return;
+      }
+      if (text[index] !== ',') fail();
+      index++;
+    }
+  }
+
+  function readValue(): void {
+    skipSpace();
     const char = text[index];
-    if (char === '{' || char === '[') {
-      const close = char === '{' ? '}' : ']';
-      index++;
-      space();
-      if (text[index] === close) { index++; return; }
-      for (;;) {
-        if (close === '}') {
-          space();
-          if (text[index] !== '"') fail();
-          string();
-          space();
-          if (text[index] !== ':') fail();
-          index++;
-        }
-        value();
-        space();
-        if (text[index] === ',') { index++; continue; }
-        if (text[index] === close) { index++; return; }
-        fail();
-      }
-    }
-    if (char === '"') return string();
-    const number = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(text.slice(index))?.[0];
-    if (number) { index += number.length; return; }
-    for (const word of ['true', 'false', 'null']) if (text.startsWith(word, index)) return literal(word);
-    fail();
-  };
+    if (char === '{') readList('}');
+    else if (char === '[') readList(']');
+    else if (char === '"') readString();
+    else if (char === 't') readWord('true');
+    else if (char === 'f') readWord('false');
+    else if (char === 'n') readWord('null');
+    else readNumber();
+  }
+
   try {
-    value();
-    space();
+    readValue();
+    skipSpace();
+    // Valid JSON followed by more text: the extra text is the mistake.
     return index;
   } catch (offset) {
     return offset as number;

@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseType, GradingOptions, GradingSettings, ProjectFile, RegradeRequest } from '../api.ts';
+import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, Exercise, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
-  checkExerciseInput, checkImportValue, checkProjectFile, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems,
-  MAX_EXERCISES, MAX_FILE_CHARS, type Problem,
+  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems, MAX_EXERCISES,
+  MAX_FILE_CHARS, type Problem,
 } from '../import-check.ts';
 import { createGrader } from './ai-grading.ts';
 import { checkAnswer, graderOf, rateFlashcard } from './answers.ts';
@@ -39,8 +39,6 @@ const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
 const MAX_EXERCISE_BODY_BYTES = 200_000;
 // Arbitrary: far above the longest answer, below anything that could hurt the server.
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
-// Arbitrary: the first API sent the file as text inside JSON, escaped, with room to spare (step 5 deletes it).
-const MAX_LEGACY_IMPORT_BODY_BYTES = 4 * MAX_FILE_CHARS;
 const ATTEMPTS_PAGE_DEFAULT = 50;
 const ATTEMPTS_PAGE_MAX = 200;
 const ATTEMPT_STATUSES: AttemptStatus[] = ['grading', 'graded', 'failed'];
@@ -101,11 +99,27 @@ function choiceParam<Value extends string>(query: URLSearchParams, name: string,
 
 const DRY_RUN = ['false', 'true'] as const;
 
-// An import body's file, checked: the file, or the problems already sent as a 400 and null.
-function checkedFile(res: ServerResponse, body: Record<string, unknown>): ProjectFile | null {
-  const { file, problems } = checkProjectFile(typeof body.file === 'string' ? body.file : '', 2);
-  if (problems !== null) sendProblems(res, problems.map((problem) => ({ ...problem, path: `/file${problem.path}` })));
-  return file;
+// Every query parameter the route does not take, as a problem: an agent's typo is never silently ignored.
+function unknownParameterProblems(query: URLSearchParams, parameters: string[]): Problem[] {
+  const names = new Set(query.keys());
+  const unknown = [...names].filter((name) => !parameters.includes(name));
+  const takes = parameters.length > 0 ? ` (it takes ${parameters.join(', ')})` : '';
+  return unknown.map((name) => ({ path: `?${name}`, code: 'unknown_parameter', message: `${name} is not a parameter here${takes}.` }));
+}
+
+function isWholeNumber(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 0;
+}
+
+// ?name as a whole number from min to max; null when it is left out. A problem otherwise.
+function wholeNumberParam(query: URLSearchParams, name: string, min: number, max: number, problems: Problem[]): number | null {
+  const text = query.get(name);
+  if (text === null) return null;
+  const value = /^\d{1,15}$/.test(text) ? Number(text) : NaN;
+  if (value >= min && value <= max) return value;
+  const range = max === Number.MAX_SAFE_INTEGER ? `${min} up` : `${min} to ${max}`;
+  problems.push({ path: `?${name}`, code: 'out_of_range', message: `${name} must be a whole number from ${range}.` });
+  return null;
 }
 
 export function createPracticeFeature({ database_path }: { database_path: string }): Feature {
@@ -123,8 +137,14 @@ export function createPracticeFeature({ database_path }: { database_path: string
   // The grading settings a body names, each the default when left out, as problems when one is not offered. Checked here
   // because the CLI does not: an unknown --effort only prints a warning and runs at its default.
   function settingsOf({ model_id = DEFAULT_MODEL_ID, effort = DEFAULT_EFFORT }: RegradeRequest, problems: Problem[]): GradingSettings {
-    if (modelOptionOf(model_id) === undefined) problems.push({ path: '/model_id', code: 'not_allowed', message: `model_id must be one of ${MODEL_OPTIONS.map((option) => option.model_id).join(', ')}.` });
-    if (!isEffort(effort)) problems.push({ path: '/effort', code: 'not_allowed', message: `effort must be one of ${EFFORT_OPTIONS.map((option) => option.effort).join(', ')}.` });
+    if (modelOptionOf(model_id) === undefined) {
+      const models = MODEL_OPTIONS.map((option) => option.model_id).join(', ');
+      problems.push({ path: '/model_id', code: 'not_allowed', message: `model_id must be one of ${models}.` });
+    }
+    if (!isEffort(effort)) {
+      const efforts = EFFORT_OPTIONS.map((option) => option.effort).join(', ');
+      problems.push({ path: '/effort', code: 'not_allowed', message: `effort must be one of ${efforts}.` });
+    }
     return { model_id, effort };
   }
 
@@ -156,7 +176,10 @@ export function createPracticeFeature({ database_path }: { database_path: string
     if (problems.length > 0) return sendProblems(res, problems);
     const outcome = store.deleteProject(key, is_with_attempts);
     if (outcome === 'not_found') return notFound(res, `project "${key}"`);
-    if (outcome === 'has_attempts') return sendError(res, 409, 'has_attempts', `Project "${key}" has attempts. To delete them too, add ?with_attempts=true; to keep them, archive it instead.`);
+    if (outcome === 'has_attempts') {
+      const message = `Project "${key}" has attempts. To delete them too, add ?with_attempts=true; to keep them, archive it instead.`;
+      return sendError(res, 409, 'has_attempts', message);
+    }
     log('info', null, 'practice', `project ${key} deleted`);
     res.writeHead(204).end();
   }
@@ -173,7 +196,9 @@ export function createPracticeFeature({ database_path }: { database_path: string
   function listExercises(_req: IncomingMessage, res: ServerResponse, [project_key]: string[], query: URLSearchParams): void {
     const problems: Problem[] = [];
     const type = query.get('type');
-    if (type !== null && !EXERCISE_TYPES.includes(type as ExerciseType)) problems.push({ path: '?type', code: 'not_allowed', message: `type must be one of: ${EXERCISE_TYPES.join(', ')}.` });
+    if (type !== null && !EXERCISE_TYPES.includes(type as ExerciseType)) {
+      problems.push({ path: '?type', code: 'not_allowed', message: `type must be one of: ${EXERCISE_TYPES.join(', ')}.` });
+    }
     if (problems.length > 0) return sendProblems(res, problems);
     const items = store.listExercises(project_key, { type: type as ExerciseType | null, tag: query.get('tag') });
     if (items === null) return notFound(res, `project "${project_key}"`);
@@ -190,14 +215,18 @@ export function createPracticeFeature({ database_path }: { database_path: string
     if (exercise === null || problems.length > 0) return sendProblems(res, problems);
     const saved = store.putExercise(project_key, key, exercise, is_dry_run);
     if (saved === null) return notFound(res, `project "${project_key}"`);
-    if (saved.change !== 'unchanged' && !is_dry_run) log('info', null, 'practice', `exercise ${project_key}/${key} ${saved.change}, version ${saved.exercise.version}`);
+    if (saved.change !== 'unchanged' && !is_dry_run) {
+      log('info', null, 'practice', `exercise ${project_key}/${key} ${saved.change}, version ${saved.exercise.version}`);
+    }
     sendJson(res, saved.change === 'created' ? 201 : 200, saved.exercise);
   }
 
   function readExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
     const exercise = store.readExercise(project_key, key);
-    if (exercise === null) return notFound(res, store.readProject(project_key) === null ? `project "${project_key}"` : `exercise "${key}" in project "${project_key}"`);
-    sendJson(res, 200, exercise);
+    if (exercise !== null) return sendJson(res, 200, exercise);
+    // Say which part of the URL is wrong.
+    if (store.readProject(project_key) === null) return notFound(res, `project "${project_key}"`);
+    notFound(res, `exercise "${key}" in project "${project_key}"`);
   }
 
   function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
@@ -211,67 +240,91 @@ export function createPracticeFeature({ database_path }: { database_path: string
     const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
     const body = await readRequestJson(req, res, MAX_IMPORT_BODY_BYTES);
     if (body === undefined) return;
-    const { file, problems: file_problems } = checkImportValue(body, 3);
+    const { file, problems: file_problems } = checkImportValue(body);
     problems.push(...(file_problems ?? []));
     if (file === null || problems.length > 0) return sendProblems(res, problems);
     const result = store.importFile(file, is_dry_run);
     const { created, updated, unchanged } = result.exercises;
-    if (!is_dry_run) log('info', null, 'import', `project ${file.key} ${result.project_change}  ${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged`);
+    if (!is_dry_run) {
+      const counts = `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged`;
+      log('info', null, 'import', `project ${file.key} ${result.project_change}  ${counts}`);
+    }
     sendJson(res, 200, result);
   }
 
   // ---- attempts ----
 
-  // Saves the answer to an exercise. A flashcard is graded at once by your rating; every other answer is saved first, then
-  // graded in the background.
-  async function answer(res: ServerResponse, body: Record<string, unknown>, exercise: { id: number; version: number } & Parameters<typeof checkAnswer>[0]): Promise<void> {
-    const problems: Problem[] = [];
-    const { answer: checked, problem } = checkAnswer(exercise, body.answer);
-    if (checked === null) problems.push({ path: '/answer', code: body.answer === undefined ? 'required' : 'wrong_type', message: `${problem}.` });
-    const settings = settingsOf(body as RegradeRequest, problems);
-    const { writing_ms = null, exercise_version } = body;
-    if (writing_ms !== null && !(Number.isInteger(writing_ms) && (writing_ms as number) >= 0)) problems.push({ path: '/writing_ms', code: 'wrong_type', message: 'writing_ms must be a whole number of milliseconds, or null.' });
-    if (exercise_version !== undefined && !Number.isInteger(exercise_version)) problems.push({ path: '/exercise_version', code: 'wrong_type', message: 'exercise_version must be a whole number.' });
-    if (checked === null || problems.length > 0) return sendProblems(res, problems);
-    if (exercise_version !== undefined && exercise_version !== exercise.version) {
-      return sendError(res, 409, 'exercise_changed', `The exercise changed while you answered (you saw version ${exercise_version}, it is now ${exercise.version}). Open it again.`);
-    }
-    const grader_kind = graderOf(exercise.type);
-    const attempt = store.createAttempt({
-      exercise_id: exercise.id, answer: checked, writing_ms: writing_ms as number | null, grader: grader_kind,
-      outcome: grader_kind === 'ai' ? null : rateFlashcard(checked as AnswerByType['flashcard']),
-    });
-    sendJson(res, 201, attempt);
-    if (grader_kind === 'ai') grader.start(attempt, settings);
-  }
-
+  // Saves an answer. A flashcard is graded at once by your rating; every other answer is saved first, then graded in the
+  // background.
   async function createAttempt(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): Promise<void> {
     const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['answer', 'writing_ms', 'model_id', 'effort', 'exercise_version']);
     if (body === null) return;
     const exercise = store.readExercise(project_key, key);
     if (exercise === null) return notFound(res, `exercise "${key}" in project "${project_key}"`);
-    await answer(res, body, exercise);
+
+    const problems: Problem[] = [];
+    const { answer, problem } = checkAnswer(exercise, body.answer);
+    if (answer === null) {
+      const code = body.answer === undefined ? 'required' : 'wrong_type';
+      problems.push({ path: '/answer', code, message: `${problem}.` });
+    }
+    const settings = settingsOf(body as RegradeRequest, problems);
+    const writing_ms = body.writing_ms ?? null;
+    if (writing_ms !== null && !isWholeNumber(writing_ms)) {
+      problems.push({ path: '/writing_ms', code: 'wrong_type', message: 'writing_ms must be a whole number of milliseconds, or null.' });
+    }
+    const shown_version = body.exercise_version;
+    if (shown_version !== undefined && !isWholeNumber(shown_version)) {
+      problems.push({ path: '/exercise_version', code: 'wrong_type', message: 'exercise_version must be a whole number.' });
+    }
+    if (answer === null || problems.length > 0) return sendProblems(res, problems);
+
+    // The exercise was changed (by an agent, say) after the page showed it: do not grade against a question you did not see.
+    if (shown_version !== undefined && shown_version !== exercise.version) {
+      const message = `The exercise changed while you answered (you saw version ${shown_version}, it is now ${exercise.version}). Open it again.`;
+      return sendError(res, 409, 'exercise_changed', message);
+    }
+
+    const grader_kind = graderOf(exercise.type);
+    const outcome = grader_kind === 'ai' ? null : rateFlashcard(answer as AnswerByType['flashcard']);
+    const attempt = store.createAttempt({ exercise_id: exercise.id, answer, writing_ms: writing_ms as number | null, grader: grader_kind, outcome });
+    sendJson(res, 201, attempt);
+    if (grader_kind === 'ai') grader.start(attempt, settings);
   }
 
   function listAttempts(_req: IncomingMessage, res: ServerResponse, _params: string[], query: URLSearchParams): void {
     const problems: Problem[] = [];
-    const filter: AttemptFilter = { project: query.get('project'), exercise: query.get('exercise'), status: null, since: null, before: null, limit: ATTEMPTS_PAGE_DEFAULT };
-    if (filter.exercise !== null && filter.project === null) problems.push({ path: '?exercise', code: 'required', message: 'exercise needs project: an exercise key is unique only inside its project.' });
-    const status = query.get('status');
-    if (status !== null && !ATTEMPT_STATUSES.includes(status as AttemptStatus)) problems.push({ path: '?status', code: 'not_allowed', message: `status must be one of: ${ATTEMPT_STATUSES.join(', ')}.` });
-    else filter.status = status as AttemptStatus | null;
-    const since = query.get('since');
-    if (since !== null && (!/^\d{4}-\d{2}-\d{2}/.test(since) || Number.isNaN(Date.parse(since)))) problems.push({ path: '?since', code: 'wrong_type', message: 'since must be a date or time, like 2026-10-19 or 2026-10-19T08:30:00Z.' });
-    else if (since !== null) filter.since = new Date(since).toISOString();
-    for (const [name, min, max] of [['before', 1, Number.MAX_SAFE_INTEGER], ['limit', 1, ATTEMPTS_PAGE_MAX]] as const) {
-      const text = query.get(name);
-      if (text === null) continue;
-      const value = /^\d{1,15}$/.test(text) ? Number(text) : NaN;
-      if (value >= min && value <= max) filter[name] = value;
-      else problems.push({ path: `?${name}`, code: 'out_of_range', message: `${name} must be a whole number from ${min}${name === 'limit' ? ` to ${max}` : ' up'}.` });
+    const project = query.get('project');
+    const exercise = query.get('exercise');
+    if (exercise !== null && project === null) {
+      problems.push({ path: '?exercise', code: 'required', message: 'exercise needs project: an exercise key is unique only inside its project.' });
     }
+
+    const status = query.get('status');
+    if (status !== null && !ATTEMPT_STATUSES.includes(status as AttemptStatus)) {
+      problems.push({ path: '?status', code: 'not_allowed', message: `status must be one of: ${ATTEMPT_STATUSES.join(', ')}.` });
+    }
+
+    // A date ("2026-10-19", midnight UTC) or a full time.
+    const since = query.get('since');
+    const is_since_valid = since === null || (/^\d{4}-\d{2}-\d{2}/.test(since) && !Number.isNaN(Date.parse(since)));
+    if (!is_since_valid) {
+      problems.push({ path: '?since', code: 'wrong_type', message: 'since must be a date or time, like 2026-10-19 or 2026-10-19T08:30:00Z.' });
+    }
+
+    const before = wholeNumberParam(query, 'before', 1, Number.MAX_SAFE_INTEGER, problems);
+    const limit = wholeNumberParam(query, 'limit', 1, ATTEMPTS_PAGE_MAX, problems);
     if (problems.length > 0) return sendProblems(res, problems);
-    if (filter.project !== null && store.readProject(filter.project) === null) return notFound(res, `project "${filter.project}"`);
+
+    if (project !== null && store.readProject(project) === null) return notFound(res, `project "${project}"`);
+    const filter: AttemptFilter = {
+      project,
+      exercise,
+      status: status as AttemptStatus | null,
+      since: since === null ? null : new Date(since).toISOString(),
+      before,
+      limit: limit ?? ATTEMPTS_PAGE_DEFAULT,
+    };
     sendJson(res, 200, store.listAttempts(filter));
   }
 
@@ -297,79 +350,43 @@ export function createPracticeFeature({ database_path }: { database_path: string
     grader.start(attempt, settings);
   }
 
-  // ---- The first API: what the page still calls until it moves (step 5 deletes it) ----
-
-  async function legacyCreateProject(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const body = await readObjectBody(req, res, MAX_LEGACY_IMPORT_BODY_BYTES);
-    if (body === null) return;
-    const file = checkedFile(res, body);
-    if (file === null) return;
-    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : file.name;
-    const description = typeof body.description === 'string' ? body.description.trim() : file.description;
-    if (name.length > 80 || description.length > 500) {
-      return sendProblems(res, [{ path: name.length > 80 ? '/name' : '/description', code: 'too_long', message: 'name is at most 80 characters and description at most 500.' }]);
-    }
-    const id = store.legacy.createProject({ ...file, name, description });
-    log('info', null, 'import', `project ${id} "${name}"  ${file.exercises.length} exercises`);
-    sendJson(res, 201, { id });
-  }
-
-  async function legacyAddExercises(req: IncomingMessage, res: ServerResponse, [id]: string[]): Promise<void> {
-    const project_id = Number(id);
-    const body = await readObjectBody(req, res, MAX_LEGACY_IMPORT_BODY_BYTES);
-    if (body === null) return;
-    const file = checkedFile(res, body);
-    if (file === null) return;
-    const added = store.legacy.addExercises(project_id, file.exercises);
-    if (added === null) return notFound(res, 'project');
-    if ('duplicate_keys' in added) {
-      return sendProblems(res, file.exercises.flatMap(({ key }, index) => (added.duplicate_keys.includes(key)
-        ? [{ path: `/file/exercises/${index}/id`, code: 'duplicate_key', message: `id "${key}" is already in this project.` }] : [])));
-    }
-    log('info', null, 'import', `project ${project_id}  ${added.added} exercises added`);
-    sendJson(res, 200, added);
-  }
-
-  async function legacyCreateAttempt(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['exercise_id', 'answer', 'writing_ms', 'model_id', 'effort']);
-    if (body === null) return;
-    const view = Number.isInteger(body.exercise_id) ? store.legacy.readExercise(body.exercise_id as number) : null;
-    if (view === null) return notFound(res, 'exercise');
-    const { exercise_id: _exercise_id, ...rest } = body;
-    await answer(res, rest, { ...view, version: 0 });
-  }
-
   const found = (res: ServerResponse, body: unknown, what: string): void => (body === null ? notFound(res, what) : sendJson(res, 200, body));
+
+  function watchAttempt(_req: IncomingMessage, res: ServerResponse, [id]: string[]): void {
+    const attempt_id = Number(id);
+    if (store.readAttempt(attempt_id) === null) return notFound(res, 'attempt');
+    grader.watch(res, attempt_id);
+  }
+
+  // The parts of a path: a project or exercise key (checked by the handler that needs it), or an attempt's number.
+  const KEY = '([^/]+)';
   const ID = '(\\d{1,9})';
-  // One part of a path: a key (checked by the handler that needs it).
-  const PART = '([^/]+)';
-  const route = (method: string, path: string, handler: Handler, query?: string[]): Route => ({ method, pattern: new RegExp(`^/api/practice${path}$`), handler, query });
+  function route(method: string, path: string, handler: Handler, query?: string[]): Route {
+    return { method, pattern: new RegExp(`^/api/practice${path}$`), handler, query };
+  }
   const routes: Route[] = [
     route('GET', '', (_req, res) => sendJson(res, 200, API_INDEX)),
     route('GET', '/schemas/([a-z]+)\\.json', (_req, res, [name]) => found(res, SCHEMAS.get(name) ?? null, `schema "${name}"`)),
     route('GET', '/grading-options', (_req, res) => sendJson(res, 200, grading_options)),
+
     route('GET', '/projects', listProjects, ['archived']),
-    route('POST', '/projects', legacyCreateProject),
-    // Before the key routes, so the first API keeps its numeric ids until step 5.
-    route('GET', `/projects/${ID}`, (_req, res, [id]) => found(res, store.legacy.readProjectDetail(Number(id)), 'project')),
-    route('POST', `/projects/${ID}/exercises`, legacyAddExercises),
-    route('GET', `/projects/${PART}`, (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
-    route('PUT', `/projects/${PART}`, putProject, ['dry_run']),
-    route('DELETE', `/projects/${PART}`, deleteProject, ['with_attempts']),
-    route('GET', `/projects/${PART}/export`, exportProject),
-    route('GET', `/projects/${PART}/exercises`, listExercises, ['type', 'tag']),
-    route('GET', `/projects/${PART}/exercises/${PART}`, readExercise),
-    route('PUT', `/projects/${PART}/exercises/${PART}`, putExercise, ['dry_run']),
-    route('DELETE', `/projects/${PART}/exercises/${PART}`, deleteExercise),
-    route('POST', `/projects/${PART}/exercises/${PART}/attempts`, createAttempt),
+    route('GET', `/projects/${KEY}`, (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
+    route('PUT', `/projects/${KEY}`, putProject, ['dry_run']),
+    route('DELETE', `/projects/${KEY}`, deleteProject, ['with_attempts']),
+    route('GET', `/projects/${KEY}/export`, exportProject),
     route('POST', '/import', importFile, ['dry_run']),
-    route('GET', `/exercises/${ID}`, (_req, res, [id]) => found(res, store.legacy.readExercise(Number(id)), 'exercise')),
+
+    route('GET', `/projects/${KEY}/exercises`, listExercises, ['type', 'tag']),
+    route('GET', `/projects/${KEY}/exercises/${KEY}`, readExercise),
+    route('PUT', `/projects/${KEY}/exercises/${KEY}`, putExercise, ['dry_run']),
+    route('DELETE', `/projects/${KEY}/exercises/${KEY}`, deleteExercise),
+
+    route('POST', `/projects/${KEY}/exercises/${KEY}/attempts`, createAttempt),
     route('GET', '/attempts', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),
-    route('POST', '/attempts', legacyCreateAttempt),
     route('GET', `/attempts/${ID}`, (_req, res, [id]) => found(res, store.readAttempt(Number(id)), 'attempt')),
     route('DELETE', `/attempts/${ID}`, deleteAttempt),
     route('POST', `/attempts/${ID}/regrade`, regrade),
-    route('GET', `/attempts/${ID}/stream`, (_req, res, [id]) => (store.readAttempt(Number(id)) === null ? notFound(res, 'attempt') : grader.watch(res, Number(id)))),
+    route('GET', `/attempts/${ID}/stream`, watchAttempt),
   ];
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
@@ -382,34 +399,40 @@ export function createPracticeFeature({ database_path }: { database_path: string
       await sendModule(res, MODULES.get(pathname) as string);
       return true;
     }
-    // A known path with another method is a 405 that names the right ones.
-    const allowed: string[] = [];
-    for (const { method, pattern, handler, query: parameters = [] } of routes) {
-      const match = pattern.exec(pathname);
+    return handleApi(req, res, pathname);
+  }
+
+  // Finds the route for the path and method and runs it. A known path with another method is a 405 that names the right
+  // ones; a path no route knows is left to the server (false).
+  async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const allowed_methods = new Set<string>();
+    for (const one_route of routes) {
+      const match = one_route.pattern.exec(pathname);
       if (match === null) continue;
-      if (req.method !== method) {
-        allowed.push(method);
-        continue;
-      }
-      let params: string[];
-      try {
-        params = match.slice(1).map((part) => decodeURIComponent(part));
-      } catch {
-        sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
+      if (req.method === one_route.method) {
+        await runRoute(one_route, match, req, res, pathname);
         return true;
       }
-      const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
-      const unknown = [...new Set(query.keys())].filter((name) => !parameters.includes(name));
-      if (unknown.length > 0) {
-        sendProblems(res, unknown.map((name) => ({ path: `?${name}`, code: 'unknown_parameter', message: `${name} is not a parameter here${parameters.length > 0 ? ` (it takes ${parameters.join(', ')})` : ''}.` })));
-        return true;
-      }
-      await handler(req, res, params, query);
-      return true;
+      allowed_methods.add(one_route.method);
     }
-    if (allowed.length === 0) return false;
-    sendError(res, 405, 'method_not_allowed', `${req.method} is not allowed here; use ${[...new Set(allowed)].join(' or ')}.`, undefined, { Allow: [...new Set(allowed)].join(', ') });
+    if (allowed_methods.size === 0) return false;
+    const allowed = [...allowed_methods];
+    const message = `${req.method} is not allowed here; use ${allowed.join(' or ')}.`;
+    sendError(res, 405, 'method_not_allowed', message, undefined, { Allow: allowed.join(', ') });
     return true;
+  }
+
+  async function runRoute(one_route: Route, match: RegExpExecArray, req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
+    let params: string[];
+    try {
+      params = match.slice(1).map((part) => decodeURIComponent(part));
+    } catch {
+      return sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
+    }
+    const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const problems = unknownParameterProblems(query, one_route.query ?? []);
+    if (problems.length > 0) return sendProblems(res, problems);
+    await one_route.handler(req, res, params, query);
   }
 
   return { name: 'practice', handle };

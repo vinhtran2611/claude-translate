@@ -97,9 +97,9 @@ export interface FileExercise extends ExerciseBody {
   key: string;
 }
 
-// A checked file. key is null for a format 2 file, which has none.
+// A checked import file: texts trimmed, topic and tags filled in.
 export interface ProjectFile {
-  key: string | null;
+  key: string;
   name: string;
   description: string;
   exercises: FileExercise[];
@@ -305,41 +305,4 @@ export interface ImportResult {
   project_change: Change;
   // Keys.
   exercises: { created: string[]; updated: string[]; unchanged: string[] };
-}
-
-// ---- The first API, until the page moves (docs/practice-api-design.md §6, step 5 deletes it) ----
-
-// GET /api/practice/exercises/:id
-export interface ExerciseView extends ExerciseBody {
-  id: number;
-  project_id: number;
-}
-
-// The latest attempt of an exercise, for the History bar.
-export interface HistoryItem {
-  attempt_id: number;
-  exercise_id: number;
-  kind: string;
-  preview: string;
-  status: AttemptStatus;
-  summary: string | null;
-  submitted_at: string;
-}
-
-// GET /api/practice/projects/:id
-export interface ProjectDetail {
-  project: Project;
-  // In file order.
-  exercises: ExerciseItem[];
-  // One per exercise tried, newest first.
-  history: HistoryItem[];
-}
-
-// POST /api/practice/projects { name, description, file } -> 201 { id }.
-// POST /api/practice/projects/:id/exercises { file } -> 200 { added }.
-// `file` is a format 2 file's text. 400 invalid when it has problems; nothing is imported.
-export interface ImportRequest {
-  name?: string;
-  description?: string;
-  file: string;
 }

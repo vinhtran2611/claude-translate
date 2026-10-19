@@ -6,15 +6,14 @@ and read an evaluation of every answer. It lives in `features/practice/`; common
 
 ## 1. Screens
 
-Hash routes, all on `/practice`:
+Hash routes, all on `/practice`. `<project>` and `<exercise>` are keys (`m1-day-01`, `d1-fix-3`); `<attempt>` is a number:
 
 | Route | Screen |
 |---|---|
-| `#/` | Projects: cards with name, "N exercises · M done", type mix and last activity; search; sort; **New project** |
-| `#/new` | New project: name, description, a `.json` file (choose, drop or paste); shows "N exercises found" or the numbered problems; nothing is imported on a problem |
-| `#/p/<project>` | Next exercise: the first one not done yet, and the list of those not done |
-| `#/p/<project>/add` | Add exercises: the same import form, for an existing project |
-| `#/p/<project>/x/<exercise>` | Do an exercise |
+| `#/` | Projects: cards with name, "N exercises · M done", type mix and last activity; search; sort; **Show archived**; **New project** |
+| `#/new` | Import a file: a `.json` file (choose, drop or paste) that names its project; shows "N exercises for …" or the numbered problems; nothing is imported on a problem; a project that exists is updated in place |
+| `#/p/<project>` | Next exercise: the first one not done yet, and the list of those not done; **Export**, **Archive** and **Delete** for the project |
+| `#/p/<project>/x/<exercise>` | Do an exercise; **Delete exercise** (its attempts stay) |
 | `#/a/<attempt>` | An old attempt, read-only: the problem and your answer as they were, and the evaluation |
 
 The sidebar on the left is Claude Translate's (collapse icon, `⌘K` search, a "new" row, date groups, soft hover and selected rows; a
@@ -50,17 +49,16 @@ A flashcard is rated by you (Didn't know, Almost, Knew it); the back is shown in
 
 ## 4. Data
 
-`data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, created once. See
+`data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, schema version 2. See
 [practice-import-format.md](practice-import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
 The old `data/practice.sqlite` is not read; re-import your files.
 
 ## 5. HTTP API (`/api/practice`)
 
-`GET projects`, `POST projects { name, description, file }`, `GET projects/:id` (project, exercises, history),
-`POST projects/:id/exercises { file }`, `GET exercises/:id`, `POST attempts { exercise_id, answer, writing_ms, model_id?, effort? }`,
-`GET attempts/:id`, `GET attempts/:id/stream` (a grading in progress), `POST attempts/:id/regrade { model_id?, effort? }`,
-`GET grading-options` (a model or effort that is not offered is a 400). `file` is the file's text; a bad file is a 400
-with `{ errors }`. The shapes are in `features/practice/api.ts`.
+The API and its data model are in [practice-api-design.md](practice-api-design.md): projects and exercises addressed by key
+(`/projects/{project}/exercises/{exercise}`), `PUT` to create or replace, `DELETE`, `POST /import` with the file itself as the
+body, export, a list of attempts, one error shape (`{ error: { code, message, problems? } }`) and `?dry_run=true` on every write
+with a body. `GET /api/practice` lists the version, the limits and the JSON Schemas. The shapes are in `features/practice/api.ts`.
 
 ## 6. Code
 
@@ -78,4 +76,4 @@ inline copy (identical values) and may adopt it later. `shared/web/markdown.ts` 
 ## 7. Not in this version
 
 An **Error log** (it needs structured errors, and the evaluation is free text), exercise generation inside the app, editing an
-exercise, deleting projects or attempts, speaking, reading and listening.
+exercise in the page (the API's `PUT` and a re-import do it), speaking, reading and listening.

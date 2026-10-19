@@ -73,19 +73,20 @@ const TYPE_RULES: { [Type in ExerciseType]: string } = {
   flashcard: 'Not graded: you flip it and rate yourself.',
 };
 
-// key_name: "key" in format 3 and in PUT, "id" in format 2.
-function exerciseFields(key_name: 'key' | 'id', is_key_required: boolean): Fields {
+// The key is required in a file, and may be left out in PUT (the URL names the exercise).
+function exerciseFields(is_key_required: boolean): Fields {
   return {
-    [key_name]: about(is_key_required ? { kind: 'key', required: true } : { kind: 'key' }, 'Names the exercise inside its project. Never changes.'),
+    key: about(is_key_required ? { kind: 'key', required: true } : { kind: 'key' }, 'Names the exercise inside its project. Never changes.'),
     type: { kind: 'oneOf', values: EXERCISE_TYPES, required: true },
     topic: text(100),
     tags: about(list(text(40), 0, 10), 'Shown as chips.'),
   };
 }
 
-const PROJECT_FIELDS: { [Format in 2 | 3]: Fields } = {
-  2: { name: text(80, true), description: text(500) },
-  3: { key: about({ kind: 'key', required: true }, 'Names the project: importing the file again updates it.'), name: text(80, true), description: text(500) },
+const PROJECT_FIELDS: Fields = {
+  key: about({ kind: 'key', required: true }, 'Names the project: importing the file again updates it.'),
+  name: text(80, true),
+  description: text(500),
 };
 
 const PROJECT_INPUT_FIELDS: Fields = { name: text(80, true), description: text(500), archived: about({ kind: 'flag' }, 'Hidden from the default list. Default false.') };
@@ -204,16 +205,16 @@ function checkRelations(type: ExerciseType, content: Record<string, unknown>, pr
   }
 }
 
-// One exercise, its problems added under problems.base; the exercise when it has none. key_name: see exerciseFields.
+// One exercise, its problems added under problems.base; the exercise when it has none.
 // url_key: in PUT, the key in the URL, which a key in the body must equal.
-function checkExercise(value: unknown, problems: Problems, key_name: 'key' | 'id', url_key: string | null = null): FileExercise | null {
+function checkExercise(value: unknown, problems: Problems, url_key: string | null = null): FileExercise | null {
   const count_before = problems.list.length;
   if (!isObject(value)) {
     problems.add([], 'wrong_type', 'must be an object.');
     return null;
   }
   const { content, ...outer } = value;
-  checkFields(outer, exerciseFields(key_name, url_key === null), [], problems);
+  checkFields(outer, exerciseFields(url_key === null), [], problems);
   if (url_key !== null && typeof value.key === 'string' && KEY_PATTERN.test(value.key) && value.key !== url_key) {
     problems.add(['key'], 'key_mismatch', `"${value.key}" is not the key in the URL ("${url_key}").`);
   }
@@ -226,7 +227,7 @@ function checkExercise(value: unknown, problems: Problems, key_name: 'key' | 'id
   }
   if (problems.list.length > count_before || type === undefined) return null;
   return {
-    key: url_key ?? value[key_name] as string, type, topic: (value.topic as string | undefined) ?? null, tags: (value.tags as string[] | undefined) ?? [],
+    key: url_key ?? value.key as string, type, topic: (value.topic as string | undefined) ?? null, tags: (value.tags as string[] | undefined) ?? [],
     content: value.content as ContentByType[ExerciseType],
   } as FileExercise;
 }
@@ -235,16 +236,16 @@ export type CheckedFile = { file: ProjectFile; problems: null } | { file: null; 
 
 const FORMAT_2_EDITS = 'To make a format 2 file format 3: set "format" to 3, add a "key" to "project" (a-z, 0-9 and -, like "m1-day-01"), and rename each exercise\'s "id" to "key".';
 
-// A parsed file of the given format (3: POST /import; 2: the first API, until step 5): the project it describes, or every problem.
-export function checkImportValue(parsed: unknown, format: 2 | 3 = 3): CheckedFile {
+// A parsed file (format 3): the project it describes, or every problem.
+export function checkImportValue(parsed: unknown): CheckedFile {
   if (!isObject(parsed)) return { file: null, problems: [{ path: '', code: 'wrong_type', message: 'The file must be one JSON object.' }] };
   const problems = new Problems();
-  const key_name = format === 3 ? 'key' : 'id';
   for (const key of Object.keys(parsed)) {
     if (!['format', 'project', 'exercises'].includes(key)) problems.add([key], 'unknown_field', 'is not a known field.');
   }
-  if (parsed.format !== format) problems.add(['format'], 'unsupported_format', `must be ${format}.${parsed.format === 2 ? ` ${FORMAT_2_EDITS}` : ''}`);
-  if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS[format], ['project'], problems);
+  if (parsed.format === 2) problems.add(['format'], 'unsupported_format', `must be 3. ${FORMAT_2_EDITS}`);
+  else if (parsed.format !== 3) problems.add(['format'], 'unsupported_format', 'must be 3.');
+  if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS, ['project'], problems);
   else problems.add(['project'], parsed.project === undefined ? 'required' : 'wrong_type', 'is missing.');
   const exercises: FileExercise[] = [];
   if (!Array.isArray(parsed.exercises) || parsed.exercises.length < 1 || parsed.exercises.length > MAX_EXERCISES) {
@@ -254,20 +255,23 @@ export function checkImportValue(parsed: unknown, format: 2 | 3 = 3): CheckedFil
     const first_seen = new Map<string, number>();
     parsed.exercises.forEach((value, index) => {
       const exercise_problems = new Problems(['exercises', index], problems.list);
-      const exercise = checkExercise(value, exercise_problems, key_name);
-      const key = isObject(value) && typeof value[key_name] === 'string' ? value[key_name] as string : null;
-      if (key !== null && first_seen.has(key)) exercise_problems.add([key_name], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
-      else if (key !== null) first_seen.set(key, index + 1);
+      const exercise = checkExercise(value, exercise_problems);
+      const key = isObject(value) && typeof value.key === 'string' ? value.key : null;
+      if (key !== null && first_seen.has(key)) {
+        exercise_problems.add(['key'], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
+      } else if (key !== null) {
+        first_seen.set(key, index + 1);
+      }
       if (exercise !== null) exercises.push(exercise);
     });
   }
   if (problems.list.length > 0) return { file: null, problems: problems.list };
-  const project = parsed.project as { key?: string; name: string; description?: string };
-  return { file: { key: project.key ?? null, name: project.name.trim(), description: project.description?.trim() ?? '', exercises }, problems: null };
+  const project = parsed.project as { key: string; name: string; description?: string };
+  return { file: { key: project.key, name: project.name.trim(), description: project.description?.trim() ?? '', exercises }, problems: null };
 }
 
 // The file's text: checked as above, after its size and its JSON.
-export function checkProjectFile(file_text: string, format: 2 | 3 = 3): CheckedFile {
+export function checkProjectFile(file_text: string): CheckedFile {
   if (file_text.length > MAX_FILE_CHARS) return { file: null, problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }] };
   let parsed: unknown;
   try {
@@ -277,13 +281,13 @@ export function checkProjectFile(file_text: string, format: 2 | 3 = 3): CheckedF
     const line = position === null ? null : file_text.slice(0, Number(position[1])).split('\n').length;
     return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${line === null ? '' : ` (line ${line})`}.` }] };
   }
-  return checkImportValue(parsed, format);
+  return checkImportValue(parsed);
 }
 
 // The body of PUT .../exercises/:key: the exercise, or every problem.
 export function checkExerciseInput(value: unknown, url_key: string): { exercise: ExerciseBody; problems: null } | { exercise: null; problems: Problem[] } {
   const problems = new Problems();
-  const exercise = checkExercise(value, problems, 'key', url_key);
+  const exercise = checkExercise(value, problems, url_key);
   if (exercise === null) return { exercise: null, problems: problems.list };
   const { key: _key, ...body } = exercise;
   return { exercise: body, problems: null };
@@ -342,7 +346,7 @@ const SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema';
 // GET /api/practice/schemas/exercise.json: one exercise as a file holds it, one $defs entry per type.
 export function exerciseSchema(): Record<string, unknown> {
   const $defs = Object.fromEntries(EXERCISE_TYPES.map((type) => {
-    const { type: _type, ...outer } = exerciseFields('key', true);
+    const { type: _type, ...outer } = exerciseFields(true);
     const fields = { ...outer, content: { kind: 'object', fields: CONTENT_FIELDS[type], required: true } as Spec };
     const schema = objectSchema(fields, { description: TYPE_RULES[type] });
     const properties = schema.properties as Record<string, unknown>;
@@ -363,7 +367,7 @@ export function importSchema(): Record<string, unknown> {
     type: 'object', additionalProperties: false, required: ['format', 'project', 'exercises'],
     properties: {
       format: { const: 3 },
-      project: objectSchema(PROJECT_FIELDS[3]),
+      project: objectSchema(PROJECT_FIELDS),
       exercises: { type: 'array', minItems: 1, maxItems: MAX_EXERCISES, items: { $ref: 'exercise.json' }, description: 'Keys are unique in the file.' },
     },
   };
@@ -377,8 +381,7 @@ export function problemLine(problem: Problem, exercises: unknown): string {
   const index = Number(match[1]);
   const exercise = Array.isArray(exercises) ? exercises[index] : undefined;
   const type = isObject(exercise) && EXERCISE_TYPES.includes(exercise.type as ExerciseType) ? exercise.type as string : null;
-  const key_value = isObject(exercise) ? exercise.key ?? exercise.id : undefined;
-  const key = typeof key_value === 'string' && KEY_PATTERN.test(key_value) ? key_value : null;
+  const key = isObject(exercise) && typeof exercise.key === 'string' && KEY_PATTERN.test(exercise.key) ? exercise.key : null;
   const label = [type, key].filter((part) => part !== null);
   return `Exercise ${index + 1}${label.length > 0 ? ` (${label.join(', ')})` : ''}: ${problem.message}`;
 }

@@ -3,8 +3,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Effort } from '../../../shared/api.ts';
 import { inTransaction, openDatabase } from '../../../shared/server/sqlite.ts';
 import type {
-  AiResult, AnswerByType, Attempt, AttemptStatus, Change, Exercise, ExerciseBody, ExerciseItem, ExerciseType, ExerciseView, FileExercise, HistoryItem,
-  ImportFile, ImportResult, List, Project, ProjectDetail, ProjectFile, ProjectInput, ResultByType,
+  AiResult, AnswerByType, Attempt, AttemptStatus, Change, Exercise, ExerciseBody, ExerciseItem, ExerciseType, ImportFile, ImportResult, List, Project,
+  ProjectFile, ProjectInput, ResultByType,
 } from '../api.ts';
 import { kindOf, previewOf } from '../text.ts';
 
@@ -160,7 +160,7 @@ export interface PracticeStore {
   putExercise(project_key: string, key: string, exercise: ExerciseBody, is_dry_run: boolean): { exercise: Exercise; change: Change } | null;
   // Its attempts stay, with its key and their snapshots.
   deleteExercise(project_key: string, key: string): boolean;
-  // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes. file.key must be set.
+  // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes.
   importFile(file: ProjectFile, is_dry_run: boolean): ImportResult;
   exportProject(key: string): ImportFile | null;
   createAttempt(attempt: NewAttempt): Attempt;
@@ -172,14 +172,6 @@ export interface PracticeStore {
   finishGrading(attempt_id: number, outcome: GradingOutcome): void;
   // A server stopped mid-grading leaves 'grading' rows nobody will finish: they become failed.
   failInterruptedGradings(): number;
-  // The first API, until step 5 deletes it.
-  legacy: {
-    readProjectDetail(project_id: number): ProjectDetail | null;
-    createProject(file: ProjectFile): number;
-    // Appends in file order. A key already in the project adds nothing and is returned. null: no such project.
-    addExercises(project_id: number, exercises: FileExercise[]): { added: number } | { duplicate_keys: string[] } | null;
-    readExercise(exercise_id: number): ExerciseView | null;
-  };
 }
 
 interface ProjectRow extends Omit<Project, 'archived' | 'type_counts'> {
@@ -220,8 +212,13 @@ function bodyOf(row: Pick<ExerciseRow, 'type' | 'topic' | 'tags_json' | 'content
 
 // JSON with every object's keys sorted: two values are the same exactly when this is.
 function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, inner) => (typeof inner === 'object' && inner !== null && !Array.isArray(inner)
-    ? Object.fromEntries(Object.keys(inner).sort().map((key) => [key, inner[key]])) : inner));
+  return JSON.stringify(value, (_key, inner) => {
+    const is_plain_object = typeof inner === 'object' && inner !== null && !Array.isArray(inner);
+    if (!is_plain_object) return inner;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(inner).sort()) sorted[key] = inner[key];
+    return sorted;
+  });
 }
 
 // Whether an exercise really changes: the same content written again, in any key order, is not a change.
@@ -248,9 +245,19 @@ function resultOf(type: ExerciseType, result_json: string | null): ResultByType[
 
 function attemptOf(row: AttemptRow): Attempt {
   return {
-    id: row.id, project: row.project, exercise: row.exercise_key, exercise_version: row.exercise_version, exercise_deleted: row.exercise_deleted === 1,
-    submitted_at: row.submitted_at, status: row.status, summary: row.summary, error: row.error, writing_ms: row.writing_ms,
-    snapshot: JSON.parse(row.exercise_snapshot_json), answer: JSON.parse(row.answer_json), result: resultOf(row.type, row.result_json),
+    id: row.id,
+    project: row.project,
+    exercise: row.exercise_key,
+    exercise_version: row.exercise_version,
+    exercise_deleted: row.exercise_deleted === 1,
+    submitted_at: row.submitted_at,
+    status: row.status,
+    summary: row.summary,
+    error: row.error,
+    writing_ms: row.writing_ms,
+    snapshot: JSON.parse(row.exercise_snapshot_json),
+    answer: JSON.parse(row.answer_json),
+    result: resultOf(row.type, row.result_json),
   };
 }
 
@@ -276,7 +283,6 @@ export function openPracticeStore(database_path: string): PracticeStore {
     WHERE $archived = 'all' OR ($archived = 'true') = (archived_at IS NOT NULL)
     ORDER BY coalesce(last_activity_at, created_at) DESC, id DESC`);
   const select_project = database.prepare(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE key = $key`);
-  const select_project_by_id = database.prepare(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE id = $id`);
   const select_type_counts = database.prepare('SELECT type, count(*) AS count FROM exercises WHERE project_id = $project_id GROUP BY type');
   const insert_project = database.prepare(`
     INSERT INTO projects (key, name, description, archived_at, created_at, updated_at) VALUES ($key, $name, $description, $archived_at, $now, $now)`);
@@ -341,7 +347,8 @@ export function openPracticeStore(database_path: string): PracticeStore {
 
   function projectOf(row: ProjectRow): Project {
     const type_counts: Partial<Record<ExerciseType, number>> = {};
-    for (const { type, count } of select_type_counts.all({ project_id: row.id }) as { type: ExerciseType; count: number }[]) type_counts[type] = count;
+    const counts = select_type_counts.all({ project_id: row.id }) as { type: ExerciseType; count: number }[];
+    for (const { type, count } of counts) type_counts[type] = count;
     const { archived_at, ...columns } = row;
     return { ...columns, archived: archived_at !== null, type_counts };
   }
@@ -382,13 +389,40 @@ export function openPracticeStore(database_path: string): PracticeStore {
     return 'deleted';
   }
 
+  interface ItemRow extends ExerciseRow {
+    updated_at: string;
+    done: number;
+    // The latest attempt's columns; all null when there is none.
+    last_id: number | null;
+    last_status: AttemptStatus;
+    last_summary: string | null;
+    last_submitted_at: string;
+  }
+
+  function itemOf(row: ItemRow): ExerciseItem {
+    const { kind, preview } = describe(bodyOf(row));
+    let last_attempt: ExerciseItem['last_attempt'] = null;
+    if (row.last_id !== null) {
+      last_attempt = { id: row.last_id, status: row.last_status, summary: row.last_summary, submitted_at: row.last_submitted_at };
+    }
+    return {
+      id: row.id,
+      key: row.key,
+      type: row.type,
+      kind,
+      preview,
+      topic: row.topic,
+      tags: JSON.parse(row.tags_json),
+      version: row.version,
+      updated_at: row.updated_at,
+      done: row.done === 1,
+      last_attempt,
+    };
+  }
+
   function itemsOf(project_id: number, type: ExerciseType | null, tag: string | null): ExerciseItem[] {
-    type ItemRow = ExerciseRow & { updated_at: string; done: number; last_id: number | null; last_status: AttemptStatus; last_summary: string | null; last_submitted_at: string };
-    return (select_exercise_items.all({ project_id, type, tag }) as unknown as ItemRow[]).map((row): ExerciseItem => ({
-      id: row.id, key: row.key, type: row.type, ...describe(bodyOf(row)), topic: row.topic, tags: JSON.parse(row.tags_json), version: row.version,
-      updated_at: row.updated_at, done: row.done === 1,
-      last_attempt: row.last_id === null ? null : { id: row.last_id, status: row.last_status, summary: row.last_summary, submitted_at: row.last_submitted_at },
-    }));
+    const rows = select_exercise_items.all({ project_id, type, tag }) as unknown as ItemRow[];
+    return rows.map(itemOf);
   }
 
   function listExercises(project_key: string, { type, tag }: { type: ExerciseType | null; tag: string | null }): ExerciseItem[] | null {
@@ -401,8 +435,16 @@ export function openPracticeStore(database_path: string): PracticeStore {
     const row = select_exercise.get({ project_key, key }) as Row | undefined;
     if (row === undefined) return null;
     return {
-      id: row.id, project: row.project, key: row.key, ...bodyOf(row), position: row.position, version: row.version, created_at: row.created_at,
-      updated_at: row.updated_at, done: row.done === 1, attempt_count: row.attempt_count,
+      id: row.id,
+      project: row.project,
+      key: row.key,
+      ...bodyOf(row),
+      position: row.position,
+      version: row.version,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      done: row.done === 1,
+      attempt_count: row.attempt_count,
     };
   }
 
@@ -411,7 +453,8 @@ export function openPracticeStore(database_path: string): PracticeStore {
     const row = select_exercise_row_by_project.get({ project_id, key }) as ExerciseRow | undefined;
     const columns = { type: body.type, topic: body.topic, tags_json: JSON.stringify(body.tags), content_json: JSON.stringify(body.content), now };
     if (row === undefined) {
-      insert_exercise.run({ project_id, key, position: position ?? (select_position.get({ project_id }) as { position: number }).position + 1, ...columns });
+      const { position: last_position } = select_position.get({ project_id }) as { position: number };
+      insert_exercise.run({ project_id, key, position: position ?? last_position + 1, ...columns });
       return 'created';
     }
     if (position !== null) set_position.run({ id: row.id, position });
@@ -435,7 +478,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   }
 
   function importFile(file: ProjectFile, is_dry_run: boolean): ImportResult {
-    const key = file.key as string;
+    const { key } = file;
     return inTransaction(database, () => {
       const now = new Date().toISOString();
       const row = select_project.get({ key }) as ProjectRow | undefined;
@@ -449,7 +492,11 @@ export function openPracticeStore(database_path: string): PracticeStore {
       }
       const project_id = (select_project.get({ key }) as unknown as ProjectRow).id;
       const exercises: ImportResult['exercises'] = { created: [], updated: [], unchanged: [] };
-      file.exercises.forEach(({ key: exercise_key, ...body }, index) => exercises[upsertExercise(project_id, exercise_key, body, index + 1, now)].push(exercise_key));
+      file.exercises.forEach((exercise, index) => {
+        const { key: exercise_key, ...body } = exercise;
+        const change = upsertExercise(project_id, exercise_key, body, index + 1, now);
+        exercises[change].push(exercise_key);
+      });
       // The file's order first; the exercises it leaves out keep their order after them.
       const in_file = new Set(file.exercises.map((exercise) => exercise.key));
       let position = file.exercises.length;
@@ -476,12 +523,24 @@ export function openPracticeStore(database_path: string): PracticeStore {
     const now = new Date().toISOString();
     const attempt_id = inTransaction(database, () => {
       const exercise = select_exercise_by_id.get({ id: exercise_id }) as unknown as ExerciseRow;
-      const id = Number(insert_attempt.run({
-        project_id: exercise.project_id, exercise_id, exercise_key: exercise.key, exercise_version: exercise.version, now, type: exercise.type,
-        exercise_snapshot_json: JSON.stringify(bodyOf(exercise)), answer_json: JSON.stringify(answer), status: outcome === null ? 'grading' : 'graded',
-        result_json: outcome === null ? null : JSON.stringify(outcome.result), summary: outcome?.summary ?? null, grader, writing_ms,
-        graded_at: outcome === null ? null : now,
-      }).lastInsertRowid);
+      const is_graded = outcome !== null;
+      const inserted = insert_attempt.run({
+        project_id: exercise.project_id,
+        exercise_id,
+        exercise_key: exercise.key,
+        exercise_version: exercise.version,
+        now,
+        type: exercise.type,
+        exercise_snapshot_json: JSON.stringify(bodyOf(exercise)),
+        answer_json: JSON.stringify(answer),
+        status: is_graded ? 'graded' : 'grading',
+        result_json: is_graded ? JSON.stringify(outcome.result) : null,
+        summary: is_graded ? outcome.summary : null,
+        grader,
+        writing_ms,
+        graded_at: is_graded ? now : null,
+      });
+      const id = Number(inserted.lastInsertRowid);
       touch_project.run({ id: exercise.project_id, now });
       return id;
     });
@@ -492,7 +551,9 @@ export function openPracticeStore(database_path: string): PracticeStore {
   function listAttempts({ limit, ...filter }: AttemptFilter): List<Attempt> {
     const rows = select_attempts.all({ ...filter, limit: limit + 1 }) as unknown as AttemptRow[];
     const items = rows.slice(0, limit).map(attemptOf);
-    return rows.length > limit ? { items, next_before: items[items.length - 1].id } : { items };
+    if (rows.length <= limit) return { items };
+    const last = items[items.length - 1];
+    return { items, next_before: last.id };
   }
 
   function readAttempt(attempt_id: number): Attempt | null {
@@ -526,56 +587,8 @@ export function openPracticeStore(database_path: string): PracticeStore {
     return Number(fail_interrupted.run().changes);
   }
 
-  // ---- The first API (step 5 deletes it) ----
-  const select_project_key = database.prepare('SELECT 1 FROM projects WHERE key = $key');
-  const select_next_project_id = database.prepare("SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'projects'), 0) + 1 AS id");
-  const select_keys = database.prepare('SELECT key FROM exercises WHERE project_id = $project_id');
-  const select_latest_attempts = database.prepare(`
-    SELECT id, exercise_id, type, exercise_snapshot_json, status, summary, submitted_at FROM attempts
-    WHERE project_id = $project_id AND id = (SELECT max(id) FROM attempts AS later WHERE later.exercise_id = attempts.exercise_id)
-    ORDER BY id DESC`);
-
-  function insertExercises(project_id: number, exercises: FileExercise[]): void {
-    const now = new Date().toISOString();
-    for (const { key, ...body } of exercises) upsertExercise(project_id, key, body, null, now);
-  }
-
-  const legacy: PracticeStore['legacy'] = {
-    readProjectDetail(project_id) {
-      const row = select_project_by_id.get({ id: project_id }) as ProjectRow | undefined;
-      if (row === undefined) return null;
-      type HistoryRow = { id: number; exercise_id: number; exercise_snapshot_json: string; status: AttemptStatus; summary: string | null; submitted_at: string };
-      const history = (select_latest_attempts.all({ project_id }) as unknown as HistoryRow[]).map((history_row): HistoryItem => ({
-        attempt_id: history_row.id, exercise_id: history_row.exercise_id, status: history_row.status, summary: history_row.summary,
-        submitted_at: history_row.submitted_at, ...describe(JSON.parse(history_row.exercise_snapshot_json)),
-      }));
-      return { project: projectOf(row), exercises: itemsOf(project_id, null, null), history };
-    },
-    createProject(file) {
-      return inTransaction(database, () => {
-        const { id: next_id } = select_next_project_id.get() as { id: number };
-        const key = keyFromName(file.name, next_id, (candidate) => select_project_key.get({ key: candidate }) !== undefined);
-        const project_id = Number(insert_project.run({ key, name: file.name, description: file.description, archived_at: null, now: new Date().toISOString() }).lastInsertRowid);
-        insertExercises(project_id, file.exercises);
-        return project_id;
-      });
-    },
-    addExercises(project_id, exercises) {
-      if (select_project_by_id.get({ id: project_id }) === undefined) return null;
-      const existing = new Set((select_keys.all({ project_id }) as { key: string }[]).map(({ key }) => key));
-      const duplicate_keys = exercises.map(({ key }) => key).filter((key) => existing.has(key));
-      if (duplicate_keys.length > 0) return { duplicate_keys };
-      inTransaction(database, () => insertExercises(project_id, exercises));
-      return { added: exercises.length };
-    },
-    readExercise(exercise_id) {
-      const row = select_exercise_by_id.get({ id: exercise_id }) as ExerciseRow | undefined;
-      return row === undefined ? null : { id: row.id, project_id: row.project_id, ...bodyOf(row) };
-    },
-  };
-
   return {
     listProjects, readProject, putProject, deleteProject, listExercises, readExercise, putExercise, deleteExercise, importFile, exportProject,
-    createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings, legacy,
+    createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings,
   };
 }

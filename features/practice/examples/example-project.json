@@ -1,12 +1,13 @@
 {
-  "format": 2,
+  "format": 3,
   "project": {
+    "key": "example",
     "name": "IELTS Writing Task 2 – Example",
     "description": "One or more exercises of every type: rewrite, translation, error correction, free writing, multiple choice, fill in the blanks and flashcards."
   },
   "exercises": [
     {
-      "id": "ex-01",
+      "key": "ex-01",
       "type": "rewrite",
       "topic": "transport",
       "content": {
@@ -21,7 +22,7 @@
       }
     },
     {
-      "id": "ex-02",
+      "key": "ex-02",
       "type": "rewrite",
       "topic": "technology",
       "content": {
@@ -35,7 +36,7 @@
       }
     },
     {
-      "id": "ex-03",
+      "key": "ex-03",
       "type": "rewrite",
       "topic": "urbanisation",
       "content": {
@@ -46,7 +47,7 @@
       }
     },
     {
-      "id": "ex-04",
+      "key": "ex-04",
       "type": "rewrite",
       "topic": "education",
       "tags": [
@@ -78,7 +79,7 @@
       }
     },
     {
-      "id": "ex-05",
+      "key": "ex-05",
       "type": "write",
       "topic": "transport",
       "content": {
@@ -88,7 +89,7 @@
       }
     },
     {
-      "id": "ex-06",
+      "key": "ex-06",
       "type": "choice",
       "topic": "grammar",
       "tags": [
@@ -118,7 +119,7 @@
       }
     },
     {
-      "id": "ex-07",
+      "key": "ex-07",
       "type": "choice",
       "topic": "linking words",
       "tags": [
@@ -149,7 +150,7 @@
       }
     },
     {
-      "id": "ex-08",
+      "key": "ex-08",
       "type": "fill",
       "topic": "grammar",
       "tags": [
@@ -176,7 +177,7 @@
       }
     },
     {
-      "id": "ex-09",
+      "key": "ex-09",
       "type": "flashcard",
       "topic": "IELTS vocabulary",
       "content": {
@@ -187,7 +188,7 @@
       }
     },
     {
-      "id": "ex-10",
+      "key": "ex-10",
       "type": "flashcard",
       "topic": "IELTS vocabulary",
       "content": {

@@ -115,8 +115,12 @@ export function deleteExercise(project_key: string, key: string, signal: AbortSi
 
 // ---- attempts ----
 
-// target: which exercise, and the version the page showed.
-export function submitAttempt(exercise: Pick<Exercise, 'project' | 'key' | 'version'>, answer: AnswerByType[ExerciseType], writing_ms: number, settings: GradingSettings, signal: AbortSignal): Promise<Attempt> {
+// Which exercise, and the version the page showed.
+type AttemptTarget = Pick<Exercise, 'project' | 'key' | 'version'>;
+
+export function submitAttempt(
+  exercise: AttemptTarget, answer: AnswerByType[ExerciseType], writing_ms: number, settings: GradingSettings, signal: AbortSignal,
+): Promise<Attempt> {
   const body: CreateAttemptRequest = { answer, writing_ms, exercise_version: exercise.version, ...settings };
   return request<Attempt>('POST', `/projects/${exercise.project}/exercises/${exercise.key}/attempts`, signal, body);
 }

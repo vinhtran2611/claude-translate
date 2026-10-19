@@ -8,10 +8,20 @@ const EXAMPLE = JSON.parse(readFileSync(new URL('../features/practice/examples/e
 const exercise = (key: string, type: string, content: object, extra: object = {}) => ({ key, type, content, ...extra });
 const fileWith = (...exercises: object[]) => JSON.stringify({ format: 3, project: { key: 'p', name: 'P' }, exercises });
 // The problems as the page shows them: one line each, or null for a good file.
-const problemsOf = (text: string) => checkProjectFile(text).problems?.map((problem) => problemLine(problem, (() => { try { return JSON.parse(text).exercises; } catch { return null; } })())) ?? null;
+function problemsOf(text: string): string[] | null {
+  const { problems } = checkProjectFile(text);
+  if (problems === null) return null;
+  let exercises: unknown = null;
+  try {
+    exercises = JSON.parse(text).exercises;
+  } catch {
+    // Not JSON: the lines name no exercise.
+  }
+  return problems.map((problem) => problemLine(problem, exercises));
+}
 
 test('the example file is valid and covers all five types', () => {
-  const { file, problems } = checkProjectFile(JSON.stringify(EXAMPLE), 2);
+  const { file, problems } = checkProjectFile(JSON.stringify(EXAMPLE));
   assert.equal(problems, null);
   assert.equal(file?.name, 'IELTS Writing Task 2 – Example');
   assert.deepEqual([...new Set(file?.exercises.map((entry) => entry.type))].sort(), ['choice', 'fill', 'flashcard', 'rewrite', 'write']);
@@ -56,7 +66,6 @@ test('a format 2 file is refused with the edits that make it format 3', () => {
   const [format] = checkProjectFile(old).problems!;
   assert.equal(format.code, 'unsupported_format');
   assert.match(format.message, /add a "key" to "project".*rename each exercise's "id" to "key"/);
-  assert.equal(checkProjectFile(old, 2).problems, null);
 });
 
 test('each problem is one line with the exercise number and type', () => {

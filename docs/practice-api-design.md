@@ -765,3 +765,18 @@ curl -s -X DELETE localhost:8787/api/practice/projects/day-1-19-10-2026-v2
 - Attempts of an exercise that was **deleted** earlier and had the same old key are not touched (`exercise_id` is `NULL`):
   they belong to that other exercise.
 
+### 10.3 Move an exercise to another project
+
+`POST /api/practice/projects/{p}/exercises/{e}/move` with `{ "project": "m1-day-02" }` → `200 Exercise` (in its new
+project).
+
+- Errors: `404` (no such exercise, or no project to move to; the message says which), `409 key_taken` (the other project
+  already has an exercise with this key: rename one of them first, §10.2), `400 invalid`.
+- The exercise keeps its key, content, `version` and numeric `id` (so a draft in `localStorage` is kept). It goes to the
+  **end** of the other project, like a new exercise from `PUT`.
+- **Its attempts move with it** (`attempts.project_id`), so it stays done, and `GET /attempts?project={new}` lists them.
+  Both projects' `last_activity_at` is set again from their attempts.
+- Moving to the project it is already in is `200` and changes nothing.
+- Why no `"key"` in the same call (move and rename at once): two small actions are easier to read and to check with a dry
+  run. On a clash, rename first, then move.
+

@@ -162,6 +162,8 @@ export interface PracticeStore {
   putExercise(project_key: string, key: string, exercise: ExerciseBody, is_dry_run: boolean): { exercise: Exercise; change: Change } | null;
   // Gives an exercise a new key; its attempts get the new key too. Content, version and position do not change.
   renameExercise(project_key: string, key: string, new_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'key_taken';
+  // Moves an exercise to the end of another project, with its attempts. The same project is no change.
+  moveExercise(project_key: string, key: string, to_project_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'no_target' | 'key_taken';
   // Its attempts stay, with its key and their snapshots.
   deleteExercise(project_key: string, key: string): boolean;
   // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes.
@@ -328,6 +330,11 @@ export function openPracticeStore(database_path: string): PracticeStore {
   const delete_exercise = database.prepare('DELETE FROM exercises WHERE id = $id');
   const rename_exercise = database.prepare('UPDATE exercises SET key = $new_key WHERE id = $id');
   const rename_attempts = database.prepare('UPDATE attempts SET exercise_key = $new_key WHERE exercise_id = $id');
+  const move_exercise = database.prepare('UPDATE exercises SET project_id = $project_id, position = $position WHERE id = $id');
+  const move_attempts = database.prepare('UPDATE attempts SET project_id = $project_id WHERE exercise_id = $id');
+  // After a move: a project's last activity is its newest attempt again (NULL when it has none left).
+  const recount_activity = database.prepare(`
+    UPDATE projects SET last_activity_at = (SELECT max(submitted_at) FROM attempts WHERE project_id = projects.id) WHERE id = $id`);
   const select_exercise_by_id = database.prepare('SELECT id, project_id, key, type, topic, tags_json, content_json, version FROM exercises WHERE id = $id');
 
   // ---- attempts ----
@@ -504,6 +511,24 @@ export function openPracticeStore(database_path: string): PracticeStore {
     }, is_dry_run);
   }
 
+  function moveExercise(project_key: string, key: string, to_project_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'no_target' | 'key_taken' {
+    return inTransaction(database, () => {
+      const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
+      if (row === undefined) return 'not_found';
+      const target = select_project.get({ key: to_project_key }) as ProjectRow | undefined;
+      if (target === undefined) return 'no_target';
+      if (target.id === row.project_id) return readExercise(project_key, key) as Exercise;
+      if (select_exercise_row_by_project.get({ project_id: target.id, key }) !== undefined) return 'key_taken';
+
+      const { position: last_position } = select_position.get({ project_id: target.id }) as { position: number };
+      move_exercise.run({ id: row.id, project_id: target.id, position: last_position + 1 });
+      move_attempts.run({ id: row.id, project_id: target.id });
+      recount_activity.run({ id: row.project_id });
+      recount_activity.run({ id: target.id });
+      return readExercise(to_project_key, key) as Exercise;
+    }, is_dry_run);
+  }
+
   function deleteExercise(project_key: string, key: string): boolean {
     const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
     return row !== undefined && delete_exercise.run({ id: row.id }).changes > 0;
@@ -620,7 +645,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   }
 
   return {
-    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, deleteExercise, importFile, exportProject,
+    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, moveExercise, deleteExercise, importFile, exportProject,
     createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings,
   };
 }

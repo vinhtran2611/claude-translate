@@ -582,3 +582,47 @@ test('renaming an exercise: a dry run writes nothing; a taken key is a 409; a ba
   const missing = await call('POST', '/projects/rename-ex-2/exercises/nope/rename', { key: 'c9' });
   assert.equal(missing.status, 404);
 });
+
+test('moving an exercise takes its attempts to the new project, at the end', async () => {
+  await call('POST', '/import', fileOf('move-from', card('c1', 'cheap'), card('c2', 'fast')));
+  await call('POST', '/import', fileOf('move-to', card('t1', 'slow')));
+  const attempt_id = await answerCard('move-from', 'c1');
+
+  const reply = await call('POST', '/projects/move-from/exercises/c1/move', { project: 'move-to' });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.project, 'move-to');
+  assert.equal(reply.body.key, 'c1');
+  assert.equal(reply.body.version, 1);
+  assert.equal(reply.body.attempt_count, 1);
+
+  assert.deepEqual(keysOf((await get('/projects/move-from/exercises')).items), ['c2']);
+  assert.deepEqual(keysOf((await get('/projects/move-to/exercises')).items), ['t1', 'c1']);
+  assert.equal((await get(`/attempts/${attempt_id}`)).project, 'move-to');
+  assert.equal((await get('/attempts?project=move-from')).items.length, 0);
+  assert.equal((await get('/projects/move-from')).done_count, 0);
+  assert.equal((await get('/projects/move-from')).last_activity_at, null);
+  assert.equal((await get('/projects/move-to')).done_count, 1);
+});
+
+test('moving an exercise: a dry run writes nothing; a taken key is a 409; unknown projects are 404', async () => {
+  await call('POST', '/import', fileOf('move-a', card('c1', 'cheap')));
+  await call('POST', '/import', fileOf('move-b', card('c1', 'other')));
+  await call('POST', '/import', fileOf('move-c', card('c9', 'other')));
+
+  const dry = await call('POST', '/projects/move-a/exercises/c1/move?dry_run=true', { project: 'move-c' });
+  assert.equal(dry.status, 200);
+  assert.equal(dry.body.project, 'move-c');
+  assert.deepEqual(keysOf((await get('/projects/move-c/exercises')).items), ['c9']);
+
+  const taken = await call('POST', '/projects/move-a/exercises/c1/move', { project: 'move-b' });
+  assert.equal(taken.status, 409);
+  assert.equal(taken.body.error.code, 'key_taken');
+
+  const same = await call('POST', '/projects/move-a/exercises/c1/move', { project: 'move-a' });
+  assert.equal(same.status, 200);
+  assert.equal(same.body.project, 'move-a');
+
+  assert.equal((await call('POST', '/projects/move-a/exercises/c1/move', { project: 'nope' })).status, 404);
+  assert.equal((await call('POST', '/projects/move-a/exercises/nope/move', { project: 'move-c' })).status, 404);
+  assert.deepEqual(problemsOf(await call('POST', '/projects/move-a/exercises/c1/move', { key: 'x' })), ['/key unknown_field']);
+});

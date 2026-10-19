@@ -281,6 +281,23 @@ export function createPracticeFeature({ database_path }: { database_path: string
     sendJson(res, 200, outcome);
   }
 
+  // Moves an exercise, with its attempts, to the end of another project. It keeps its key, so the key must be free there.
+  async function moveExercise(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): Promise<void> {
+    const problems: Problem[] = [];
+    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const to_project_key = await readKeyBody(req, res, 'project', problems);
+    if (to_project_key === null) return;
+    const outcome = store.moveExercise(project_key, key, to_project_key, is_dry_run);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
+    if (outcome === 'no_target') return notFound(res, `project "${to_project_key}" to move to`);
+    if (outcome === 'key_taken') {
+      const message = `Project "${to_project_key}" already has an exercise "${key}". Rename one of them first.`;
+      return keyTaken(res, message);
+    }
+    if (to_project_key !== project_key && !is_dry_run) log('info', null, 'practice', `exercise ${project_key}/${key} moved to ${to_project_key}`);
+    sendJson(res, 200, outcome);
+  }
+
   function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
     if (!store.deleteExercise(project_key, key)) return notFound(res, `exercise "${key}" in project "${project_key}"`);
     log('info', null, 'practice', `exercise ${project_key}/${key} deleted`);
@@ -434,6 +451,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('PUT', `/projects/${KEY}/exercises/${KEY}`, putExercise, ['dry_run']),
     route('DELETE', `/projects/${KEY}/exercises/${KEY}`, deleteExercise),
     route('POST', `/projects/${KEY}/exercises/${KEY}/rename`, renameExercise, ['dry_run']),
+    route('POST', `/projects/${KEY}/exercises/${KEY}/move`, moveExercise, ['dry_run']),
 
     route('POST', `/projects/${KEY}/exercises/${KEY}/attempts`, createAttempt),
     route('GET', '/attempts', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),

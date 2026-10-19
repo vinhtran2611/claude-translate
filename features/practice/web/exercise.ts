@@ -37,7 +37,7 @@ async function gradingPicker(signal: AbortSignal): Promise<ModelPicker> {
 
 export async function showExercise(page: Page, project_id: number, exercise_id: number): Promise<void> {
   const [detail, exercise, model_picker] = await Promise.all([readProject(project_id, page.signal), readExercise(exercise_id, page.signal), gradingPicker(page.signal)]);
-  if (exercise.project_id !== project_id) throw new ApiError(404, 'No such exercise');
+  if (exercise.project_id !== project_id) throw new ApiError(404, 'not_found', 'No such exercise.');
   openScreen(page, detail, { exercise_id, exercise, attempt: null }, model_picker);
 }
 

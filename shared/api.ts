@@ -113,3 +113,16 @@ export interface HistoryEntry extends Omit<HistorySummary, 'input_preview' | 'ou
   thinking_text: string;
   thinking_duration_ms: number | null;
 }
+
+// One problem of a rejected request. path is a JSON Pointer into the body ("/exercises/5/content/options"), "?name" for a
+// query parameter, "#key" for the key in the URL. code is stable: programs switch on it.
+export interface ApiProblem {
+  path: string;
+  code: string;
+  message: string;
+}
+
+// The body of every non-2xx JSON API answer (docs/practice-api-design.md §3.3). problems is only there for code "invalid".
+export interface ApiErrorBody {
+  error: { code: string; message: string; problems?: ApiProblem[] };
+}

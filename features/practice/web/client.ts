@@ -1,17 +1,34 @@
 // The page's side of the HTTP API (features/practice/api.ts). Every read takes the navigation's AbortSignal, so a response
 // that arrives after the page has moved on is dropped, never drawn.
+import type { ApiErrorBody, ApiProblem } from '../../../shared/api.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
   AnswerByType, AttemptView, CreateAttemptRequest, ExerciseType, ExerciseView, GradingOptions, GradingSettings, GradingStreamEvents, ImportRequest,
   ProjectDetail, ProjectSummary,
 } from '../api.ts';
 
+// A non-2xx answer: its status and the API's one error shape (docs/practice-api-design.md §3.3).
 export class ApiError extends Error {
   status: number;
+  code: string;
+  problems: ApiProblem[];
 
-  constructor(status: number, message: string) {
+  constructor(status: number, code: string, message: string, problems: ApiProblem[] = []) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.problems = problems;
+  }
+}
+
+// Every API error is JSON; anything else (a proxy, a crash before the server answered) keeps its status and text.
+async function apiErrorOf(response: Response): Promise<ApiError> {
+  const text = await response.text();
+  try {
+    const { error } = JSON.parse(text) as ApiErrorBody;
+    return new ApiError(response.status, error.code, error.message, error.problems);
+  } catch {
+    return new ApiError(response.status, 'http', text || `HTTP ${response.status}`);
   }
 }
 
@@ -19,18 +36,14 @@ async function request<Body>(path: string, signal: AbortSignal | undefined, body
   const response = await fetch(`/api/practice${path}`, body === undefined ? { signal } : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
   });
-  if (!response.ok) throw new ApiError(response.status, await response.text());
+  if (!response.ok) throw await apiErrorOf(response);
   return await response.json() as Body;
 }
 
-// The problems of a rejected import: the lines the server listed, or the one line it sent.
-export function problemsOf(error: unknown): string[] {
-  if (!(error instanceof ApiError)) return [(error as Error).message];
-  try {
-    return (JSON.parse(error.message) as { errors: string[] }).errors;
-  } catch {
-    return [error.message || `HTTP ${error.status}`];
-  }
+// The problems of a rejected request, or the one error as a problem.
+export function problemsOf(error: unknown): ApiProblem[] {
+  if (error instanceof ApiError && error.problems.length > 0) return error.problems;
+  return [{ path: '', code: error instanceof ApiError ? error.code : 'network', message: (error as Error).message }];
 }
 
 export const listProjects = (signal: AbortSignal) => request<ProjectSummary[]>('/projects', signal);

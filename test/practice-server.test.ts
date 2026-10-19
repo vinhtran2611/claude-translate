@@ -81,7 +81,12 @@ test('a file with problems creates nothing and lists every problem; a good file 
   file.exercises[5].content.options.forEach((option: { correct?: boolean }) => delete option.correct);
   const bad = await createProject(JSON.stringify(file));
   assert.equal(bad.status, 400);
-  assert.deepEqual((await bad.json()).errors, ['Exercise 6 (choice): content.options: no option is marked correct.', 'Exercise 9 (flashcard): content.back is missing.']);
+  assert.deepEqual((await bad.json()).error, {
+    code: 'invalid', message: 'The request has 2 problems.', problems: [
+      { path: '/file/exercises/5/content/options', code: 'no_correct_option', message: 'content.options: no option is marked correct.' },
+      { path: '/file/exercises/8/content/back', code: 'required', message: 'content.back is missing.' },
+    ],
+  });
   assert.equal((await createProject('{ not json')).status, 400);
   assert.equal((await call('/projects', { name: 'x' })).status, 400);
   assert.deepEqual(await json('/projects'), []);
@@ -107,7 +112,7 @@ test('exercises can be added to a project, but not twice', async () => {
   assert.equal((await json(`/projects/${id}`)).exercises.length, 11);
   const again = await call(`/projects/${id}/exercises`, { file: more });
   assert.equal(again.status, 400);
-  assert.deepEqual((await again.json()).errors, ['Exercise 1: id "extra" is already in this project.']);
+  assert.deepEqual((await again.json()).error.problems, [{ path: '/file/exercises/0/id', code: 'duplicate_key', message: 'id "extra" is already in this project.' }]);
   assert.equal((await json(`/projects/${id}`)).exercises.length, 11);
   assert.equal((await call('/projects/9999/exercises', { file: more })).status, 404);
 });
@@ -308,4 +313,26 @@ test('one malformed row never breaks the lists, and an attempt keeps its exercis
   const after_change = await json(`/projects/${id}`);
   assert.deepEqual([after_change.exercises[0].preview, after_change.exercises[9].preview, after_change.history[0].preview], ['', 'changed', 'resilient']);
   assert.equal((await json(`/attempts/${card.id}`)).exercise.content.front, 'resilient');
+});
+
+test('every API error has the one shape: bad JSON, too large, invalid, not found, wrong method, unknown path', async () => {
+  const raw = (path: string, init: RequestInit = {}) => fetch(`${server.base_url}/api/practice${path}`, init);
+  const errorOf = async (response: Response) => [response.status, response.headers.get('content-type'), (await response.json()).error];
+  const bad_json = await errorOf(await raw('/attempts', { method: 'POST', body: '{\n  "answer": oops\n}' }));
+  assert.deepEqual(bad_json.slice(0, 2), [400, 'application/json; charset=utf-8']);
+  assert.equal(bad_json[2].code, 'bad_json');
+  assert.match(bad_json[2].message, /line 2, column 13/);
+  const too_large = await errorOf(await raw('/attempts', { method: 'POST', body: JSON.stringify({ answer: { text: 'x'.repeat(300_000) } }) }));
+  assert.deepEqual([too_large[0], too_large[2].code], [413, 'too_large']);
+  assert.deepEqual(await errorOf(await raw('/attempts', { method: 'POST', body: '[]' })), [400, 'application/json; charset=utf-8', {
+    code: 'invalid', message: 'The request has 1 problem.', problems: [{ path: '', code: 'wrong_type', message: 'The body must be a JSON object.' }],
+  }]);
+  assert.deepEqual(await errorOf(await raw('/attempts/999999')), [404, 'application/json; charset=utf-8', { code: 'not_found', message: 'No such attempt.' }]);
+  const wrong_method = await raw('/grading-options', { method: 'PUT' });
+  assert.equal(wrong_method.headers.get('allow'), 'GET');
+  assert.deepEqual((await errorOf(wrong_method)).slice(0, 1), [405]);
+  assert.equal((await raw('/attempts/1/regrade')).status, 405);
+  assert.deepEqual(await errorOf(await raw('/nothing/here')), [404, 'application/json; charset=utf-8', { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' }]);
+  // Outside the API a 404 stays bare.
+  assert.equal((await fetch(`${server.base_url}/nothing`)).headers.get('content-type'), null);
 });

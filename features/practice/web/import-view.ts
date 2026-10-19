@@ -2,7 +2,7 @@
 // The file is checked in the page with the same code the server runs again before it stores anything.
 import { createIcon } from '../../../shared/web/ui.ts';
 import type { ExerciseType, ProjectSummary } from '../api.ts';
-import { checkProjectFile, MAX_FILE_CHARS, type CheckedFile } from '../import-check.ts';
+import { checkProjectFile, MAX_FILE_CHARS, problemLine, type CheckedFile, type Problem } from '../import-check.ts';
 import { addExercises, createProject, listProjects, problemsOf, readProject } from './client.ts';
 import { button, h, link } from './dom.ts';
 import { pluralize, typeMix } from './format.ts';
@@ -10,6 +10,15 @@ import type { Page } from './page.ts';
 import { showProjectsSide, showSide } from './side.ts';
 
 const PASTE_CHECK_DELAY_MS = 300;
+
+// The exercises of a file's text, to name the one a problem is in; null when it is not JSON.
+function exercisesOf(text: string): unknown {
+  try {
+    return (JSON.parse(text) as { exercises?: unknown }).exercises;
+  } catch {
+    return null;
+  }
+}
 
 // "content.options" in a problem line, set in code type.
 function describeProblem(problem: string): (Node | string)[] {
@@ -38,7 +47,7 @@ function drawImport(page: Page, project: ProjectSummary | null): void {
   let source_text = '';
   let file_label: { name: string; size: number } | null = null;
   // The problems the server found in a file the page found fine.
-  let rejected: string[] | null = null;
+  let rejected: Problem[] | null = null;
   let is_name_edited = false;
   let paste_timer: ReturnType<typeof setTimeout> | undefined;
   page.signal.addEventListener('abort', () => clearTimeout(paste_timer));
@@ -57,7 +66,9 @@ function drawImport(page: Page, project: ProjectSummary | null): void {
     const file = checked?.file ?? null;
     const choose = button('secondary-button', file_label === null ? 'Choose file' : 'Choose another file', () => picker.click());
     zone.replaceChildren(h('div', 'grow', ...(file_label === null ? [h('span', '', 'No file chosen')] : [h('strong', '', file_label.name), h('span', '', ` · ${Math.max(1, Math.round(file_label.size / 1024))} KB`)])), choose);
-    const shown = rejected !== null ? createProblems(rejected) : checked === null ? null : checked.file !== null ? createFound(checked as CheckedFile & { file: object }) : createProblems(checked.errors);
+    const lines = (problems: Problem[]) => problems.map((problem) => problemLine(problem, exercisesOf(source_text)));
+    const shown = rejected !== null ? createProblems(lines(rejected)) : checked === null ? null
+      : checked.file !== null ? createFound(checked as CheckedFile & { file: object }) : createProblems(lines(checked.problems));
     result.replaceChildren(...(shown === null ? [] : [shown]));
     const is_ready = file !== null && rejected === null && (project !== null || name.value.trim() !== '');
     submit.disabled = !is_ready;
@@ -78,7 +89,7 @@ function drawImport(page: Page, project: ProjectSummary | null): void {
     const own = ++load_count;
     paste.value = '';
     if (file.size > MAX_FILE_CHARS) {
-      checked = { file: null, errors: ['The file is larger than 2 MB.'] };
+      checked = { file: null, problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }] };
       file_label = { name: file.name, size: file.size };
       rejected = null;
       return draw();
@@ -115,7 +126,8 @@ function drawImport(page: Page, project: ProjectSummary | null): void {
       location.hash = `#/p/${id}`;
     } catch (error) {
       if (page.signal.aborted) return;
-      rejected = problemsOf(error);
+      // The server's paths point into the body, whose file is under /file.
+      rejected = problemsOf(error).map((problem) => ({ ...problem, path: problem.path.replace(/^\/file/, '') }));
       draw();
     }
   });

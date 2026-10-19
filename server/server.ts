@@ -9,7 +9,7 @@ import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
 } from '../shared/server/claude-runner.ts';
-import { readJsonBody, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
+import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
 import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES } from '../shared/server/log.ts';
 import { backupDaily } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
@@ -542,15 +542,18 @@ const server = createServer(async (req, res) => {
         is_handled = await feature.handle(req, res, pathname);
         if (is_handled) break;
       }
-      if (!is_handled) res.writeHead(404).end();
+      // A JSON API answers in its one error shape; anything else stays a bare 404.
+      if (!is_handled && pathname.startsWith('/api/')) sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
+      else if (!is_handled) res.writeHead(404).end();
     }
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error));
     const stack_frame_lines = String(failure.stack ?? '').split('\n').slice(1, 1 + LOG_DETAIL_MAX_LINES)
       .map((line) => line.replaceAll(`file://${APP_DIRECTORY}/`, ''));
     log('error', null, 'http', `500 ${req.method} ${pathname}: ${failure.message}`, stack_frame_lines);
-    if (!res.headersSent) res.writeHead(500).end('Internal error');
-    else res.end();
+    if (res.headersSent) res.end();
+    else if (pathname.startsWith('/api/')) sendError(res, 500, 'internal', 'Internal error: the details are in the server log.');
+    else res.writeHead(500).end('Internal error');
   }
 });
 

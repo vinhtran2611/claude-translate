@@ -70,6 +70,8 @@ export interface FlashcardContent {
   back: string;
   hint?: string;
   example?: string;
+  // Markdown: the concept and a worked explanation, shown under the answer.
+  explanation?: string;
 }
 
 export interface ContentByType {

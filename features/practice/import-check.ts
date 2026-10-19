@@ -45,7 +45,7 @@ const CONTENT_FIELDS: { [Type in ExerciseType]: Fields } = {
     gaps: list({ kind: 'object', fields: { answer: { kind: 'texts', max: 200, required: true }, hint: text(100), why: text(1_000) } }, 1, 30, true),
     instruction: text(1_000),
   },
-  flashcard: { front: text(300, true), back: text(2_000, true), hint: text(300), example: text(1_000) },
+  flashcard: { front: text(300, true), back: text(2_000, true), hint: text(300), example: text(1_000), explanation: text(5_000) },
 };
 
 const EXERCISE_FIELDS: Fields = {

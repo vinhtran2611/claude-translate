@@ -47,7 +47,8 @@ two or more is multi-select.
 **fill**: `text*` with markers `{{1}} {{2}}` and so on, `gaps*` (`[{ answer*, hint, why }]`, one per marker, in order; `answer`
 is a text or a list of accepted answers), `instruction`.
 
-**flashcard**: `front*`, `back*`, `hint`, `example`.
+**flashcard**: `front*`, `back*`, `hint`, `example` (plain text), `explanation` (Markdown, up to 5,000 characters: the concept and a worked
+explanation, rendered under the answer).
 
 ```json
 { "id": "m1", "type": "choice", "tags": ["conditionals"], "content": { "question": "If more people ____ buses, roads would be quieter.",

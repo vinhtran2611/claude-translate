@@ -53,6 +53,12 @@ test('each problem is one line with the exercise number and type', () => {
   ]);
 });
 
+test('a flashcard explanation is Markdown up to 5,000 characters', () => {
+  const card = (explanation: string) => fileWith(exercise('c', 'flashcard', { front: 'f', back: 'b', explanation }));
+  assert.equal(problemsOf(card('### Concept\n\n- **be** joins a subject to an adjective')), null);
+  assert.deepEqual(problemsOf(card('x'.repeat(5_001))), ['Exercise 1 (flashcard): content.explanation is longer than 5000 characters.']);
+});
+
 test('a choice needs 2 to 6 options, each with a reason', () => {
   const one = exercise('c', 'choice', { question: 'Q', options: [{ text: 'x', why: 'y', correct: true }] });
   assert.deepEqual(problemsOf(fileWith(one)), ['Exercise 1 (choice): content.options must be a list of 2 to 6 items.']);

@@ -1,6 +1,7 @@
 // flashcard: say the meaning to yourself, look at the answer, rate how well you knew it. Nothing to grade: the rating is the answer.
 import type { Rating } from '../../api.ts';
 import { RATING_LABELS } from '../../text.ts';
+import { renderDocument } from '../../../../shared/web/markdown.ts';
 import { button, h } from '../dom.ts';
 import type { Template } from './types.ts';
 
@@ -36,11 +37,14 @@ export const flashcard: Template<'flashcard'> = {
   },
 
   evaluation({ exercise: { content } }) {
+    const explanation = h('div', 'eval-text doc-content');
+    if (content.explanation !== undefined) renderDocument(explanation, content.explanation);
     return {
       title: 'Answer',
       content: [
         h('p', 'answer-text', content.back),
         ...(content.example === undefined ? [] : [h('p', 'label', 'Example'), h('p', 'read', content.example)]),
+        ...(content.explanation === undefined ? [] : [h('p', 'label', 'Explanation'), explanation]),
       ],
     };
   },

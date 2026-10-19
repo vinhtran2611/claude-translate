@@ -160,6 +160,8 @@ export interface PracticeStore {
   readExercise(project_key: string, key: string): Exercise | null;
   // A new exercise goes to the end. null: no such project.
   putExercise(project_key: string, key: string, exercise: ExerciseBody, is_dry_run: boolean): { exercise: Exercise; change: Change } | null;
+  // Gives an exercise a new key; its attempts get the new key too. Content, version and position do not change.
+  renameExercise(project_key: string, key: string, new_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'key_taken';
   // Its attempts stay, with its key and their snapshots.
   deleteExercise(project_key: string, key: string): boolean;
   // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes.
@@ -324,6 +326,8 @@ export function openPracticeStore(database_path: string): PracticeStore {
     WHERE id = $id`);
   const set_position = database.prepare('UPDATE exercises SET position = $position WHERE id = $id');
   const delete_exercise = database.prepare('DELETE FROM exercises WHERE id = $id');
+  const rename_exercise = database.prepare('UPDATE exercises SET key = $new_key WHERE id = $id');
+  const rename_attempts = database.prepare('UPDATE attempts SET exercise_key = $new_key WHERE exercise_id = $id');
   const select_exercise_by_id = database.prepare('SELECT id, project_id, key, type, topic, tags_json, content_json, version FROM exercises WHERE id = $id');
 
   // ---- attempts ----
@@ -487,6 +491,19 @@ export function openPracticeStore(database_path: string): PracticeStore {
     }, is_dry_run);
   }
 
+  // The attempts of a deleted exercise that had the old key are not touched: they belong to that other exercise.
+  function renameExercise(project_key: string, key: string, new_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'key_taken' {
+    return inTransaction(database, () => {
+      const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
+      if (row === undefined) return 'not_found';
+      if (new_key === key) return readExercise(project_key, key) as Exercise;
+      if (select_exercise_row_by_project.get({ project_id: row.project_id, key: new_key }) !== undefined) return 'key_taken';
+      rename_exercise.run({ id: row.id, new_key });
+      rename_attempts.run({ id: row.id, new_key });
+      return readExercise(project_key, new_key) as Exercise;
+    }, is_dry_run);
+  }
+
   function deleteExercise(project_key: string, key: string): boolean {
     const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
     return row !== undefined && delete_exercise.run({ id: row.id }).changes > 0;
@@ -603,7 +620,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   }
 
   return {
-    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, deleteExercise, importFile, exportProject,
+    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, deleteExercise, importFile, exportProject,
     createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings,
   };
 }

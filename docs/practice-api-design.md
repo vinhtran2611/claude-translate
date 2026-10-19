@@ -117,8 +117,7 @@ a question you did not see. Cheap, and it matters now that edits exist.
 
 | Thing | Rule |
 |---|---|
-| Project key | Changes only by `POST /projects/{p}/rename` (§10.1). |
-| Exercise key | Never changes. |
+| Project key, exercise key | Change only by the rename actions (§10.1, §10.2). |
 | Attempt: snapshot, answer, `submitted_at`, `exercise_version` | Never change. |
 | Attempt: status, result | Change only by grading: `grading → graded`, `grading → failed`, and `failed → grading` (regrade). This is the current rule (`store.ts:175-182`); keep it. |
 | Exercise content, project name/description | Editable. |
@@ -752,4 +751,17 @@ Design Q1 is now two calls:
 curl -s -X POST localhost:8787/api/practice/projects/day-1-19-10-2026/rename -H 'Content-Type: application/json' -d '{"key":"m1-day-01"}'
 curl -s -X DELETE localhost:8787/api/practice/projects/day-1-19-10-2026-v2
 ```
+
+### 10.2 Rename an exercise
+
+`POST /api/practice/projects/{p}/exercises/{e}/rename` with `{ "key": "d1-fix-3" }` → `200 Exercise` (with the new key).
+
+- Errors: `404` (no such project or exercise), `409 key_taken` (the key is used in the same project), `400 invalid` (as in
+  §10.1).
+- Content, `version`, `updated_at` and `position` do not change: the exercise is the same, only its name is new.
+- **Its attempts get the new key too** (`attempts.exercise_key`). They are already linked by `exercise_id`, so this is not
+  needed for the link; it is needed so that `GET /attempts?project={p}&exercise={new}` finds them and every attempt shows
+  the key the exercise has now. The snapshot has no key, so it does not change.
+- Attempts of an exercise that was **deleted** earlier and had the same old key are not touched (`exercise_id` is `NULL`):
+  they belong to that other exercise.
 

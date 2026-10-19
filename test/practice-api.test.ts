@@ -546,3 +546,39 @@ test('renaming a project: a taken key is a 409; a bad body or an unknown project
   const missing = await call('POST', '/projects/nope/rename', { key: 'nope-2' });
   assert.equal(missing.status, 404);
 });
+
+test('renaming an exercise keeps its attempts, which show the new key', async () => {
+  await call('POST', '/import', fileOf('rename-ex', card('c1', 'cheap'), card('c2', 'fast')));
+  const attempt_id = await answerCard('rename-ex', 'c1');
+
+  const reply = await call('POST', '/projects/rename-ex/exercises/c1/rename', { key: 'cheap-card' });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.key, 'cheap-card');
+  assert.equal(reply.body.version, 1);
+  assert.equal(reply.body.position, 1);
+  assert.equal(reply.body.attempt_count, 1);
+  assert.equal(reply.body.done, true);
+
+  assert.equal((await call('GET', '/projects/rename-ex/exercises/c1')).status, 404);
+  assert.equal((await get(`/attempts/${attempt_id}`)).exercise, 'cheap-card');
+  const listed = await get('/attempts?project=rename-ex&exercise=cheap-card');
+  assert.deepEqual(listed.items.map((item: any) => item.id), [attempt_id]);
+  assert.equal((await get('/attempts?project=rename-ex&exercise=c1')).items.length, 0);
+});
+
+test('renaming an exercise: a dry run writes nothing; a taken key is a 409; a bad body or unknown exercise is refused', async () => {
+  await call('POST', '/import', fileOf('rename-ex-2', card('c1', 'cheap'), card('c2', 'fast')));
+
+  const dry = await call('POST', '/projects/rename-ex-2/exercises/c1/rename?dry_run=true', { key: 'c3' });
+  assert.equal(dry.status, 200);
+  assert.equal(dry.body.key, 'c3');
+  assert.deepEqual(keysOf((await get('/projects/rename-ex-2/exercises')).items), ['c1', 'c2']);
+
+  const taken = await call('POST', '/projects/rename-ex-2/exercises/c1/rename', { key: 'c2' });
+  assert.equal(taken.status, 409);
+  assert.equal(taken.body.error.code, 'key_taken');
+
+  assert.deepEqual(problemsOf(await call('POST', '/projects/rename-ex-2/exercises/c1/rename', { key: '-c' })), ['/key bad_key']);
+  const missing = await call('POST', '/projects/rename-ex-2/exercises/nope/rename', { key: 'c9' });
+  assert.equal(missing.status, 404);
+});

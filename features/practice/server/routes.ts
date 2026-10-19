@@ -268,6 +268,19 @@ export function createPracticeFeature({ database_path }: { database_path: string
     notFound(res, `exercise "${key}" in project "${project_key}"`);
   }
 
+  // A new key for an exercise, inside its project. Its attempts follow it and show the new key.
+  async function renameExercise(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): Promise<void> {
+    const problems: Problem[] = [];
+    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const new_key = await readKeyBody(req, res, 'key', problems);
+    if (new_key === null) return;
+    const outcome = store.renameExercise(project_key, key, new_key, is_dry_run);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
+    if (outcome === 'key_taken') return keyTaken(res, `There is already an exercise "${new_key}" in project "${project_key}".`);
+    if (new_key !== key && !is_dry_run) log('info', null, 'practice', `exercise ${project_key}/${key} renamed to ${new_key}`);
+    sendJson(res, 200, outcome);
+  }
+
   function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
     if (!store.deleteExercise(project_key, key)) return notFound(res, `exercise "${key}" in project "${project_key}"`);
     log('info', null, 'practice', `exercise ${project_key}/${key} deleted`);
@@ -420,6 +433,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('GET', `/projects/${KEY}/exercises/${KEY}`, readExercise),
     route('PUT', `/projects/${KEY}/exercises/${KEY}`, putExercise, ['dry_run']),
     route('DELETE', `/projects/${KEY}/exercises/${KEY}`, deleteExercise),
+    route('POST', `/projects/${KEY}/exercises/${KEY}/rename`, renameExercise, ['dry_run']),
 
     route('POST', `/projects/${KEY}/exercises/${KEY}/attempts`, createAttempt),
     route('GET', '/attempts', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),

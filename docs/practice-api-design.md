@@ -137,8 +137,8 @@ Why not soft delete (`deleted_at`) for exercises: it forces a `WHERE deleted_at 
 ### 2.6 Order of exercises
 
 `position` stays. A new exercise from a single `PUT` goes to the end. An **import** sets the order of the exercises in the
-file to the file's order; exercises that are not in the file keep their relative order after them. No reorder endpoint (the
-file is the way to reorder).
+file to the file's order; exercises that are not in the file keep their relative order after them. To reorder without a file,
+`PUT /projects/{p}/order` (§10.4) uses the same rule.
 
 ### 2.7 SQL schema (version 2)
 
@@ -328,7 +328,7 @@ it is wrong.
 | `internal` | 500 | a bug; details are in the server log, not in the response |
 
 **Problem codes** (inside `problems`): `required`, `unknown_field`, `wrong_type`, `empty`, `too_long`, `too_short`,
-`too_many`, `too_few`, `out_of_range`, `not_allowed` (enum), `bad_key` (pattern), `duplicate_key`, `key_mismatch`,
+`too_many`, `too_few`, `out_of_range`, `not_allowed` (enum), `bad_key` (pattern), `duplicate_key`, `unknown_key` (§10.4), `key_mismatch`,
 `no_correct_option`, `fill_markers`, `mistake_not_once`, `unsupported_format`, `unknown_parameter`. Each maps to one branch of
 the existing checker (`import-check.ts:68-127`), so this is a refactor of the messages, not new logic.
 
@@ -779,4 +779,23 @@ project).
 - Moving to the project it is already in is `200` and changes nothing.
 - Why no `"key"` in the same call (move and rename at once): two small actions are easier to read and to check with a dry
   run. On a clash, rename first, then move.
+
+### 10.4 Order of exercises
+
+`PUT /api/practice/projects/{p}/order` with `{ "keys": ["d1-fix-3", "d1-card-1"] }` → `200 { items: ExerciseItem[] }` (the
+whole list in its new order, as `GET …/exercises` gives it).
+
+- The listed keys come first, in this order; the project's **other exercises keep their order after them**. Positions
+  become 1, 2, 3… To set the whole order, list every key; to move one exercise to the top, list only it.
+- Errors: `404` (no such project), `400 invalid` with every problem: `/keys` `required` or `wrong_type`; `/keys/{i}`
+  `unknown_key` (not an exercise of this project), `duplicate_key`, `wrong_type`.
+- Idempotent: the same `PUT` again gives the same order. Nothing else changes (`version`, `updated_at`).
+- Why the whole order and not "set the position of one exercise": one call says the full intent, a retry is safe, and it is
+  exactly the import rule (§2.6), so both use one function in the store. Moving one exercise is still one call.
+- Why `PUT` on `/order`: the order is a small sub-resource that is replaced whole. `GET` on it is not needed (the exercise
+  list is already in order), so `GET` is a `405`.
+
+**Import keeps following the file's order**, also for exercises that already exist (as built, §2.6 and §3.5). The file is
+the full intent of the agent that wrote it; if a re-import kept the old order, a fixed file could never change the order.
+Exercises that are not in the file keep their order after the file's ones.
 

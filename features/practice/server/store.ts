@@ -164,6 +164,9 @@ export interface PracticeStore {
   renameExercise(project_key: string, key: string, new_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'key_taken';
   // Moves an exercise to the end of another project, with its attempts. The same project is no change.
   moveExercise(project_key: string, key: string, to_project_key: string, is_dry_run: boolean): Exercise | 'not_found' | 'no_target' | 'key_taken';
+  // Puts these keys first, in this order; the others keep their order after them (as an import does). Every key must be
+  // one of the project's exercises. The list in its new order; null: no such project.
+  reorderExercises(project_key: string, keys: string[], is_dry_run: boolean): ExerciseItem[] | null;
   // Its attempts stay, with its key and their snapshots.
   deleteExercise(project_key: string, key: string): boolean;
   // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes.
@@ -474,16 +477,15 @@ export function openPracticeStore(database_path: string): PracticeStore {
     };
   }
 
-  // Creates or replaces one exercise; position null puts a new one at the end and leaves an old one where it is.
-  function upsertExercise(project_id: number, key: string, body: ExerciseBody, position: number | null, now: string): Change {
+  // Creates or replaces one exercise. A new one goes to the end; an old one stays where it is.
+  function upsertExercise(project_id: number, key: string, body: ExerciseBody, now: string): Change {
     const row = select_exercise_row_by_project.get({ project_id, key }) as ExerciseRow | undefined;
     const columns = { type: body.type, topic: body.topic, tags_json: JSON.stringify(body.tags), content_json: JSON.stringify(body.content), now };
     if (row === undefined) {
       const { position: last_position } = select_position.get({ project_id }) as { position: number };
-      insert_exercise.run({ project_id, key, position: position ?? last_position + 1, ...columns });
+      insert_exercise.run({ project_id, key, position: last_position + 1, ...columns });
       return 'created';
     }
-    if (position !== null) set_position.run({ id: row.id, position });
     if (isSameBody(row, body)) return 'unchanged';
     update_exercise.run({ id: row.id, ...columns });
     return 'updated';
@@ -493,7 +495,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
     return inTransaction(database, () => {
       const project = select_project.get({ key: project_key }) as ProjectRow | undefined;
       if (project === undefined) return null;
-      const change = upsertExercise(project.id, key, body, null, new Date().toISOString());
+      const change = upsertExercise(project.id, key, body, new Date().toISOString());
       return { exercise: readExercise(project_key, key) as Exercise, change };
     }, is_dry_run);
   }
@@ -529,6 +531,28 @@ export function openPracticeStore(database_path: string): PracticeStore {
     }, is_dry_run);
   }
 
+  // Puts the exercises with these keys first, in this order; the project's other exercises keep their order after them.
+  // Positions become 1, 2, 3... Every key must be one of the project's exercises.
+  function setOrder(project_id: number, keys: string[]): void {
+    const rows = select_positions.all({ project_id }) as { id: number; key: string }[];
+    const id_of_key = new Map(rows.map((row) => [row.key, row.id]));
+    const listed = new Set(keys);
+    const others = rows.map((row) => row.key).filter((key) => !listed.has(key));
+    const order = [...keys, ...others];
+    order.forEach((key, index) => {
+      set_position.run({ id: id_of_key.get(key) as number, position: index + 1 });
+    });
+  }
+
+  function reorderExercises(project_key: string, keys: string[], is_dry_run: boolean): ExerciseItem[] | null {
+    return inTransaction(database, () => {
+      const project = select_project.get({ key: project_key }) as ProjectRow | undefined;
+      if (project === undefined) return null;
+      setOrder(project.id, keys);
+      return itemsOf(project.id, null, null);
+    }, is_dry_run);
+  }
+
   function deleteExercise(project_key: string, key: string): boolean {
     const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
     return row !== undefined && delete_exercise.run({ id: row.id }).changes > 0;
@@ -549,17 +573,12 @@ export function openPracticeStore(database_path: string): PracticeStore {
       }
       const project_id = (select_project.get({ key }) as unknown as ProjectRow).id;
       const exercises: ImportResult['exercises'] = { created: [], updated: [], unchanged: [] };
-      file.exercises.forEach((exercise, index) => {
+      for (const exercise of file.exercises) {
         const { key: exercise_key, ...body } = exercise;
-        const change = upsertExercise(project_id, exercise_key, body, index + 1, now);
+        const change = upsertExercise(project_id, exercise_key, body, now);
         exercises[change].push(exercise_key);
-      });
-      // The file's order first; the exercises it leaves out keep their order after them.
-      const in_file = new Set(file.exercises.map((exercise) => exercise.key));
-      let position = file.exercises.length;
-      for (const other of select_positions.all({ project_id }) as { id: number; key: string }[]) {
-        if (!in_file.has(other.key)) set_position.run({ id: other.id, position: ++position });
       }
+      setOrder(project_id, file.exercises.map((exercise) => exercise.key));
       return { dry_run: is_dry_run, project: readProject(key) as Project, project_change, exercises };
     }, is_dry_run);
   }
@@ -645,7 +664,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   }
 
   return {
-    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, moveExercise, deleteExercise, importFile, exportProject,
+    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, moveExercise, reorderExercises, deleteExercise, importFile, exportProject,
     createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings,
   };
 }

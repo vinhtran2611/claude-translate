@@ -626,3 +626,40 @@ test('moving an exercise: a dry run writes nothing; a taken key is a 409; unknow
   assert.equal((await call('POST', '/projects/move-a/exercises/nope/move', { project: 'move-c' })).status, 404);
   assert.deepEqual(problemsOf(await call('POST', '/projects/move-a/exercises/c1/move', { key: 'x' })), ['/key unknown_field']);
 });
+
+test('PUT the order: the listed keys first, the others keep their order after them', async () => {
+  await call('POST', '/import', fileOf('order', card('c1', 'a'), card('c2', 'b'), card('c3', 'c'), card('c4', 'd')));
+
+  const reply = await call('PUT', '/projects/order/order', { keys: ['c3', 'c1'] });
+  assert.equal(reply.status, 200);
+  assert.deepEqual(keysOf(reply.body.items), ['c3', 'c1', 'c2', 'c4']);
+  assert.deepEqual(keysOf((await get('/projects/order/exercises')).items), ['c3', 'c1', 'c2', 'c4']);
+  assert.equal((await get('/projects/order/exercises/c2')).position, 3);
+
+  // The same order again changes nothing; the versions never change.
+  const again = await call('PUT', '/projects/order/order', { keys: ['c3', 'c1'] });
+  assert.deepEqual(keysOf(again.body.items), ['c3', 'c1', 'c2', 'c4']);
+  assert.deepEqual(again.body.items.map((item: any) => item.version), [1, 1, 1, 1]);
+});
+
+test('PUT the order: a dry run writes nothing; unknown, repeated or missing keys are refused', async () => {
+  await call('POST', '/import', fileOf('order-2', card('c1', 'a'), card('c2', 'b')));
+
+  const dry = await call('PUT', '/projects/order-2/order?dry_run=true', { keys: ['c2'] });
+  assert.deepEqual(keysOf(dry.body.items), ['c2', 'c1']);
+  assert.deepEqual(keysOf((await get('/projects/order-2/exercises')).items), ['c1', 'c2']);
+
+  const bad = await call('PUT', '/projects/order-2/order', { keys: ['c2', 'nope', 'c2', 7] });
+  assert.deepEqual(problemsOf(bad), ['/keys/1 unknown_key', '/keys/2 duplicate_key', '/keys/3 wrong_type']);
+  assert.deepEqual(problemsOf(await call('PUT', '/projects/order-2/order', {})), ['/keys required']);
+  assert.deepEqual(problemsOf(await call('PUT', '/projects/order-2/order', { keys: 'c1' })), ['/keys wrong_type']);
+  assert.equal((await call('PUT', '/projects/nope/order', { keys: [] })).status, 404);
+  assert.equal((await call('GET', '/projects/order-2/order')).status, 405);
+});
+
+test('a re-import puts existing exercises in the order of the file', async () => {
+  await call('POST', '/import', fileOf('order-3', card('c1', 'a'), card('c2', 'b'), card('c3', 'c')));
+  await call('PUT', '/projects/order-3/exercises/extra', card('extra', 'e'));
+  await call('POST', '/import', fileOf('order-3', card('c3', 'c'), card('c1', 'a'), card('c2', 'b')));
+  assert.deepEqual(keysOf((await get('/projects/order-3/exercises')).items), ['c3', 'c1', 'c2', 'extra']);
+});

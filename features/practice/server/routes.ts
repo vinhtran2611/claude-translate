@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, Exercise, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
+import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, Exercise, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems, MAX_EXERCISES,
   MAX_FILE_CHARS, type Problem,
@@ -298,6 +298,42 @@ export function createPracticeFeature({ database_path }: { database_path: string
     sendJson(res, 200, outcome);
   }
 
+  // The order of a project's exercises: the listed keys first, in this order; the others keep their order after them.
+  async function putOrder(req: IncomingMessage, res: ServerResponse, [project_key]: string[], query: URLSearchParams): Promise<void> {
+    const problems: Problem[] = [];
+    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const body = await readObjectBody(req, res, MAX_EXERCISE_BODY_BYTES, ['keys']);
+    if (body === null) return;
+    const items = store.listExercises(project_key, { type: null, tag: null });
+    if (items === null) return notFound(res, `project "${project_key}"`);
+
+    const keys = body.keys;
+    if (keys === undefined) {
+      problems.push({ path: '/keys', code: 'required', message: 'keys is missing: the exercise keys in their new order.' });
+    } else if (!Array.isArray(keys)) {
+      problems.push({ path: '/keys', code: 'wrong_type', message: 'keys must be a list of exercise keys.' });
+    } else {
+      const known = new Set(items.map((item) => item.key));
+      const seen = new Set<string>();
+      keys.forEach((key, index) => {
+        const path = `/keys/${index}`;
+        if (typeof key !== 'string') {
+          problems.push({ path, code: 'wrong_type', message: 'must be an exercise key.' });
+        } else if (!known.has(key)) {
+          problems.push({ path, code: 'unknown_key', message: `project "${project_key}" has no exercise "${key}".` });
+        } else if (seen.has(key)) {
+          problems.push({ path, code: 'duplicate_key', message: `"${key}" is listed twice.` });
+        }
+        seen.add(key);
+      });
+    }
+    if (problems.length > 0) return sendProblems(res, problems);
+
+    const ordered = store.reorderExercises(project_key, keys as string[], is_dry_run) as ExerciseItem[];
+    if (!is_dry_run) log('info', null, 'practice', `project ${project_key}: exercises reordered`);
+    sendJson(res, 200, { items: ordered });
+  }
+
   function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
     if (!store.deleteExercise(project_key, key)) return notFound(res, `exercise "${key}" in project "${project_key}"`);
     log('info', null, 'practice', `exercise ${project_key}/${key} deleted`);
@@ -447,6 +483,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('POST', '/import', importFile, ['dry_run']),
 
     route('GET', `/projects/${KEY}/exercises`, listExercises, ['type', 'tag']),
+    route('PUT', `/projects/${KEY}/order`, putOrder, ['dry_run']),
     route('GET', `/projects/${KEY}/exercises/${KEY}`, readExercise),
     route('PUT', `/projects/${KEY}/exercises/${KEY}`, putExercise, ['dry_run']),
     route('DELETE', `/projects/${KEY}/exercises/${KEY}`, deleteExercise),

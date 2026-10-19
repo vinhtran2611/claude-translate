@@ -89,14 +89,14 @@ test('a file with problems creates nothing and lists every problem; a good file 
   });
   assert.equal((await createProject('{ not json')).status, 400);
   assert.equal((await call('/projects', { name: 'x' })).status, 400);
-  assert.deepEqual(await json('/projects'), []);
+  assert.deepEqual(await json('/projects'), { items: [] });
   const response = await createProject(EXAMPLE_TEXT, { name: '  My week  ', description: 'Mine' });
   assert.equal(response.status, 201);
   const { id } = await response.json();
-  const [project] = await json('/projects');
-  assert.deepEqual({ ...project, created_at: null }, {
-    id, name: 'My week', description: 'Mine', created_at: null, last_activity_at: null, exercise_count: 10, done_count: 0,
-    type_counts: { rewrite: 4, write: 1, choice: 2, fill: 1, flashcard: 2 },
+  const { items: [project] } = await json('/projects');
+  assert.deepEqual({ ...project, created_at: null, updated_at: null }, {
+    id, key: 'my-week', name: 'My week', description: 'Mine', archived: false, created_at: null, updated_at: null, last_activity_at: null,
+    exercise_count: 10, done_count: 0, type_counts: { rewrite: 4, write: 1, choice: 2, fill: 1, flashcard: 2 },
   });
   const detail = await json(`/projects/${id}`);
   assert.deepEqual(detail.exercises.slice(0, 2).map((exercise: any) => [exercise.kind, exercise.topic, exercise.done]), [['Rewrite sentence', 'transport', false], ['Rewrite paragraph', 'technology', false]]);
@@ -133,7 +133,7 @@ test('a flashcard is graded at once by your rating and never reaches claude', as
   assert.deepEqual(detail.history.map((item: any) => [item.kind, item.summary]), [['Flashcard', 'Almost']]);
   assert.equal(detail.project.done_count, 1);
   assert.notEqual(detail.project.last_activity_at, null);
-  assert.deepEqual((await json(`/attempts/${card.id}`)).exercise, { type: 'flashcard', topic: 'IELTS vocabulary', tags: [], content: card.exercise.content });
+  assert.deepEqual((await json(`/attempts/${card.id}`)).snapshot, { type: 'flashcard', topic: 'IELTS vocabulary', tags: [], content: card.snapshot.content });
 });
 
 test('answers that do not fit their exercise are refused and nothing is saved', async () => {
@@ -312,7 +312,7 @@ test('one malformed row never breaks the lists, and an attempt keeps its exercis
   database.close();
   const after_change = await json(`/projects/${id}`);
   assert.deepEqual([after_change.exercises[0].preview, after_change.exercises[9].preview, after_change.history[0].preview], ['', 'changed', 'resilient']);
-  assert.equal((await json(`/attempts/${card.id}`)).exercise.content.front, 'resilient');
+  assert.equal((await json(`/attempts/${card.id}`)).snapshot.content.front, 'resilient');
 });
 
 test('every API error has the one shape: bad JSON, too large, invalid, not found, wrong method, unknown path', async () => {

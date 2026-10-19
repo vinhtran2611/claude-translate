@@ -1,6 +1,6 @@
 // #/ : every project as a card, with a search and a sort.
 import { requiredElement } from '../../../shared/web/ui.ts';
-import type { ProjectSummary } from '../api.ts';
+import type { Project } from '../api.ts';
 import { listProjects } from './client.ts';
 import { h, link } from './dom.ts';
 import { pluralize, relativeDay, typeMix } from './format.ts';
@@ -8,12 +8,12 @@ import type { Page } from './page.ts';
 import { showProjectsSide } from './side.ts';
 
 const SORTS = {
-  activity: { label: 'Last activity', compare: (a: ProjectSummary, b: ProjectSummary) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at) },
-  name: { label: 'Name', compare: (a: ProjectSummary, b: ProjectSummary) => a.name.localeCompare(b.name) },
-  created: { label: 'Newest', compare: (a: ProjectSummary, b: ProjectSummary) => b.created_at.localeCompare(a.created_at) },
+  activity: { label: 'Last activity', compare: (a: Project, b: Project) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at) },
+  name: { label: 'Name', compare: (a: Project, b: Project) => a.name.localeCompare(b.name) },
+  created: { label: 'Newest', compare: (a: Project, b: Project) => b.created_at.localeCompare(a.created_at) },
 };
 
-function createCard(project: ProjectSummary): HTMLAnchorElement {
+function createCard(project: Project): HTMLAnchorElement {
   const activity = project.last_activity_at === null ? `Created ${relativeDay(project.created_at)} · not started` : `Last activity ${relativeDay(project.last_activity_at)}`;
   return link(`#/p/${project.id}`, 'project-card',
     h('div', 'project-icon', Array.from(project.name)[0].toUpperCase()),

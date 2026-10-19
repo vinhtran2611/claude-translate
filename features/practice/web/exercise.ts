@@ -3,9 +3,9 @@
 // grading (the AI is working, its words streaming in), graded, failed. A template draws the insides of the panes (./templates/);
 // this file draws the cards, the buttons and the phases.
 import { createModelPicker, type ModelPicker } from '../../../shared/web/model-picker.ts';
-import type { AiResult, AnswerByType, AttemptStatus, AttemptView, ExerciseBody, ExerciseType, ProjectDetail } from '../api.ts';
+import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType, ProjectDetail } from '../api.ts';
 import { kindOf } from '../text.ts';
-import { ApiError, readAttempt, readExercise, readGradingOptions, readProject, regrade, submitAttempt, watchGrading } from './client.ts';
+import { ApiError, listExercises, readAttempt, readExercise, readGradingOptions, readProject, readProjectByKey, regrade, submitAttempt, watchGrading } from './client.ts';
 import { button, h, link } from './dom.ts';
 import { clearDraft, readDraft, writeDraft } from './drafts.ts';
 import { createEvaluation } from './evaluation.ts';
@@ -25,7 +25,7 @@ interface Start {
   exercise_id: number;
   exercise: ExerciseBody;
   // The attempt being reopened; null for a new answer.
-  attempt: AttemptView | null;
+  attempt: Attempt | null;
 }
 
 // One picker for the whole page: its menu lives in the document, and the choice is the same for every exercise.
@@ -43,8 +43,11 @@ export async function showExercise(page: Page, project_id: number, exercise_id: 
 
 export async function showAttempt(page: Page, attempt_id: number): Promise<void> {
   const attempt = await readAttempt(attempt_id, page.signal);
-  const [detail, model_picker] = await Promise.all([readProject(attempt.project_id, page.signal), gradingPicker(page.signal)]);
-  openScreen(page, detail, { exercise_id: attempt.exercise_id, exercise: attempt.exercise, attempt }, model_picker);
+  // The routes still use numbers: the project's and the exercise's come from their keys.
+  const [project, items, model_picker] = await Promise.all([readProjectByKey(attempt.project, page.signal), listExercises(attempt.project, page.signal), gradingPicker(page.signal)]);
+  const detail = await readProject(project.id, page.signal);
+  const exercise_id = items.find((item) => item.key === attempt.exercise)?.id ?? 0;
+  openScreen(page, detail, { exercise_id, exercise: attempt.snapshot, attempt }, model_picker);
 }
 
 function openScreen(page: Page, first_detail: ProjectDetail, { exercise_id, exercise, attempt: reopened }: Start, model_picker: ModelPicker): void {

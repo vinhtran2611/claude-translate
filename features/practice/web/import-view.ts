@@ -1,7 +1,7 @@
 // #/new and #/p/<project>/add : choose or paste a project file, see what it holds or what is wrong with it, then import.
 // The file is checked in the page with the same code the server runs again before it stores anything.
 import { createIcon } from '../../../shared/web/ui.ts';
-import type { ExerciseType, ProjectSummary } from '../api.ts';
+import type { ExerciseType, Project } from '../api.ts';
 import { checkProjectFile, MAX_FILE_CHARS, problemLine, type CheckedFile, type Problem } from '../import-check.ts';
 import { addExercises, createProject, listProjects, problemsOf, readProject } from './client.ts';
 import { button, h, link } from './dom.ts';
@@ -42,7 +42,7 @@ function createFound(checked: CheckedFile & { file: object }): HTMLElement {
 }
 
 // project: null makes a new project; otherwise the file's exercises are added to it.
-function drawImport(page: Page, project: ProjectSummary | null): void {
+function drawImport(page: Page, project: Project | null): void {
   let checked: CheckedFile | null = null;
   let source_text = '';
   let file_label: { name: string; size: number } | null = null;

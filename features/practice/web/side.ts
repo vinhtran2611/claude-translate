@@ -3,7 +3,7 @@
 // "New exercise" and the latest attempt of each exercise, unsent drafts first. Outside one it lists the projects, so the page has
 // the same shape wherever you are. Also the row of chips under the masthead.
 import { createIcon, foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { ProjectDetail, ProjectSummary } from '../api.ts';
+import type { ProjectDetail, Project } from '../api.ts';
 import { h, link } from './dom.ts';
 import { listDrafts } from './drafts.ts';
 import { pluralize } from './format.ts';
@@ -24,7 +24,7 @@ export interface Current {
   draft_exercise_id?: number;
 }
 
-type Shown = { detail: ProjectDetail; current: Current } | { projects: ProjectSummary[] };
+type Shown = { detail: ProjectDetail; current: Current } | { projects: Project[] };
 let shown: Shown | null = null;
 const new_label = requiredElement('#new-exercise-button .row-label', HTMLElement);
 
@@ -137,7 +137,7 @@ function show(next: Shown, new_text: string): void {
 }
 
 export const showSide = (detail: ProjectDetail, current: Current): void => show({ detail, current }, 'New exercise');
-export const showProjectsSide = (projects: ProjectSummary[]): void => show({ projects }, 'New project');
+export const showProjectsSide = (projects: Project[]): void => show({ projects }, 'New project');
 
 export function hideSide(): void {
   shown = null;

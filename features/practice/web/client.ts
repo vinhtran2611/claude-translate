@@ -3,8 +3,8 @@
 import type { ApiErrorBody, ApiProblem } from '../../../shared/api.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
-  AnswerByType, AttemptView, CreateAttemptRequest, ExerciseType, ExerciseView, GradingOptions, GradingSettings, GradingStreamEvents, ImportRequest,
-  ProjectDetail, ProjectSummary,
+  AnswerByType, Attempt, ExerciseItem, ExerciseType, ExerciseView, GradingOptions, GradingSettings, GradingStreamEvents, ImportRequest, List, Project,
+  ProjectDetail,
 } from '../api.ts';
 
 // A non-2xx answer: its status and the API's one error shape (docs/practice-api-design.md §3.3).
@@ -46,16 +46,18 @@ export function problemsOf(error: unknown): ApiProblem[] {
   return [{ path: '', code: error instanceof ApiError ? error.code : 'network', message: (error as Error).message }];
 }
 
-export const listProjects = (signal: AbortSignal) => request<ProjectSummary[]>('/projects', signal);
+export const listProjects = async (signal: AbortSignal) => (await request<List<Project>>('/projects', signal)).items;
+export const readProjectByKey = (key: string, signal: AbortSignal) => request<Project>(`/projects/${key}`, signal);
+export const listExercises = async (key: string, signal: AbortSignal) => (await request<List<ExerciseItem>>(`/projects/${key}/exercises`, signal)).items;
 export const readProject = (id: number, signal: AbortSignal) => request<ProjectDetail>(`/projects/${id}`, signal);
 export const readExercise = (id: number, signal: AbortSignal) => request<ExerciseView>(`/exercises/${id}`, signal);
-export const readAttempt = (id: number, signal: AbortSignal) => request<AttemptView>(`/attempts/${id}`, signal);
+export const readAttempt = (id: number, signal: AbortSignal) => request<Attempt>(`/attempts/${id}`, signal);
 export const createProject = (body: ImportRequest, signal: AbortSignal) => request<{ id: number }>('/projects', signal, body);
 export const addExercises = (project_id: number, body: ImportRequest, signal: AbortSignal) => request<{ added: number }>(`/projects/${project_id}/exercises`, signal, body);
 export const readGradingOptions = (signal: AbortSignal) => request<GradingOptions>('/grading-options', signal);
 export const submitAttempt = (exercise_id: number, answer: AnswerByType[ExerciseType], writing_ms: number, settings: GradingSettings, signal: AbortSignal) =>
-  request<AttemptView>('/attempts', signal, { exercise_id, answer, writing_ms, ...settings } satisfies CreateAttemptRequest);
-export const regrade = (attempt_id: number, settings: GradingSettings, signal: AbortSignal) => request<AttemptView>(`/attempts/${attempt_id}/regrade`, signal, settings);
+  request<Attempt>('/attempts', signal, { exercise_id, answer, writing_ms, ...settings });
+export const regrade = (attempt_id: number, settings: GradingSettings, signal: AbortSignal) => request<Attempt>(`/attempts/${attempt_id}/regrade`, signal, settings);
 
 // One event of a grading stream as [name, data]: switching on the name narrows the data.
 export type GradingEvent = { [Name in keyof GradingStreamEvents]: [Name, GradingStreamEvents[Name]] }[keyof GradingStreamEvents];

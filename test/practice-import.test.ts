@@ -5,13 +5,13 @@ import { readFileSync } from 'node:fs';
 import { checkProjectFile, problemLine } from '../features/practice/import-check.ts';
 
 const EXAMPLE = JSON.parse(readFileSync(new URL('../features/practice/examples/example-project.json', import.meta.url), 'utf8'));
-const exercise = (id: string, type: string, content: object, extra: object = {}) => ({ id, type, content, ...extra });
-const fileWith = (...exercises: object[]) => JSON.stringify({ format: 2, project: { name: 'P' }, exercises });
+const exercise = (key: string, type: string, content: object, extra: object = {}) => ({ key, type, content, ...extra });
+const fileWith = (...exercises: object[]) => JSON.stringify({ format: 3, project: { key: 'p', name: 'P' }, exercises });
 // The problems as the page shows them: one line each, or null for a good file.
 const problemsOf = (text: string) => checkProjectFile(text).problems?.map((problem) => problemLine(problem, (() => { try { return JSON.parse(text).exercises; } catch { return null; } })())) ?? null;
 
 test('the example file is valid and covers all five types', () => {
-  const { file, problems } = checkProjectFile(JSON.stringify(EXAMPLE));
+  const { file, problems } = checkProjectFile(JSON.stringify(EXAMPLE), 2);
   assert.equal(problems, null);
   assert.equal(file?.name, 'IELTS Writing Task 2 – Example');
   assert.deepEqual([...new Set(file?.exercises.map((entry) => entry.type))].sort(), ['choice', 'fill', 'flashcard', 'rewrite', 'write']);
@@ -30,10 +30,10 @@ test('each problem has a JSON Pointer path and a stable code', () => {
     ['/exercises/1/content/colour', 'unknown_field'],
     ['/exercises/1/content/front', 'empty'],
     ['/exercises/1/content/back', 'required'],
-    ['/exercises/1/id', 'duplicate_key'],
+    ['/exercises/1/key', 'duplicate_key'],
   ]);
-  assert.deepEqual(checkProjectFile('{"format": 1, "project": {"name": "P", "x/y": 1}, "exercises": []}').problems?.map(({ path, code }) => [path, code]), [
-    ['/format', 'unsupported_format'], ['/project/x~1y', 'unknown_field'], ['/exercises', 'too_few'],
+  assert.deepEqual(checkProjectFile('{"format": 1, "project": {"key": "-p", "name": "P", "x/y": 1}, "exercises": []}').problems?.map(({ path, code }) => [path, code]), [
+    ['/format', 'unsupported_format'], ['/project/x~1y', 'unknown_field'], ['/project/key', 'bad_key'], ['/exercises', 'too_few'],
   ]);
 });
 
@@ -44,11 +44,19 @@ test('text that is not JSON says where', () => {
 
 test('the file level: format, project, exercises and unknown fields', () => {
   assert.deepEqual(problemsOf('{"format": 1, "exercises": [], "extra": 1}'), [
-    'extra is not a known field.', 'format must be 2.', 'project is missing.', 'exercises must be a list of 1 to 500 items.',
+    'extra is not a known field.', 'format must be 3.', 'project is missing.', 'exercises must be a list of 1 to 500 items.',
   ]);
-  assert.deepEqual(problemsOf('{"format": 2, "project": {"name": " "}, "exercises": []}'), [
-    'project.name must be a non-empty text.', 'exercises must be a list of 1 to 500 items.',
+  assert.deepEqual(problemsOf('{"format": 3, "project": {"name": " "}, "exercises": []}'), [
+    'project.key is missing.', 'project.name must be a non-empty text.', 'exercises must be a list of 1 to 500 items.',
   ]);
+});
+
+test('a format 2 file is refused with the edits that make it format 3', () => {
+  const old = JSON.stringify({ format: 2, project: { name: 'P' }, exercises: [{ id: 'a', type: 'flashcard', content: { front: 'f', back: 'b' } }] });
+  const [format] = checkProjectFile(old).problems!;
+  assert.equal(format.code, 'unsupported_format');
+  assert.match(format.message, /add a "key" to "project".*rename each exercise's "id" to "key"/);
+  assert.equal(checkProjectFile(old, 2).problems, null);
 });
 
 test('each problem is one line with the exercise number and type', () => {
@@ -63,10 +71,10 @@ test('each problem is one line with the exercise number and type', () => {
     'Exercise 1 (choice, a): content.options: no option is marked correct.',
     'Exercise 2 (flashcard, b): content.back is missing.',
     'Exercise 3 (flashcard, a): content.colour is not a known field.',
-    'Exercise 3 (flashcard, a): id "a" is already used by exercise 1.',
+    'Exercise 3 (flashcard, a): key "a" is already used by exercise 1.',
+    'Exercise 4: key must be 1 to 64 of a-z, 0-9 and -, not starting with -.',
     'Exercise 4: type must be one of: rewrite, write, choice, fill, flashcard.',
-    'Exercise 4: id may use only a-z, 0-9 and -.',
-    'Exercise 5 (write): id is missing.',
+    'Exercise 5 (write): key is missing.',
     'Exercise 5 (write): content is missing.',
   ]);
 });

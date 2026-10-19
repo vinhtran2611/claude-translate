@@ -43,12 +43,13 @@ export function openDatabase(database_path: string, schema_version: number, migr
   return database;
 }
 
-// Runs fn in one transaction: all of its writes land, or none do.
-export function inTransaction<Result>(database: DatabaseSync, fn: () => Result): Result {
+// Runs fn in one transaction: all of its writes land, or none do. A dry run rolls them all back after fn, so fn's result
+// (read inside the transaction) says exactly what a real run would do, by the same code.
+export function inTransaction<Result>(database: DatabaseSync, fn: () => Result, is_dry_run = false): Result {
   database.exec('BEGIN IMMEDIATE');
   try {
     const result = fn();
-    database.exec('COMMIT');
+    database.exec(is_dry_run ? 'ROLLBACK' : 'COMMIT');
     return result;
   } catch (error) {
     database.exec('ROLLBACK');

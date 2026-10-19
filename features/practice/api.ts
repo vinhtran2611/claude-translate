@@ -93,14 +93,32 @@ export interface ExerciseBody<Type extends ExerciseType = ExerciseType> {
 }
 
 export interface FileExercise extends ExerciseBody {
-  // The file's id: a-z 0-9 -, unique in the file.
+  // a-z 0-9 -, unique in the file: it names the exercise inside its project.
   key: string;
 }
 
+// A checked file. key is null for a format 2 file, which has none.
 export interface ProjectFile {
+  key: string | null;
   name: string;
   description: string;
   exercises: FileExercise[];
+}
+
+// The one exercise format: in a file, in PUT, in export. In PUT `key` may be left out; when present it must be the URL's.
+export interface ExerciseInput<Type extends ExerciseType = ExerciseType> {
+  key?: string;
+  type: Type;
+  topic?: string;
+  tags?: string[];
+  content: ContentByType[Type];
+}
+
+// The import file, format 3 (docs/practice-import-format.md): one file is one project, named by its key.
+export interface ImportFile {
+  format: 3;
+  project: { key: string; name: string; description?: string };
+  exercises: ExerciseInput[];
 }
 
 // ---- Answers and results ----
@@ -136,15 +154,92 @@ export interface ResultByType {
   flashcard: { rating: Rating };
 }
 
-// ---- HTTP ----
+// ---- HTTP (docs/practice-api-design.md §3) ----
 
 export type AttemptStatus = 'grading' | 'graded' | 'failed';
 
-// One attempt: all a reopened page needs. `exercise` is the snapshot: the exercise as it was when you answered.
-export interface AttemptView<Type extends ExerciseType = ExerciseType> {
+// GET /api/practice: what is there and the rules, for an agent with no docs.
+export interface ApiIndex {
+  api: 'practice';
+  version: number;
+  docs: string;
+  schemas: { exercise: string; import: string };
+  types: ExerciseType[];
+  limits: {
+    import_body_bytes: number; exercises_per_import: number; exercise_body_bytes: number; attempt_body_bytes: number;
+    key_pattern: string; attempts_page_max: number;
+  };
+}
+
+// A list: wrapped, so it can get a field later. next_before: the `before` of the next page, when there is one.
+export interface List<Item> {
+  items: Item[];
+  next_before?: number;
+}
+
+export interface Project {
+  // Internal; the API addresses a project by its key.
   id: number;
-  project_id: number;
-  exercise_id: number;
+  key: string;
+  name: string;
+  description: string;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+  // null until the first attempt.
+  last_activity_at: string | null;
+  exercise_count: number;
+  done_count: number;
+  type_counts: Partial<Record<ExerciseType, number>>;
+}
+
+// PUT /api/practice/projects/:project. A PUT sends the whole object: a field left out takes its default.
+export interface ProjectInput {
+  name: string;
+  description?: string;
+  archived?: boolean;
+}
+
+export interface Exercise<Type extends ExerciseType = ExerciseType> extends ExerciseBody<Type> {
+  // Internal: drafts in the browser are kept under it.
+  id: number;
+  // The project's key.
+  project: string;
+  key: string;
+  position: number;
+  // 1, then +1 each time type, topic, tags or content really change.
+  version: number;
+  created_at: string;
+  updated_at: string;
+  // It has a graded attempt (of any version).
+  done: boolean;
+  attempt_count: number;
+}
+
+// One exercise in a list: what a person or an agent needs to pick it. No content (GET one, or export).
+export interface ExerciseItem {
+  id: number;
+  key: string;
+  type: ExerciseType;
+  // "Rewrite sentence", "Multiple choice" (text.ts).
+  kind: string;
+  preview: string;
+  topic: string | null;
+  tags: string[];
+  version: number;
+  updated_at: string;
+  done: boolean;
+  last_attempt: { id: number; status: AttemptStatus; summary: string | null; submitted_at: string } | null;
+}
+
+// One attempt: all a reopened page needs. `snapshot` is the exercise as it was when you answered.
+export interface Attempt<Type extends ExerciseType = ExerciseType> {
+  id: number;
+  // The project's key and the exercise's key; the key stays after the exercise is deleted.
+  project: string;
+  exercise: string;
+  exercise_version: number;
+  exercise_deleted: boolean;
   submitted_at: string;
   status: AttemptStatus;
   // The history line's result ("Graded", "Almost"); null until graded.
@@ -152,7 +247,7 @@ export interface AttemptView<Type extends ExerciseType = ExerciseType> {
   // Why grading failed; null otherwise.
   error: string | null;
   writing_ms: number | null;
-  exercise: ExerciseBody<Type>;
+  snapshot: ExerciseBody<Type>;
   answer: AnswerByType[Type];
   // null unless graded.
   result: ResultByType[Type] | null;
@@ -172,13 +267,14 @@ export interface GradingOptions {
   default_effort: Effort;
 }
 
-// POST /api/practice/attempts. The answer's shape depends on the exercise's type. model_id and effort are the grading's
-// settings (a flashcard ignores them): the defaults apply when one is left out, and a value that is not offered is a 400.
+// POST /api/practice/projects/:project/exercises/:exercise/attempts. The answer's shape depends on the exercise's type.
+// model_id and effort are the grading's settings (a flashcard ignores them): the defaults apply when one is left out, and a
+// value that is not offered is a 400. exercise_version: the version the page showed; another one is a 409 exercise_changed.
 export interface CreateAttemptRequest extends Partial<GradingSettings> {
-  exercise_id: number;
   answer: AnswerByType[ExerciseType];
   // From opening the exercise to Submit; null when unknown.
-  writing_ms: number | null;
+  writing_ms?: number | null;
+  exercise_version?: number;
 }
 
 // POST /api/practice/attempts/:id/regrade body: the settings of the new grading, as above.
@@ -200,22 +296,23 @@ export interface GradingStreamEvents {
   finished: Record<string, never>;
 }
 
+export type Change = 'created' | 'updated' | 'unchanged';
+
+// POST /api/practice/import. A dry run says exactly what the real one would do, and writes nothing.
+export interface ImportResult {
+  dry_run: boolean;
+  project: Project;
+  project_change: Change;
+  // Keys.
+  exercises: { created: string[]; updated: string[]; unchanged: string[] };
+}
+
+// ---- The first API, until the page moves (docs/practice-api-design.md §6, step 5 deletes it) ----
+
 // GET /api/practice/exercises/:id
 export interface ExerciseView extends ExerciseBody {
   id: number;
   project_id: number;
-}
-
-// One exercise in a list: what a person needs to pick it.
-export interface ExerciseItem {
-  id: number;
-  type: ExerciseType;
-  // "Rewrite sentence", "Multiple choice" (text.ts).
-  kind: string;
-  preview: string;
-  topic: string | null;
-  // It has a graded attempt.
-  done: boolean;
 }
 
 // The latest attempt of an exercise, for the History bar.
@@ -229,21 +326,9 @@ export interface HistoryItem {
   submitted_at: string;
 }
 
-export interface ProjectSummary {
-  id: number;
-  name: string;
-  description: string;
-  created_at: string;
-  // null until the first attempt.
-  last_activity_at: string | null;
-  exercise_count: number;
-  done_count: number;
-  type_counts: Partial<Record<ExerciseType, number>>;
-}
-
 // GET /api/practice/projects/:id
 export interface ProjectDetail {
-  project: ProjectSummary;
+  project: Project;
   // In file order.
   exercises: ExerciseItem[];
   // One per exercise tried, newest first.
@@ -252,7 +337,7 @@ export interface ProjectDetail {
 
 // POST /api/practice/projects { name, description, file } -> 201 { id }.
 // POST /api/practice/projects/:id/exercises { file } -> 200 { added }.
-// `file` is the file's text. 400 { errors } when it has problems; nothing is imported.
+// `file` is a format 2 file's text. 400 invalid when it has problems; nothing is imported.
 export interface ImportRequest {
   name?: string;
   description?: string;

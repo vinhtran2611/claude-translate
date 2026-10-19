@@ -3,8 +3,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Effort } from '../../../shared/api.ts';
 import { inTransaction, openDatabase } from '../../../shared/server/sqlite.ts';
 import type {
-  AiResult, AnswerByType, AttemptStatus, AttemptView, ExerciseBody, ExerciseItem, ExerciseType, ExerciseView, FileExercise, HistoryItem,
-  ProjectDetail, ProjectFile, ProjectSummary, ResultByType,
+  AiResult, AnswerByType, Attempt, AttemptStatus, Change, Exercise, ExerciseBody, ExerciseItem, ExerciseType, ExerciseView, FileExercise, HistoryItem,
+  ImportFile, ImportResult, List, Project, ProjectDetail, ProjectFile, ProjectInput, ResultByType,
 } from '../api.ts';
 import { kindOf, previewOf } from '../text.ts';
 
@@ -124,7 +124,7 @@ function migrateFrom1(database: DatabaseSync): void {
 
 // What createAttempt stores. `outcome` null: the AI will grade it; otherwise it is already graded (a flashcard).
 export interface NewAttempt {
-  exercise: ExerciseView;
+  exercise_id: number;
   answer: AnswerByType[ExerciseType];
   writing_ms: number | null;
   grader: 'ai' | 'self';
@@ -136,35 +136,73 @@ export type GradingOutcome =
   | { status: 'graded'; text: string; thinking_text: string; thinking_ms: number | null; model: string; effort: Effort; grading_ms: number }
   | { status: 'failed'; error: string; model: string | null; grading_ms: number };
 
+export interface AttemptFilter {
+  project: string | null;
+  exercise: string | null;
+  status: AttemptStatus | null;
+  // ISO times.
+  since: string | null;
+  before: number | null;
+  limit: number;
+}
+
+// Every write that takes a body can be a dry run: it reports what would happen and writes nothing.
 export interface PracticeStore {
-  listProjects(): ProjectSummary[];
-  readProject(project_id: number): ProjectDetail | null;
-  createProject(file: ProjectFile): number;
-  // Appends in file order. A key already in the project adds nothing and is returned. null: no such project.
-  addExercises(project_id: number, exercises: FileExercise[]): { added: number } | { duplicate_keys: string[] } | null;
-  readExercise(exercise_id: number): ExerciseView | null;
-  createAttempt(attempt: NewAttempt): AttemptView;
+  listProjects(archived: 'false' | 'true' | 'all'): Project[];
+  readProject(key: string): Project | null;
+  putProject(key: string, input: Required<ProjectInput>, is_dry_run: boolean): { project: Project; change: Change };
+  // A project with attempts is deleted only with is_with_attempts; its exercises and attempts go with it.
+  deleteProject(key: string, is_with_attempts: boolean): 'deleted' | 'not_found' | 'has_attempts';
+  // null: no such project.
+  listExercises(project_key: string, filter: { type: ExerciseType | null; tag: string | null }): ExerciseItem[] | null;
+  readExercise(project_key: string, key: string): Exercise | null;
+  // A new exercise goes to the end. null: no such project.
+  putExercise(project_key: string, key: string, exercise: ExerciseBody, is_dry_run: boolean): { exercise: Exercise; change: Change } | null;
+  // Its attempts stay, with its key and their snapshots.
+  deleteExercise(project_key: string, key: string): boolean;
+  // Upserts by key in one transaction (docs/practice-api-design.md §3.5); never deletes. file.key must be set.
+  importFile(file: ProjectFile, is_dry_run: boolean): ImportResult;
+  exportProject(key: string): ImportFile | null;
+  createAttempt(attempt: NewAttempt): Attempt;
+  listAttempts(filter: AttemptFilter): List<Attempt>;
+  readAttempt(attempt_id: number): Attempt | null;
+  deleteAttempt(attempt_id: number): 'deleted' | 'not_found' | 'grading';
   // A failed attempt goes back to 'grading', its error cleared; false when it is not failed.
   restartGrading(attempt_id: number): boolean;
   finishGrading(attempt_id: number, outcome: GradingOutcome): void;
-  readAttempt(attempt_id: number): AttemptView | null;
   // A server stopped mid-grading leaves 'grading' rows nobody will finish: they become failed.
   failInterruptedGradings(): number;
+  // The first API, until step 5 deletes it.
+  legacy: {
+    readProjectDetail(project_id: number): ProjectDetail | null;
+    createProject(file: ProjectFile): number;
+    // Appends in file order. A key already in the project adds nothing and is returned. null: no such project.
+    addExercises(project_id: number, exercises: FileExercise[]): { added: number } | { duplicate_keys: string[] } | null;
+    readExercise(exercise_id: number): ExerciseView | null;
+  };
+}
+
+interface ProjectRow extends Omit<Project, 'archived' | 'type_counts'> {
+  archived_at: string | null;
 }
 
 interface ExerciseRow {
   id: number;
   project_id: number;
+  key: string;
   type: ExerciseType;
   topic: string | null;
   tags_json: string;
   content_json: string;
+  version: number;
 }
 
 interface AttemptRow {
   id: number;
-  project_id: number;
-  exercise_id: number;
+  project: string;
+  exercise_key: string;
+  exercise_version: number;
+  exercise_deleted: number;
   submitted_at: string;
   type: ExerciseType;
   exercise_snapshot_json: string;
@@ -178,6 +216,18 @@ interface AttemptRow {
 
 function bodyOf(row: Pick<ExerciseRow, 'type' | 'topic' | 'tags_json' | 'content_json'>): ExerciseBody {
   return { type: row.type, topic: row.topic, tags: JSON.parse(row.tags_json), content: JSON.parse(row.content_json) };
+}
+
+// JSON with every object's keys sorted: two values are the same exactly when this is.
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner) => (typeof inner === 'object' && inner !== null && !Array.isArray(inner)
+    ? Object.fromEntries(Object.keys(inner).sort().map((key) => [key, inner[key]])) : inner));
+}
+
+// Whether an exercise really changes: the same content written again, in any key order, is not a change.
+function isSameBody(row: ExerciseRow, body: ExerciseBody): boolean {
+  return row.type === body.type && row.topic === body.topic && canonical(JSON.parse(row.tags_json)) === canonical(body.tags)
+    && canonical(JSON.parse(row.content_json)) === canonical(body.content);
 }
 
 // A row whose JSON has the wrong shape still lists: with its type as the name and no preview.
@@ -196,10 +246,22 @@ function resultOf(type: ExerciseType, result_json: string | null): ResultByType[
   return type !== 'flashcard' ? { thinking_text: '', thinking_ms: null, effort: null, ...result } : result;
 }
 
-function attemptViewOf(row: AttemptRow): AttemptView {
-  const { type, exercise_snapshot_json, answer_json, result_json, ...columns } = row;
-  return { ...columns, exercise: JSON.parse(exercise_snapshot_json), answer: JSON.parse(answer_json), result: resultOf(type, result_json) } as AttemptView;
+function attemptOf(row: AttemptRow): Attempt {
+  return {
+    id: row.id, project: row.project, exercise: row.exercise_key, exercise_version: row.exercise_version, exercise_deleted: row.exercise_deleted === 1,
+    submitted_at: row.submitted_at, status: row.status, summary: row.summary, error: row.error, writing_ms: row.writing_ms,
+    snapshot: JSON.parse(row.exercise_snapshot_json), answer: JSON.parse(row.answer_json), result: resultOf(row.type, row.result_json),
+  };
 }
+
+const PROJECT_COLUMNS = `
+  id, key, name, description, archived_at, created_at, updated_at, last_activity_at,
+  (SELECT count(*) FROM exercises WHERE project_id = projects.id) AS exercise_count,
+  (SELECT count(DISTINCT exercise_id) FROM attempts WHERE project_id = projects.id AND status = 'graded') AS done_count`;
+const ATTEMPT_COLUMNS = `
+  attempts.id, projects.key AS project, exercise_key, exercise_version, exercise_id IS NULL AS exercise_deleted, submitted_at, type,
+  exercise_snapshot_json, answer_json, status, result_json, summary, error, writing_ms
+  FROM attempts JOIN projects ON projects.id = attempts.project_id`;
 
 export function openPracticeStore(database_path: string): PracticeStore {
   const database: DatabaseSync = openDatabase(database_path, SCHEMA_VERSION, (migrating_database, file_schema_version) => {
@@ -208,40 +270,66 @@ export function openPracticeStore(database_path: string): PracticeStore {
   });
   database.exec('PRAGMA foreign_keys = ON');
 
-  const insert_project = database.prepare('INSERT INTO projects (key, name, description, created_at, updated_at) VALUES ($key, $name, $description, $now, $now)');
-  const select_project_key = database.prepare('SELECT 1 FROM projects WHERE key = $key');
-  const select_next_project_id = database.prepare("SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'projects'), 0) + 1 AS id");
+  // ---- projects ----
+  const select_projects = database.prepare(`
+    SELECT ${PROJECT_COLUMNS} FROM projects
+    WHERE $archived = 'all' OR ($archived = 'true') = (archived_at IS NOT NULL)
+    ORDER BY coalesce(last_activity_at, created_at) DESC, id DESC`);
+  const select_project = database.prepare(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE key = $key`);
+  const select_project_by_id = database.prepare(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE id = $id`);
+  const select_type_counts = database.prepare('SELECT type, count(*) AS count FROM exercises WHERE project_id = $project_id GROUP BY type');
+  const insert_project = database.prepare(`
+    INSERT INTO projects (key, name, description, archived_at, created_at, updated_at) VALUES ($key, $name, $description, $archived_at, $now, $now)`);
+  const update_project = database.prepare('UPDATE projects SET name = $name, description = $description, archived_at = $archived_at, updated_at = $now WHERE id = $id');
+  const select_has_attempts = database.prepare('SELECT EXISTS (SELECT 1 FROM attempts WHERE project_id = $project_id) AS has_attempts');
+  const delete_project = database.prepare('DELETE FROM projects WHERE id = $id');
+  const touch_project = database.prepare('UPDATE projects SET last_activity_at = $now WHERE id = $id');
+
+  // ---- exercises ----
+  const select_exercise_row = database.prepare(`
+    SELECT exercises.id, project_id, exercises.key, type, topic, tags_json, content_json, version FROM exercises
+    JOIN projects ON projects.id = exercises.project_id WHERE projects.key = $project_key AND exercises.key = $key`);
+  const select_exercise_row_by_project = database.prepare('SELECT id, project_id, key, type, topic, tags_json, content_json, version FROM exercises WHERE project_id = $project_id AND key = $key');
+  const select_exercise = database.prepare(`
+    SELECT exercises.id, projects.key AS project, exercises.key, type, topic, tags_json, content_json, position, version,
+           exercises.created_at, exercises.updated_at,
+           EXISTS (SELECT 1 FROM attempts WHERE exercise_id = exercises.id AND status = 'graded') AS done,
+           (SELECT count(*) FROM attempts WHERE exercise_id = exercises.id) AS attempt_count
+    FROM exercises JOIN projects ON projects.id = exercises.project_id WHERE projects.key = $project_key AND exercises.key = $key`);
+  const select_exercise_items = database.prepare(`
+    SELECT exercises.id, exercises.key, exercises.type, topic, tags_json, content_json, version, updated_at,
+           EXISTS (SELECT 1 FROM attempts WHERE exercise_id = exercises.id AND status = 'graded') AS done,
+           last.id AS last_id, last.status AS last_status, last.summary AS last_summary, last.submitted_at AS last_submitted_at
+    FROM exercises LEFT JOIN attempts AS last ON last.id = (SELECT max(id) FROM attempts WHERE exercise_id = exercises.id)
+    WHERE exercises.project_id = $project_id AND ($type IS NULL OR exercises.type = $type)
+      AND ($tag IS NULL OR EXISTS (SELECT 1 FROM json_each(exercises.tags_json) WHERE value = $tag))
+    ORDER BY position, exercises.id`);
+  const select_export_rows = database.prepare('SELECT key, type, topic, tags_json, content_json FROM exercises WHERE project_id = $project_id ORDER BY position, id');
+  const select_position = database.prepare('SELECT coalesce(max(position), 0) AS position FROM exercises WHERE project_id = $project_id');
+  const select_positions = database.prepare('SELECT id, key FROM exercises WHERE project_id = $project_id ORDER BY position, id');
   const insert_exercise = database.prepare(`
     INSERT INTO exercises (project_id, key, position, type, topic, tags_json, content_json, created_at, updated_at)
     VALUES ($project_id, $key, $position, $type, $topic, $tags_json, $content_json, $now, $now)`);
-  const select_exercise_version = database.prepare('SELECT key, version FROM exercises WHERE id = $id');
-  const select_project_id = database.prepare('SELECT id FROM projects WHERE id = $id');
-  const select_keys = database.prepare('SELECT key FROM exercises WHERE project_id = $project_id');
-  const select_position = database.prepare('SELECT coalesce(max(position), 0) AS position FROM exercises WHERE project_id = $project_id');
-  const select_projects = database.prepare(`
-    SELECT id, name, description, created_at, last_activity_at,
-           (SELECT count(*) FROM exercises WHERE project_id = projects.id) AS exercise_count,
-           (SELECT count(DISTINCT exercise_id) FROM attempts WHERE project_id = projects.id AND status = 'graded') AS done_count
-    FROM projects WHERE $id IS NULL OR id = $id ORDER BY id`);
-  const select_type_counts = database.prepare('SELECT project_id, type, count(*) AS count FROM exercises GROUP BY project_id, type');
-  const select_exercises = database.prepare(`
-    SELECT id, project_id, type, topic, tags_json, content_json,
-           EXISTS (SELECT 1 FROM attempts WHERE exercise_id = exercises.id AND status = 'graded') AS done
-    FROM exercises WHERE project_id = $project_id ORDER BY position`);
-  const select_latest_attempts = database.prepare(`
-    SELECT id, exercise_id, type, exercise_snapshot_json, status, summary, submitted_at FROM attempts
-    WHERE project_id = $project_id AND id = (SELECT max(id) FROM attempts AS later WHERE later.exercise_id = attempts.exercise_id)
-    ORDER BY id DESC`);
-  const select_exercise = database.prepare('SELECT id, project_id, type, topic, tags_json, content_json FROM exercises WHERE id = $id');
+  const update_exercise = database.prepare(`
+    UPDATE exercises SET type = $type, topic = $topic, tags_json = $tags_json, content_json = $content_json, version = version + 1, updated_at = $now
+    WHERE id = $id`);
+  const set_position = database.prepare('UPDATE exercises SET position = $position WHERE id = $id');
+  const delete_exercise = database.prepare('DELETE FROM exercises WHERE id = $id');
+  const select_exercise_by_id = database.prepare('SELECT id, project_id, key, type, topic, tags_json, content_json, version FROM exercises WHERE id = $id');
+
+  // ---- attempts ----
   const insert_attempt = database.prepare(`
     INSERT INTO attempts (project_id, exercise_id, exercise_key, exercise_version, submitted_at, type, exercise_snapshot_json, answer_json, status,
                           result_json, summary, grader, writing_ms, graded_at)
     VALUES ($project_id, $exercise_id, $exercise_key, $exercise_version, $now, $type, $exercise_snapshot_json, $answer_json, $status,
             $result_json, $summary, $grader, $writing_ms, $graded_at)`);
-  const touch_project = database.prepare('UPDATE projects SET last_activity_at = $now WHERE id = $id');
-  const select_attempt = database.prepare(`
-    SELECT id, project_id, exercise_id, submitted_at, type, exercise_snapshot_json, answer_json, status, result_json, summary, error, writing_ms
-    FROM attempts WHERE id = $id`);
+  const select_attempt = database.prepare(`SELECT ${ATTEMPT_COLUMNS} WHERE attempts.id = $id`);
+  const select_attempts = database.prepare(`
+    SELECT ${ATTEMPT_COLUMNS}
+    WHERE ($project IS NULL OR projects.key = $project) AND ($exercise IS NULL OR exercise_key = $exercise) AND ($status IS NULL OR status = $status)
+      AND ($since IS NULL OR submitted_at >= $since) AND ($before IS NULL OR attempts.id < $before)
+    ORDER BY attempts.id DESC LIMIT $limit`);
+  const delete_attempt = database.prepare("DELETE FROM attempts WHERE id = $id AND status != 'grading'");
   const restart_grading = database.prepare("UPDATE attempts SET status = 'grading', error = NULL WHERE id = $id AND status = 'failed'");
   // Only a 'grading' row is finished, so a late result can never overwrite a graded attempt.
   const finish_graded = database.prepare(`
@@ -251,74 +339,170 @@ export function openPracticeStore(database_path: string): PracticeStore {
   const finish_failed = database.prepare("UPDATE attempts SET status = 'failed', error = $error, model = $model, grading_ms = $grading_ms WHERE id = $id AND status = 'grading'");
   const fail_interrupted = database.prepare("UPDATE attempts SET status = 'failed', error = 'The server stopped while grading.' WHERE status = 'grading'");
 
-  function summariesOf(project_id: number | null): ProjectSummary[] {
-    const type_counts = new Map<number, Partial<Record<ExerciseType, number>>>();
-    for (const { project_id: id, type, count } of select_type_counts.all() as { project_id: number; type: ExerciseType; count: number }[]) {
-      type_counts.set(id, { ...type_counts.get(id), [type]: count });
-    }
-    return (select_projects.all({ id: project_id }) as Omit<ProjectSummary, 'type_counts'>[]).map((row) => ({ ...row, type_counts: type_counts.get(row.id) ?? {} }));
+  function projectOf(row: ProjectRow): Project {
+    const type_counts: Partial<Record<ExerciseType, number>> = {};
+    for (const { type, count } of select_type_counts.all({ project_id: row.id }) as { type: ExerciseType; count: number }[]) type_counts[type] = count;
+    const { archived_at, ...columns } = row;
+    return { ...columns, archived: archived_at !== null, type_counts };
   }
 
-  function insertExercises(project_id: number, exercises: FileExercise[]): void {
-    let { position } = select_position.get({ project_id }) as { position: number };
-    const now = new Date().toISOString();
-    for (const { key, type, topic, tags, content } of exercises) {
-      insert_exercise.run({ project_id, key, position: ++position, type, topic, tags_json: JSON.stringify(tags), content_json: JSON.stringify(content), now });
-    }
+  function listProjects(archived: 'false' | 'true' | 'all'): Project[] {
+    return (select_projects.all({ archived }) as unknown as ProjectRow[]).map(projectOf);
   }
 
-  function listProjects(): ProjectSummary[] {
-    return summariesOf(null);
+  function readProject(key: string): Project | null {
+    const row = select_project.get({ key }) as ProjectRow | undefined;
+    return row === undefined ? null : projectOf(row);
   }
 
-  function readProject(project_id: number): ProjectDetail | null {
-    const [project] = summariesOf(project_id);
-    if (project === undefined) return null;
-    const exercises = (select_exercises.all({ project_id }) as unknown as (ExerciseRow & { done: number })[]).map((row): ExerciseItem => (
-      { id: row.id, type: row.type, topic: row.topic, done: row.done === 1, ...describe(bodyOf(row)) }));
-    const history = (select_latest_attempts.all({ project_id }) as unknown as Pick<AttemptRow, 'id' | 'exercise_id' | 'exercise_snapshot_json' | 'status' | 'summary' | 'submitted_at'>[]).map((row): HistoryItem => (
-      { attempt_id: row.id, exercise_id: row.exercise_id, status: row.status, summary: row.summary, submitted_at: row.submitted_at, ...describe(JSON.parse(row.exercise_snapshot_json)) }));
-    return { project, exercises, history };
-  }
-
-  function createProject(file: ProjectFile): number {
+  // archived_at keeps the day it was first archived.
+  function putProject(key: string, { name, description, archived }: Required<ProjectInput>, is_dry_run: boolean): { project: Project; change: Change } {
     return inTransaction(database, () => {
-      const { id: next_id } = select_next_project_id.get() as { id: number };
-      const key = keyFromName(file.name, next_id, (candidate) => select_project_key.get({ key: candidate }) !== undefined);
-      const project_id = Number(insert_project.run({ key, name: file.name, description: file.description, now: new Date().toISOString() }).lastInsertRowid);
-      insertExercises(project_id, file.exercises);
-      return project_id;
+      const now = new Date().toISOString();
+      const row = select_project.get({ key }) as ProjectRow | undefined;
+      const archived_at = !archived ? null : row?.archived_at ?? now;
+      let change: Change = 'unchanged';
+      if (row === undefined) {
+        insert_project.run({ key, name, description, archived_at, now });
+        change = 'created';
+      } else if (row.name !== name || row.description !== description || row.archived_at !== archived_at) {
+        update_project.run({ id: row.id, name, description, archived_at, now });
+        change = 'updated';
+      }
+      return { project: readProject(key) as Project, change };
+    }, is_dry_run);
+  }
+
+  function deleteProject(key: string, is_with_attempts: boolean): 'deleted' | 'not_found' | 'has_attempts' {
+    const row = select_project.get({ key }) as ProjectRow | undefined;
+    if (row === undefined) return 'not_found';
+    const { has_attempts } = select_has_attempts.get({ project_id: row.id }) as { has_attempts: number };
+    if (has_attempts === 1 && !is_with_attempts) return 'has_attempts';
+    delete_project.run({ id: row.id });
+    return 'deleted';
+  }
+
+  function itemsOf(project_id: number, type: ExerciseType | null, tag: string | null): ExerciseItem[] {
+    type ItemRow = ExerciseRow & { updated_at: string; done: number; last_id: number | null; last_status: AttemptStatus; last_summary: string | null; last_submitted_at: string };
+    return (select_exercise_items.all({ project_id, type, tag }) as unknown as ItemRow[]).map((row): ExerciseItem => ({
+      id: row.id, key: row.key, type: row.type, ...describe(bodyOf(row)), topic: row.topic, tags: JSON.parse(row.tags_json), version: row.version,
+      updated_at: row.updated_at, done: row.done === 1,
+      last_attempt: row.last_id === null ? null : { id: row.last_id, status: row.last_status, summary: row.last_summary, submitted_at: row.last_submitted_at },
+    }));
+  }
+
+  function listExercises(project_key: string, { type, tag }: { type: ExerciseType | null; tag: string | null }): ExerciseItem[] | null {
+    const project = select_project.get({ key: project_key }) as ProjectRow | undefined;
+    return project === undefined ? null : itemsOf(project.id, type, tag);
+  }
+
+  function readExercise(project_key: string, key: string): Exercise | null {
+    type Row = ExerciseRow & { project: string; position: number; created_at: string; updated_at: string; done: number; attempt_count: number };
+    const row = select_exercise.get({ project_key, key }) as Row | undefined;
+    if (row === undefined) return null;
+    return {
+      id: row.id, project: row.project, key: row.key, ...bodyOf(row), position: row.position, version: row.version, created_at: row.created_at,
+      updated_at: row.updated_at, done: row.done === 1, attempt_count: row.attempt_count,
+    };
+  }
+
+  // Creates or replaces one exercise; position null puts a new one at the end and leaves an old one where it is.
+  function upsertExercise(project_id: number, key: string, body: ExerciseBody, position: number | null, now: string): Change {
+    const row = select_exercise_row_by_project.get({ project_id, key }) as ExerciseRow | undefined;
+    const columns = { type: body.type, topic: body.topic, tags_json: JSON.stringify(body.tags), content_json: JSON.stringify(body.content), now };
+    if (row === undefined) {
+      insert_exercise.run({ project_id, key, position: position ?? (select_position.get({ project_id }) as { position: number }).position + 1, ...columns });
+      return 'created';
+    }
+    if (position !== null) set_position.run({ id: row.id, position });
+    if (isSameBody(row, body)) return 'unchanged';
+    update_exercise.run({ id: row.id, ...columns });
+    return 'updated';
+  }
+
+  function putExercise(project_key: string, key: string, body: ExerciseBody, is_dry_run: boolean): { exercise: Exercise; change: Change } | null {
+    return inTransaction(database, () => {
+      const project = select_project.get({ key: project_key }) as ProjectRow | undefined;
+      if (project === undefined) return null;
+      const change = upsertExercise(project.id, key, body, null, new Date().toISOString());
+      return { exercise: readExercise(project_key, key) as Exercise, change };
+    }, is_dry_run);
+  }
+
+  function deleteExercise(project_key: string, key: string): boolean {
+    const row = select_exercise_row.get({ project_key, key }) as ExerciseRow | undefined;
+    return row !== undefined && delete_exercise.run({ id: row.id }).changes > 0;
+  }
+
+  function importFile(file: ProjectFile, is_dry_run: boolean): ImportResult {
+    const key = file.key as string;
+    return inTransaction(database, () => {
+      const now = new Date().toISOString();
+      const row = select_project.get({ key }) as ProjectRow | undefined;
+      let project_change: Change = 'unchanged';
+      if (row === undefined) {
+        insert_project.run({ key, name: file.name, description: file.description, archived_at: null, now });
+        project_change = 'created';
+      } else if (row.name !== file.name || row.description !== file.description) {
+        update_project.run({ id: row.id, name: file.name, description: file.description, archived_at: row.archived_at, now });
+        project_change = 'updated';
+      }
+      const project_id = (select_project.get({ key }) as unknown as ProjectRow).id;
+      const exercises: ImportResult['exercises'] = { created: [], updated: [], unchanged: [] };
+      file.exercises.forEach(({ key: exercise_key, ...body }, index) => exercises[upsertExercise(project_id, exercise_key, body, index + 1, now)].push(exercise_key));
+      // The file's order first; the exercises it leaves out keep their order after them.
+      const in_file = new Set(file.exercises.map((exercise) => exercise.key));
+      let position = file.exercises.length;
+      for (const other of select_positions.all({ project_id }) as { id: number; key: string }[]) {
+        if (!in_file.has(other.key)) set_position.run({ id: other.id, position: ++position });
+      }
+      return { dry_run: is_dry_run, project: readProject(key) as Project, project_change, exercises };
+    }, is_dry_run);
+  }
+
+  // The project as a format 3 file: importing it again changes nothing.
+  function exportProject(key: string): ImportFile | null {
+    const project = select_project.get({ key }) as ProjectRow | undefined;
+    if (project === undefined) return null;
+    const exercises = (select_export_rows.all({ project_id: project.id }) as unknown as ExerciseRow[]).map((row) => {
+      const { type, topic, tags, content } = bodyOf(row);
+      return { key: row.key, type, ...(topic === null ? {} : { topic }), ...(tags.length === 0 ? {} : { tags }), content };
     });
+    return { format: 3, project: { key, name: project.name, ...(project.description === '' ? {} : { description: project.description }) }, exercises };
   }
 
-  function addExercises(project_id: number, exercises: FileExercise[]): { added: number } | { duplicate_keys: string[] } | null {
-    if (select_project_id.get({ id: project_id }) === undefined) return null;
-    const existing = new Set((select_keys.all({ project_id }) as { key: string }[]).map(({ key }) => key));
-    const duplicate_keys = exercises.map(({ key }) => key).filter((key) => existing.has(key));
-    if (duplicate_keys.length > 0) return { duplicate_keys };
-    inTransaction(database, () => insertExercises(project_id, exercises));
-    return { added: exercises.length };
-  }
-
-  function readExercise(exercise_id: number): ExerciseView | null {
-    const row = select_exercise.get({ id: exercise_id }) as ExerciseRow | undefined;
-    return row === undefined ? null : { id: row.id, project_id: row.project_id, ...bodyOf(row) };
-  }
-
-  function createAttempt({ exercise, answer, writing_ms, grader, outcome }: NewAttempt): AttemptView {
+  // The snapshot is taken from the row as it is now, in the same transaction as the insert.
+  function createAttempt({ exercise_id, answer, writing_ms, grader, outcome }: NewAttempt): Attempt {
     const now = new Date().toISOString();
-    const { id: _id, project_id: _project_id, ...snapshot } = exercise;
     const attempt_id = inTransaction(database, () => {
-      const { key: exercise_key, version: exercise_version } = select_exercise_version.get({ id: exercise.id }) as { key: string; version: number };
+      const exercise = select_exercise_by_id.get({ id: exercise_id }) as unknown as ExerciseRow;
       const id = Number(insert_attempt.run({
-        project_id: exercise.project_id, exercise_id: exercise.id, exercise_key, exercise_version, now, type: exercise.type, exercise_snapshot_json: JSON.stringify(snapshot),
-        answer_json: JSON.stringify(answer), status: outcome === null ? 'grading' : 'graded', result_json: outcome === null ? null : JSON.stringify(outcome.result),
-        summary: outcome?.summary ?? null, grader, writing_ms, graded_at: outcome === null ? null : now,
+        project_id: exercise.project_id, exercise_id, exercise_key: exercise.key, exercise_version: exercise.version, now, type: exercise.type,
+        exercise_snapshot_json: JSON.stringify(bodyOf(exercise)), answer_json: JSON.stringify(answer), status: outcome === null ? 'grading' : 'graded',
+        result_json: outcome === null ? null : JSON.stringify(outcome.result), summary: outcome?.summary ?? null, grader, writing_ms,
+        graded_at: outcome === null ? null : now,
       }).lastInsertRowid);
       touch_project.run({ id: exercise.project_id, now });
       return id;
     });
-    return readAttempt(attempt_id) as AttemptView;
+    return readAttempt(attempt_id) as Attempt;
+  }
+
+  // Newest first; one more row than asked tells whether there is a next page.
+  function listAttempts({ limit, ...filter }: AttemptFilter): List<Attempt> {
+    const rows = select_attempts.all({ ...filter, limit: limit + 1 }) as unknown as AttemptRow[];
+    const items = rows.slice(0, limit).map(attemptOf);
+    return rows.length > limit ? { items, next_before: items[items.length - 1].id } : { items };
+  }
+
+  function readAttempt(attempt_id: number): Attempt | null {
+    const row = select_attempt.get({ id: attempt_id }) as AttemptRow | undefined;
+    return row === undefined ? null : attemptOf(row);
+  }
+
+  function deleteAttempt(attempt_id: number): 'deleted' | 'not_found' | 'grading' {
+    if (delete_attempt.run({ id: attempt_id }).changes > 0) return 'deleted';
+    return select_attempt.get({ id: attempt_id }) === undefined ? 'not_found' : 'grading';
   }
 
   function restartGrading(attempt_id: number): boolean {
@@ -338,14 +522,60 @@ export function openPracticeStore(database_path: string): PracticeStore {
     }
   }
 
-  function readAttempt(attempt_id: number): AttemptView | null {
-    const row = select_attempt.get({ id: attempt_id }) as AttemptRow | undefined;
-    return row === undefined ? null : attemptViewOf(row);
-  }
-
   function failInterruptedGradings(): number {
     return Number(fail_interrupted.run().changes);
   }
 
-  return { listProjects, readProject, createProject, addExercises, readExercise, createAttempt, restartGrading, finishGrading, readAttempt, failInterruptedGradings };
+  // ---- The first API (step 5 deletes it) ----
+  const select_project_key = database.prepare('SELECT 1 FROM projects WHERE key = $key');
+  const select_next_project_id = database.prepare("SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'projects'), 0) + 1 AS id");
+  const select_keys = database.prepare('SELECT key FROM exercises WHERE project_id = $project_id');
+  const select_latest_attempts = database.prepare(`
+    SELECT id, exercise_id, type, exercise_snapshot_json, status, summary, submitted_at FROM attempts
+    WHERE project_id = $project_id AND id = (SELECT max(id) FROM attempts AS later WHERE later.exercise_id = attempts.exercise_id)
+    ORDER BY id DESC`);
+
+  function insertExercises(project_id: number, exercises: FileExercise[]): void {
+    const now = new Date().toISOString();
+    for (const { key, ...body } of exercises) upsertExercise(project_id, key, body, null, now);
+  }
+
+  const legacy: PracticeStore['legacy'] = {
+    readProjectDetail(project_id) {
+      const row = select_project_by_id.get({ id: project_id }) as ProjectRow | undefined;
+      if (row === undefined) return null;
+      type HistoryRow = { id: number; exercise_id: number; exercise_snapshot_json: string; status: AttemptStatus; summary: string | null; submitted_at: string };
+      const history = (select_latest_attempts.all({ project_id }) as unknown as HistoryRow[]).map((history_row): HistoryItem => ({
+        attempt_id: history_row.id, exercise_id: history_row.exercise_id, status: history_row.status, summary: history_row.summary,
+        submitted_at: history_row.submitted_at, ...describe(JSON.parse(history_row.exercise_snapshot_json)),
+      }));
+      return { project: projectOf(row), exercises: itemsOf(project_id, null, null), history };
+    },
+    createProject(file) {
+      return inTransaction(database, () => {
+        const { id: next_id } = select_next_project_id.get() as { id: number };
+        const key = keyFromName(file.name, next_id, (candidate) => select_project_key.get({ key: candidate }) !== undefined);
+        const project_id = Number(insert_project.run({ key, name: file.name, description: file.description, archived_at: null, now: new Date().toISOString() }).lastInsertRowid);
+        insertExercises(project_id, file.exercises);
+        return project_id;
+      });
+    },
+    addExercises(project_id, exercises) {
+      if (select_project_by_id.get({ id: project_id }) === undefined) return null;
+      const existing = new Set((select_keys.all({ project_id }) as { key: string }[]).map(({ key }) => key));
+      const duplicate_keys = exercises.map(({ key }) => key).filter((key) => existing.has(key));
+      if (duplicate_keys.length > 0) return { duplicate_keys };
+      inTransaction(database, () => insertExercises(project_id, exercises));
+      return { added: exercises.length };
+    },
+    readExercise(exercise_id) {
+      const row = select_exercise_by_id.get({ id: exercise_id }) as ExerciseRow | undefined;
+      return row === undefined ? null : { id: row.id, project_id: row.project_id, ...bodyOf(row) };
+    },
+  };
+
+  return {
+    listProjects, readProject, putProject, deleteProject, listExercises, readExercise, putExercise, deleteExercise, importFile, exportProject,
+    createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings, legacy,
+  };
 }

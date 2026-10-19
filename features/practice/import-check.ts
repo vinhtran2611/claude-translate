@@ -2,63 +2,93 @@
 // code and a sentence. Strict: an unknown field is a problem, and any problem means nothing is imported. Pure, so the page
 // runs it for its live preview and the server runs it again before it stores anything.
 import type { ApiProblem } from '../../shared/api.ts';
-import type { ContentByType, ExerciseType, FileExercise, ProjectFile } from './api.ts';
+import type { ContentByType, ExerciseBody, ExerciseType, FileExercise, ProjectFile, ProjectInput } from './api.ts';
 
 export type Problem = ApiProblem;
 
 export const MAX_FILE_CHARS = 2_000_000;
-const MAX_EXERCISES = 500;
-const EXERCISE_TYPES: ExerciseType[] = ['rewrite', 'write', 'choice', 'fill', 'flashcard'];
-const KEY_PATTERN = /^[a-z0-9-]{1,64}$/;
+export const MAX_EXERCISES = 500;
+export const EXERCISE_TYPES: ExerciseType[] = ['rewrite', 'write', 'choice', 'fill', 'flashcard'];
+// The key of a project or an exercise: a-z, 0-9 and -, not starting with -, at most 64 characters.
+export const KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const KEY_RULE = 'must be 1 to 64 of a-z, 0-9 and -, not starting with -.';
 
-// What a field may hold. `required` fields must be present; every other field may be left out.
-type Spec =
+// What a field may hold. `required` fields must be present; every other field may be left out. `about` is the field's
+// description in the JSON Schema.
+type Spec = { about?: string } & (
   | { kind: 'text'; max: number; required?: true }
+  | { kind: 'key'; required?: true }
   | { kind: 'oneOf'; values: string[]; required?: true }
   | { kind: 'flag' }
   | { kind: 'whole'; min: number; max: number }
   // A text, or a list of texts.
   | { kind: 'texts'; max: number; required?: true }
   | { kind: 'list'; of: Spec; min: number; max: number; required?: true }
-  | { kind: 'object'; fields: Fields; required?: true };
+  | { kind: 'object'; fields: Fields; required?: true });
 type Fields = Record<string, Spec>;
 
 const text = (max: number, required?: true): Spec => ({ kind: 'text', max, required });
 const list = (of: Spec, min: number, max: number, required?: true): Spec => ({ kind: 'list', of, min, max, required });
+const about = (spec: Spec, description: string): Spec => ({ ...spec, about: description });
 
 const CONTENT_FIELDS: { [Type in ExerciseType]: Fields } = {
   rewrite: {
     instruction: text(1_000, true),
-    text: text(20_000, true),
+    text: about(text(20_000, true), 'The text to rewrite, translate or correct.'),
     length: { kind: 'oneOf', values: ['sentence', 'paragraph', 'essay'], required: true },
-    source_lang: { kind: 'oneOf', values: ['en', 'vi'] },
-    prefill: { kind: 'flag' },
-    constraints: list(text(100), 1, 3),
-    mistakes: list({ kind: 'object', fields: { wrong: text(200, true), right: text(200, true), note: text(500) } }, 1, 30),
-    reference: text(20_000),
+    source_lang: about({ kind: 'oneOf', values: ['en', 'vi'] }, '"vi" makes it a translation. Default "en".'),
+    prefill: about({ kind: 'flag' }, 'The answer box starts with text: error correction. Default false.'),
+    constraints: about(list(text(100), 1, 3), 'Short rules the grader checks.'),
+    mistakes: about(list({ kind: 'object', fields: { wrong: text(200, true), right: text(200, true), note: text(500) } }, 1, 30),
+      'Planted mistakes, for error correction. Each wrong appears exactly once in text.'),
+    reference: about(text(20_000), 'A model answer, for the grader only.'),
   },
-  write: { prompt: text(2_000, true), min_words: { kind: 'whole', min: 1, max: 2_000 }, minutes: { kind: 'whole', min: 1, max: 180 }, sample: text(20_000) },
+  write: {
+    prompt: text(2_000, true), min_words: about({ kind: 'whole', min: 1, max: 2_000 }, 'Default 250.'),
+    minutes: about({ kind: 'whole', min: 1, max: 180 }, 'A guide, never a limit.'), sample: about(text(20_000), 'A model essay, shown after grading.'),
+  },
   choice: {
     question: text(2_000, true),
     context: text(5_000),
-    options: list({ kind: 'object', fields: { text: text(500, true), why: text(1_000, true), correct: { kind: 'flag' } } }, 2, 6, true),
+    options: about(list({ kind: 'object', fields: { text: text(500, true), why: text(1_000, true), correct: { kind: 'flag' } } }, 2, 6, true),
+      'One correct option is single choice; two or more is multi-select. At least one must be correct.'),
   },
   fill: {
-    text: text(5_000, true),
-    gaps: list({ kind: 'object', fields: { answer: { kind: 'texts', max: 200, required: true }, hint: text(100), why: text(1_000) } }, 1, 30, true),
+    text: about(text(5_000, true), 'Holds the markers {{1}} {{2}} ..., one per gap, in order.'),
+    gaps: list({ kind: 'object', fields: { answer: about({ kind: 'texts', max: 200, required: true }, 'A text, or a list of accepted answers.'), hint: text(100), why: text(1_000) } }, 1, 30, true),
     instruction: text(1_000),
   },
-  flashcard: { front: text(300, true), back: text(2_000, true), hint: text(300), example: text(1_000), explanation: text(5_000) },
+  flashcard: {
+    front: text(300, true), back: text(2_000, true), hint: text(300), example: about(text(1_000), 'Plain text.'),
+    explanation: about(text(5_000), 'Markdown, up to 5,000 characters: the concept and a worked explanation, rendered under the answer.'),
+  },
 };
 
-const EXERCISE_FIELDS: Fields = {
-  id: text(64, true),
-  type: { kind: 'oneOf', values: EXERCISE_TYPES, required: true },
-  topic: text(100),
-  tags: list(text(40), 0, 10),
+// The rules a field list cannot say (checkRelations), for the schema's description of each type.
+const TYPE_RULES: { [Type in ExerciseType]: string } = {
+  rewrite: 'Graded by the AI. Each mistakes[].wrong appears exactly once in content.text.',
+  write: 'Free writing, graded by the AI with estimated bands.',
+  choice: 'Graded by the AI. At least one option has correct: true.',
+  fill: 'Graded by the AI. content.text holds the markers {{1}} to {{n}} in order, one per gap.',
+  flashcard: 'Not graded: you flip it and rate yourself.',
 };
 
-const PROJECT_FIELDS: Fields = { name: text(80, true), description: text(500) };
+// key_name: "key" in format 3 and in PUT, "id" in format 2.
+function exerciseFields(key_name: 'key' | 'id', is_key_required: boolean): Fields {
+  return {
+    [key_name]: about(is_key_required ? { kind: 'key', required: true } : { kind: 'key' }, 'Names the exercise inside its project. Never changes.'),
+    type: { kind: 'oneOf', values: EXERCISE_TYPES, required: true },
+    topic: text(100),
+    tags: about(list(text(40), 0, 10), 'Shown as chips.'),
+  };
+}
+
+const PROJECT_FIELDS: { [Format in 2 | 3]: Fields } = {
+  2: { name: text(80, true), description: text(500) },
+  3: { key: about({ kind: 'key', required: true }, 'Names the project: importing the file again updates it.'), name: text(80, true), description: text(500) },
+};
+
+const PROJECT_INPUT_FIELDS: Fields = { name: text(80, true), description: text(500), archived: about({ kind: 'flag' }, 'Hidden from the default list. Default false.') };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -109,6 +139,9 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
   switch (spec.kind) {
     case 'text':
       checkText(value, spec.max, at, problems);
+      break;
+    case 'key':
+      if (typeof value !== 'string' || !KEY_PATTERN.test(value)) problems.add(at, typeof value === 'string' ? 'bad_key' : 'wrong_type', KEY_RULE);
       break;
     case 'oneOf':
       if (!spec.values.includes(value as string)) problems.add(at, 'not_allowed', `must be one of: ${spec.values.join(', ')}.`);
@@ -171,16 +204,19 @@ function checkRelations(type: ExerciseType, content: Record<string, unknown>, pr
   }
 }
 
-// One exercise, its problems added under problems.base; the exercise when it has none.
-function checkExercise(value: unknown, problems: Problems): FileExercise | null {
+// One exercise, its problems added under problems.base; the exercise when it has none. key_name: see exerciseFields.
+// url_key: in PUT, the key in the URL, which a key in the body must equal.
+function checkExercise(value: unknown, problems: Problems, key_name: 'key' | 'id', url_key: string | null = null): FileExercise | null {
   const count_before = problems.list.length;
   if (!isObject(value)) {
     problems.add([], 'wrong_type', 'must be an object.');
     return null;
   }
   const { content, ...outer } = value;
-  checkFields(outer, EXERCISE_FIELDS, [], problems);
-  if (typeof value.id === 'string' && value.id.length <= 64 && !KEY_PATTERN.test(value.id)) problems.add(['id'], 'bad_key', 'may use only a-z, 0-9 and -.');
+  checkFields(outer, exerciseFields(key_name, url_key === null), [], problems);
+  if (url_key !== null && typeof value.key === 'string' && KEY_PATTERN.test(value.key) && value.key !== url_key) {
+    problems.add(['key'], 'key_mismatch', `"${value.key}" is not the key in the URL ("${url_key}").`);
+  }
   const type = EXERCISE_TYPES.find((known) => known === value.type);
   if (content === undefined) problems.add(['content'], 'required', 'is missing.');
   else if (!isObject(content)) problems.add(['content'], 'wrong_type', 'must be an object.');
@@ -190,22 +226,25 @@ function checkExercise(value: unknown, problems: Problems): FileExercise | null 
   }
   if (problems.list.length > count_before || type === undefined) return null;
   return {
-    key: value.id as string, type, topic: (value.topic as string | undefined) ?? null, tags: (value.tags as string[] | undefined) ?? [],
+    key: url_key ?? value[key_name] as string, type, topic: (value.topic as string | undefined) ?? null, tags: (value.tags as string[] | undefined) ?? [],
     content: value.content as ContentByType[ExerciseType],
   } as FileExercise;
 }
 
 export type CheckedFile = { file: ProjectFile; problems: null } | { file: null; problems: Problem[] };
 
-// A parsed file: the project it describes, or every problem.
-export function checkImportValue(parsed: unknown): CheckedFile {
+const FORMAT_2_EDITS = 'To make a format 2 file format 3: set "format" to 3, add a "key" to "project" (a-z, 0-9 and -, like "m1-day-01"), and rename each exercise\'s "id" to "key".';
+
+// A parsed file of the given format (3: POST /import; 2: the first API, until step 5): the project it describes, or every problem.
+export function checkImportValue(parsed: unknown, format: 2 | 3 = 3): CheckedFile {
   if (!isObject(parsed)) return { file: null, problems: [{ path: '', code: 'wrong_type', message: 'The file must be one JSON object.' }] };
   const problems = new Problems();
+  const key_name = format === 3 ? 'key' : 'id';
   for (const key of Object.keys(parsed)) {
     if (!['format', 'project', 'exercises'].includes(key)) problems.add([key], 'unknown_field', 'is not a known field.');
   }
-  if (parsed.format !== 2) problems.add(['format'], 'unsupported_format', 'must be 2.');
-  if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS, ['project'], problems);
+  if (parsed.format !== format) problems.add(['format'], 'unsupported_format', `must be ${format}.${parsed.format === 2 ? ` ${FORMAT_2_EDITS}` : ''}`);
+  if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS[format], ['project'], problems);
   else problems.add(['project'], parsed.project === undefined ? 'required' : 'wrong_type', 'is missing.');
   const exercises: FileExercise[] = [];
   if (!Array.isArray(parsed.exercises) || parsed.exercises.length < 1 || parsed.exercises.length > MAX_EXERCISES) {
@@ -215,20 +254,20 @@ export function checkImportValue(parsed: unknown): CheckedFile {
     const first_seen = new Map<string, number>();
     parsed.exercises.forEach((value, index) => {
       const exercise_problems = new Problems(['exercises', index], problems.list);
-      const exercise = checkExercise(value, exercise_problems);
-      const id = isObject(value) && typeof value.id === 'string' ? value.id : null;
-      if (id !== null && first_seen.has(id)) exercise_problems.add(['id'], 'duplicate_key', `"${id}" is already used by exercise ${first_seen.get(id)}.`);
-      else if (id !== null) first_seen.set(id, index + 1);
+      const exercise = checkExercise(value, exercise_problems, key_name);
+      const key = isObject(value) && typeof value[key_name] === 'string' ? value[key_name] as string : null;
+      if (key !== null && first_seen.has(key)) exercise_problems.add([key_name], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
+      else if (key !== null) first_seen.set(key, index + 1);
       if (exercise !== null) exercises.push(exercise);
     });
   }
   if (problems.list.length > 0) return { file: null, problems: problems.list };
-  const project = parsed.project as { name: string; description?: string };
-  return { file: { name: project.name.trim(), description: project.description?.trim() ?? '', exercises }, problems: null };
+  const project = parsed.project as { key?: string; name: string; description?: string };
+  return { file: { key: project.key ?? null, name: project.name.trim(), description: project.description?.trim() ?? '', exercises }, problems: null };
 }
 
 // The file's text: checked as above, after its size and its JSON.
-export function checkProjectFile(file_text: string): CheckedFile {
+export function checkProjectFile(file_text: string, format: 2 | 3 = 3): CheckedFile {
   if (file_text.length > MAX_FILE_CHARS) return { file: null, problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }] };
   let parsed: unknown;
   try {
@@ -238,7 +277,90 @@ export function checkProjectFile(file_text: string): CheckedFile {
     const line = position === null ? null : file_text.slice(0, Number(position[1])).split('\n').length;
     return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${line === null ? '' : ` (line ${line})`}.` }] };
   }
-  return checkImportValue(parsed);
+  return checkImportValue(parsed, format);
+}
+
+// The body of PUT .../exercises/:key: the exercise, or every problem.
+export function checkExerciseInput(value: unknown, url_key: string): { exercise: ExerciseBody; problems: null } | { exercise: null; problems: Problem[] } {
+  const problems = new Problems();
+  const exercise = checkExercise(value, problems, 'key', url_key);
+  if (exercise === null) return { exercise: null, problems: problems.list };
+  const { key: _key, ...body } = exercise;
+  return { exercise: body, problems: null };
+}
+
+// The body of PUT /projects/:key, with the defaults filled in: the project, or every problem.
+export function checkProjectInput(value: unknown): { project: Required<ProjectInput>; problems: null } | { project: null; problems: Problem[] } {
+  const problems = new Problems();
+  if (isObject(value)) checkFields(value, PROJECT_INPUT_FIELDS, [], problems);
+  else problems.add([], 'wrong_type', 'The body must be a JSON object.');
+  if (problems.list.length > 0) return { project: null, problems: problems.list };
+  const { name, description = '', archived = false } = value as unknown as ProjectInput;
+  return { project: { name: name.trim(), description: description.trim(), archived }, problems: null };
+}
+
+// A key in a URL, as a problem when it cannot be one ("#key", per docs/practice-api-design.md §3.3).
+export function keyProblems(key: string): Problem[] {
+  return KEY_PATTERN.test(key) ? [] : [{ path: '#key', code: 'bad_key', message: `The key in the URL ${KEY_RULE}` }];
+}
+
+// ---- JSON Schema (draft 2020-12), made from the same specs, so it can never disagree with the checks ----
+
+function schemaOf(spec: Spec): Record<string, unknown> {
+  const description = spec.about === undefined ? {} : { description: spec.about };
+  switch (spec.kind) {
+    case 'text': return { type: 'string', minLength: 1, maxLength: spec.max, ...description };
+    case 'key': return { type: 'string', pattern: KEY_PATTERN.source, ...description };
+    case 'oneOf': return { enum: spec.values, ...description };
+    case 'flag': return { type: 'boolean', ...description };
+    case 'whole': return { type: 'integer', minimum: spec.min, maximum: spec.max, ...description };
+    case 'texts': {
+      const one = { type: 'string', minLength: 1, maxLength: spec.max };
+      return { oneOf: [one, { type: 'array', minItems: 1, maxItems: 10, items: one }], ...description };
+    }
+    case 'list': return { type: 'array', minItems: spec.min, maxItems: spec.max, items: schemaOf(spec.of), ...description };
+    case 'object': return objectSchema(spec.fields, description);
+  }
+}
+
+function objectSchema(fields: Fields, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  const required = Object.entries(fields).filter(([, spec]) => 'required' in spec && spec.required).map(([key]) => key);
+  return {
+    type: 'object', additionalProperties: false, required, ...extra,
+    properties: Object.fromEntries(Object.entries(fields).map(([key, spec]) => [key, schemaOf(spec)])),
+  };
+}
+
+const SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema';
+
+// GET /api/practice/schemas/exercise.json: one exercise as a file holds it, one $defs entry per type.
+export function exerciseSchema(): Record<string, unknown> {
+  const $defs = Object.fromEntries(EXERCISE_TYPES.map((type) => {
+    const { type: _type, ...outer } = exerciseFields('key', true);
+    const fields = { ...outer, content: { kind: 'object', fields: CONTENT_FIELDS[type], required: true } as Spec };
+    const schema = objectSchema(fields, { description: TYPE_RULES[type] });
+    const properties = schema.properties as Record<string, unknown>;
+    return [type, { ...schema, required: ['key', 'type', 'content'], properties: { key: properties.key, type: { const: type }, ...properties } }];
+  }));
+  return {
+    $schema: SCHEMA_DIALECT, $id: '/api/practice/schemas/exercise.json', title: 'Practice exercise',
+    description: 'In PUT /api/practice/projects/{project}/exercises/{key}, key may be left out; when present it must equal the URL key. Texts must not be only spaces.',
+    oneOf: EXERCISE_TYPES.map((type) => ({ $ref: `#/$defs/${type}` })), $defs,
+  };
+}
+
+// GET /api/practice/schemas/import.json: the import file, format 3.
+export function importSchema(): Record<string, unknown> {
+  return {
+    $schema: SCHEMA_DIALECT, $id: '/api/practice/schemas/import.json', title: 'Practice import file (format 3)',
+    description: 'One file is one project. Importing it again updates the project and its exercises by key; it never deletes an exercise.',
+    type: 'object', additionalProperties: false, required: ['format', 'project', 'exercises'],
+    properties: {
+      format: { const: 3 },
+      project: objectSchema(PROJECT_FIELDS[3]),
+      exercises: { type: 'array', minItems: 1, maxItems: MAX_EXERCISES, items: { $ref: 'exercise.json' }, description: 'Keys are unique in the file.' },
+    },
+  };
 }
 
 // A problem as one line for a person: "Exercise 6 (choice, d2-pick-1): content.options: no option is marked correct."
@@ -249,7 +371,8 @@ export function problemLine(problem: Problem, exercises: unknown): string {
   const index = Number(match[1]);
   const exercise = Array.isArray(exercises) ? exercises[index] : undefined;
   const type = isObject(exercise) && EXERCISE_TYPES.includes(exercise.type as ExerciseType) ? exercise.type as string : null;
-  const key = isObject(exercise) && typeof exercise.id === 'string' && KEY_PATTERN.test(exercise.id) ? exercise.id : null;
+  const key_value = isObject(exercise) ? exercise.key ?? exercise.id : undefined;
+  const key = typeof key_value === 'string' && KEY_PATTERN.test(key_value) ? key_value : null;
   const label = [type, key].filter((part) => part !== null);
   return `Exercise ${index + 1}${label.length > 0 ? ` (${label.join(', ')})` : ''}: ${problem.message}`;
 }

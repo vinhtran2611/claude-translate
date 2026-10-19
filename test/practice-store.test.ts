@@ -6,69 +6,162 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { FileExercise, ProjectFile } from '../features/practice/api.ts';
-import { keyFromName, openPracticeStore } from '../features/practice/server/store.ts';
+import { keyFromName, openPracticeStore, type PracticeStore } from '../features/practice/server/store.ts';
 
 const card = (key: string, front: string): FileExercise => ({ key, type: 'flashcard', topic: null, tags: [], content: { front, back: 'b' } });
 const rewrite = (key: string, text: string): FileExercise => ({ key, type: 'rewrite', topic: 'topic', tags: [], content: { instruction: 'Fix', text, length: 'sentence' } });
-const file = (...exercises: FileExercise[]): ProjectFile => ({ name: 'Week 1', description: '', exercises });
+const file = (...exercises: FileExercise[]): ProjectFile => ({ key: 'week-1', name: 'Week 1', description: '', exercises });
+const body = ({ key: _key, ...exercise }: FileExercise) => exercise;
 
 function scratchStore() {
   const database_path = join(mkdtempSync(join(tmpdir(), 'practice-store-')), 'practice-v2.sqlite');
   return { store: openPracticeStore(database_path), database_path };
 }
 
-function answer(store: ReturnType<typeof openPracticeStore>, exercise_id: number, outcome: object | null, grader: 'ai' | 'self' = 'self') {
-  const exercise = store.readExercise(exercise_id)!;
-  const text = exercise.type === 'flashcard' ? { rating: 'known' } : { text: 'My answer.' };
-  return store.createAttempt({ exercise, answer: text as never, writing_ms: 1500, grader, outcome: outcome as never });
+const idOf = (store: PracticeStore, key: string, project = 'week-1') => store.readExercise(project, key)!.id;
+
+function answer(store: PracticeStore, exercise_id: number, outcome: object | null, grader: 'ai' | 'self' = 'self', type = 'flashcard') {
+  const text = type === 'flashcard' ? { rating: 'known' } : { text: 'My answer.' };
+  return store.createAttempt({ exercise_id, answer: text as never, writing_ms: 1500, grader, outcome: outcome as never });
 }
+const knew = { result: { rating: 'known' }, summary: 'Knew it' };
 
-test('a project is created with its exercises in file order, and counted by type', () => {
+test('an import makes a project with its exercises in file order, counted by type', () => {
   const { store } = scratchStore();
-  const id = store.createProject(file(card('c1', 'one'), rewrite('r1', 'Two.'), card('c2', 'three')));
-  const detail = store.readProject(id)!;
-  assert.deepEqual(detail.exercises.map(({ preview, kind }) => [preview, kind]), [['one', 'Flashcard'], ['Two.', 'Rewrite sentence'], ['three', 'Flashcard']]);
-  assert.equal(detail.project.exercise_count, 3);
-  assert.equal(detail.project.done_count, 0);
-  assert.equal(detail.project.last_activity_at, null);
-  assert.deepEqual(detail.project.type_counts, { flashcard: 2, rewrite: 1 });
-  assert.equal(store.readProject(999), null);
+  const result = store.importFile(file(card('c1', 'one'), rewrite('r1', 'Two.'), card('c2', 'three')), false);
+  assert.deepEqual([result.dry_run, result.project_change, result.exercises], [false, 'created', { created: ['c1', 'r1', 'c2'], updated: [], unchanged: [] }]);
+  const items = store.listExercises('week-1', { type: null, tag: null })!;
+  assert.deepEqual(items.map(({ key, preview, kind, version, last_attempt }) => [key, preview, kind, version, last_attempt]), [
+    ['c1', 'one', 'Flashcard', 1, null], ['r1', 'Two.', 'Rewrite sentence', 1, null], ['c2', 'three', 'Flashcard', 1, null],
+  ]);
+  const project = store.readProject('week-1')!;
+  assert.deepEqual([project.key, project.name, project.exercise_count, project.done_count, project.last_activity_at, project.archived], ['week-1', 'Week 1', 3, 0, null, false]);
+  assert.deepEqual(project.type_counts, { flashcard: 2, rewrite: 1 });
+  assert.equal(store.readProject('nope'), null);
+  assert.equal(store.listExercises('nope', { type: null, tag: null }), null);
 });
 
-test('adding exercises appends them; a key already in the project adds nothing', () => {
+test('importing the same file again changes nothing; changed content bumps the version; the file sets the order', () => {
   const { store } = scratchStore();
-  const id = store.createProject(file(card('c1', 'one')));
-  assert.deepEqual(store.addExercises(id, [card('c2', 'two'), card('c3', 'three')]), { added: 2 });
-  assert.deepEqual(store.addExercises(id, [card('c4', 'four'), card('c1', 'again')]), { duplicate_keys: ['c1'] });
-  assert.deepEqual(store.readProject(id)!.exercises.map(({ preview }) => preview), ['one', 'two', 'three']);
-  assert.equal(store.addExercises(999, [card('x', 'x')]), null);
-  const other = store.createProject(file(card('c1', 'same key, other project')));
-  assert.equal(store.readProject(other)!.exercises.length, 1);
+  store.importFile(file(card('c1', 'one'), card('c2', 'two'), card('c3', 'three')), false);
+  const before = store.readExercise('week-1', 'c1')!;
+  const again = store.importFile(file(card('c1', 'one'), card('c2', 'two'), card('c3', 'three')), false);
+  assert.deepEqual([again.project_change, again.exercises], ['unchanged', { created: [], updated: [], unchanged: ['c1', 'c2', 'c3'] }]);
+  assert.deepEqual(store.readExercise('week-1', 'c1'), before);
+  // The same content with its keys in another order is the same.
+  const reordered: FileExercise = { key: 'c1', type: 'flashcard', topic: null, tags: [], content: { back: 'b', front: 'one' } as never };
+  assert.deepEqual(store.importFile({ ...file(reordered), name: 'Week 1 (fixed)' }, false).exercises, { created: [], updated: [], unchanged: ['c1'] });
+  // A fixed file: one changed, one new, one left out (kept, after the file's).
+  const fixed = store.importFile({ ...file(card('c3', 'three'), card('c1', 'one!'), card('c4', 'four')), name: 'Week 1 (fixed)' }, false);
+  assert.deepEqual([fixed.project_change, fixed.exercises], ['unchanged', { created: ['c4'], updated: ['c1'], unchanged: ['c3'] }]);
+  assert.deepEqual(store.listExercises('week-1', { type: null, tag: null })!.map(({ key, version }) => [key, version]), [['c3', 1], ['c1', 2], ['c4', 1], ['c2', 1]]);
+  const c1 = store.readExercise('week-1', 'c1')!;
+  assert.deepEqual([c1.version, c1.created_at, c1.updated_at > before.updated_at || c1.updated_at === before.updated_at], [2, before.created_at, true]);
+  assert.equal(store.readProject('week-1')!.name, 'Week 1 (fixed)');
 });
 
-test('History is the latest attempt of each exercise, newest first; done counts graded exercises', () => {
-  const { store } = scratchStore();
-  const id = store.createProject(file(card('c1', 'one'), card('c2', 'two'), card('c3', 'three')));
-  const [first, second] = store.readProject(id)!.exercises;
-  answer(store, first.id, { result: { rating: 'known' }, summary: 'Knew it' });
-  answer(store, second.id, { result: { rating: 'almost' }, summary: 'Almost' });
-  const retry = answer(store, first.id, { result: { rating: 'unknown' }, summary: "Didn't know" });
-  const detail = store.readProject(id)!;
-  assert.deepEqual(detail.history.map(({ preview, summary }) => [preview, summary]), [['one', "Didn't know"], ['two', 'Almost']]);
-  assert.equal(detail.history[0].attempt_id, retry.id);
-  assert.deepEqual(detail.exercises.map(({ done }) => done), [true, true, false]);
-  assert.equal(detail.project.done_count, 2);
-  assert.notEqual(detail.project.last_activity_at, null);
+test('a dry run says what would happen and writes nothing', () => {
+  const { store, database_path } = scratchStore();
+  const result = store.importFile(file(card('c1', 'one')), true);
+  assert.deepEqual([result.dry_run, result.project_change, result.project.exercise_count, result.exercises.created], [true, 'created', 1, ['c1']]);
+  assert.equal(store.readProject('week-1'), null);
+  store.importFile(file(card('c1', 'one')), false);
+  const dump = () => new DatabaseSync(database_path, { readOnly: true }).prepare('SELECT * FROM exercises').all();
+  const rows = dump();
+  assert.equal(store.putExercise('week-1', 'c1', body(card('c1', 'changed')), true)!.exercise.version, 2);
+  assert.equal(store.putExercise('week-1', 'c9', body(card('c9', 'new')), true)!.change, 'created');
+  assert.equal(store.putProject('week-1', { name: 'Other', description: '', archived: true }, true).project.archived, true);
+  assert.deepEqual(dump(), rows);
+  assert.equal(store.readProject('week-1')!.name, 'Week 1');
 });
 
-test('an AI attempt starts grading, is finished once, and a failed one can be restarted', () => {
+test('PUT an exercise: created at the end, then updated with a new version, then unchanged; the project must exist', () => {
   const { store } = scratchStore();
-  const id = store.createProject(file(rewrite('r1', 'Text.')));
-  const exercise_id = store.readProject(id)!.exercises[0].id;
-  const attempt = answer(store, exercise_id, null, 'ai');
+  store.importFile(file(card('c1', 'one')), false);
+  const created = store.putExercise('week-1', 'r1', body(rewrite('r1', 'Text.')), false)!;
+  assert.deepEqual([created.change, created.exercise.position, created.exercise.version, created.exercise.project], ['created', 2, 1, 'week-1']);
+  const as_card = store.putExercise('week-1', 'r1', body(card('r1', 'now a card')), false)!;
+  assert.deepEqual([as_card.change, as_card.exercise.type, as_card.exercise.version], ['updated', 'flashcard', 2]);
+  assert.equal(store.putExercise('week-1', 'r1', body(card('r1', 'now a card')), false)!.change, 'unchanged');
+  assert.equal(store.putExercise('nope', 'r1', body(card('r1', 'x')), false), null);
+});
+
+test('deleting an exercise keeps its attempts readable, with its key; done stops counting it', () => {
+  const { store } = scratchStore();
+  store.importFile(file(card('c1', 'one'), card('c2', 'two')), false);
+  const attempt = answer(store, idOf(store, 'c1'), knew);
+  assert.deepEqual([attempt.project, attempt.exercise, attempt.exercise_version, attempt.exercise_deleted], ['week-1', 'c1', 1, false]);
+  assert.equal(store.readProject('week-1')!.done_count, 1);
+  assert.equal(store.deleteExercise('week-1', 'c1'), true);
+  assert.equal(store.deleteExercise('week-1', 'c1'), false);
+  const kept = store.readAttempt(attempt.id)!;
+  assert.deepEqual([kept.exercise, kept.exercise_deleted, (kept.snapshot.content as { front: string }).front, kept.answer], ['c1', true, 'one', { rating: 'known' }]);
+  assert.deepEqual(store.listAttempts({ project: 'week-1', exercise: 'c1', status: null, since: null, before: null, limit: 50 }).items.map(({ id }) => id), [attempt.id]);
+  assert.deepEqual([store.readProject('week-1')!.done_count, store.readProject('week-1')!.exercise_count], [0, 1]);
+  // The same key made again is a new exercise, version 1; the old attempt stays with the old one.
+  store.putExercise('week-1', 'c1', body(card('c1', 'again')), false);
+  assert.deepEqual([store.readExercise('week-1', 'c1')!.version, store.readExercise('week-1', 'c1')!.attempt_count], [1, 0]);
+});
+
+test('a project with attempts is deleted only when asked to delete them too; archive hides it', () => {
+  const { store } = scratchStore();
+  store.importFile(file(card('c1', 'one')), false);
+  store.importFile({ ...file(card('c1', 'one')), key: 'empty' }, false);
+  answer(store, idOf(store, 'c1'), knew);
+  assert.equal(store.deleteProject('week-1', false), 'has_attempts');
+  assert.equal(store.deleteProject('empty', false), 'deleted');
+  assert.equal(store.deleteProject('empty', false), 'not_found');
+  const archived = store.putProject('week-1', { name: 'Week 1', description: '', archived: true }, false);
+  assert.deepEqual([archived.change, archived.project.archived], ['updated', true]);
+  assert.deepEqual([store.listProjects('false'), store.listProjects('true').map(({ key }) => key)], [[], ['week-1']]);
+  // Importing into an archived project works and keeps it archived.
+  assert.equal(store.importFile(file(card('c1', 'one'), card('c2', 'two')), false).project.archived, true);
+  assert.equal(store.deleteProject('week-1', true), 'deleted');
+  assert.deepEqual([store.listProjects('all'), store.listAttempts({ project: null, exercise: null, status: null, since: null, before: null, limit: 50 }).items], [[], []]);
+});
+
+test('export is the file again: importing it changes nothing', () => {
+  const { store } = scratchStore();
+  const tagged: FileExercise = { ...rewrite('r1', 'Text.'), tags: ['passive'] };
+  store.importFile({ ...file(card('c1', 'one'), tagged), description: 'Mine' }, false);
+  const exported = store.exportProject('week-1')!;
+  assert.deepEqual(exported, {
+    format: 3, project: { key: 'week-1', name: 'Week 1', description: 'Mine' },
+    exercises: [{ key: 'c1', type: 'flashcard', content: { front: 'one', back: 'b' } }, { key: 'r1', type: 'rewrite', topic: 'topic', tags: ['passive'], content: { instruction: 'Fix', text: 'Text.', length: 'sentence' } }],
+  });
+  const again = store.importFile({ key: 'week-1', name: 'Week 1', description: 'Mine', exercises: [{ ...card('c1', 'one') }, tagged] }, false);
+  assert.deepEqual([again.project_change, again.exercises.unchanged], ['unchanged', ['c1', 'r1']]);
+  assert.equal(store.exportProject('nope'), null);
+});
+
+test('attempts list newest first with filters and pages; an attempt records the version it answered', () => {
+  const { store } = scratchStore();
+  store.importFile(file(card('c1', 'one'), rewrite('r1', 'Text.')), false);
+  const ids = [answer(store, idOf(store, 'c1'), knew).id, answer(store, idOf(store, 'r1'), null, 'ai', 'rewrite').id, answer(store, idOf(store, 'c1'), knew).id];
+  store.putExercise('week-1', 'c1', body(card('c1', 'one, fixed')), false);
+  const fourth = answer(store, idOf(store, 'c1'), knew);
+  assert.equal(fourth.exercise_version, 2);
+  const list = (filter: object) => store.listAttempts({ project: null, exercise: null, status: null, since: null, before: null, limit: 50, ...filter });
+  assert.deepEqual(list({}).items.map(({ id }) => id), [fourth.id, ...ids.reverse()]);
+  assert.deepEqual(list({ status: 'grading' }).items.map(({ exercise }) => exercise), ['r1']);
+  assert.deepEqual(list({ project: 'week-1', exercise: 'c1' }).items.map(({ exercise_version }) => exercise_version), [2, 1, 1]);
+  const first_page = list({ limit: 2 });
+  assert.deepEqual([first_page.items.length, first_page.next_before], [2, first_page.items[1].id]);
+  const second_page = list({ limit: 2, before: first_page.next_before });
+  assert.deepEqual([second_page.items.length, second_page.next_before], [2, undefined]);
+  assert.deepEqual(list({ since: '2999-01-01T00:00:00.000Z' }).items, []);
+  assert.equal(store.deleteAttempt(ids[1]), 'grading');
+  assert.equal(store.deleteAttempt(fourth.id), 'deleted');
+  assert.equal(store.deleteAttempt(fourth.id), 'not_found');
+});
+
+test('an AI attempt starts grading, is finished once, and a failed one can be restarted; the effort is kept', () => {
+  const { store, database_path } = scratchStore();
+  store.importFile(file(rewrite('r1', 'Text.')), false);
+  const attempt = answer(store, idOf(store, 'r1'), null, 'ai', 'rewrite');
   assert.equal(attempt.status, 'grading');
-  assert.equal(store.readProject(id)!.history[0].status, 'grading');
-  assert.equal(store.readProject(id)!.project.done_count, 0);
+  assert.equal(store.listExercises('week-1', { type: null, tag: null })![0].last_attempt!.status, 'grading');
+  assert.equal(store.readProject('week-1')!.done_count, 0);
   store.finishGrading(attempt.id, { status: 'failed', error: 'boom', model: null, grading_ms: 10 });
   assert.equal(store.readAttempt(attempt.id)!.error, 'boom');
   assert.equal(store.restartGrading(attempt.id), true);
@@ -78,15 +171,17 @@ test('an AI attempt starts grading, is finished once, and a failed one can be re
   const graded = store.readAttempt(attempt.id)!;
   assert.deepEqual([graded.status, graded.summary, graded.error], ['graded', 'Graded', null]);
   assert.deepEqual(graded.result, { text: '**Good.** One verb to fix.', thinking_text: 'Looking.', thinking_ms: 1500, model: 'claude-sonnet-5-5', effort: 'high', ms: 20 });
-  assert.equal(store.readProject(id)!.project.done_count, 1);
+  assert.equal(store.readProject('week-1')!.done_count, 1);
   assert.equal(store.readAttempt(999), null);
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  assert.deepEqual({ ...database.prepare('SELECT effort, model FROM attempts WHERE id = ?').get(attempt.id) }, { effort: 'high', model: 'claude-sonnet-5-5' });
+  database.close();
 });
 
 test('a result written before the thinking summary and the effort were kept reads with empty ones', () => {
   const { store, database_path } = scratchStore();
-  const id = store.createProject(file(rewrite('r1', 'Text.')));
-  const exercise_id = store.readProject(id)!.exercises[0].id;
-  const attempt = answer(store, exercise_id, null, 'ai');
+  store.importFile(file(rewrite('r1', 'Text.')), false);
+  const attempt = answer(store, idOf(store, 'r1'), null, 'ai', 'rewrite');
   store.finishGrading(attempt.id, { status: 'graded', text: 'x', thinking_text: '', thinking_ms: null, model: 'm', effort: 'low', grading_ms: 1 });
   const database = new DatabaseSync(database_path);
   database.prepare('UPDATE attempts SET result_json = ? WHERE id = ?').run('{"text":"Old feedback.","model":"claude-sonnet-5-5","ms":8105}', attempt.id);
@@ -94,29 +189,26 @@ test('a result written before the thinking summary and the effort were kept read
   assert.deepEqual(store.readAttempt(attempt.id)!.result, { text: 'Old feedback.', thinking_text: '', thinking_ms: null, effort: null, model: 'claude-sonnet-5-5', ms: 8105 });
 });
 
-test('an attempt keeps the exercise as it was and reads without touching exercises', () => {
-  const { store, database_path } = scratchStore();
-  const id = store.createProject(file(card('c1', 'before')));
-  const exercise_id = store.readProject(id)!.exercises[0].id;
-  const attempt = answer(store, exercise_id, { result: { rating: 'known' }, summary: 'Knew it' });
-  const database = new DatabaseSync(database_path);
-  database.prepare('UPDATE exercises SET content_json = ? WHERE id = ?').run('{"front":"after","back":"b"}', exercise_id);
-  database.close();
-  assert.equal((store.readAttempt(attempt.id)!.exercise.content as { front: string }).front, 'before');
+test('an attempt keeps the exercise as it was, whatever happens to the exercise later', () => {
+  const { store } = scratchStore();
+  store.importFile(file(card('c1', 'before')), false);
+  const attempt = answer(store, idOf(store, 'c1'), knew);
+  store.putExercise('week-1', 'c1', body(card('c1', 'after')), false);
+  assert.equal((store.readAttempt(attempt.id)!.snapshot.content as { front: string }).front, 'before');
   assert.deepEqual(store.readAttempt(attempt.id)!.answer, { rating: 'known' });
 });
 
-test('a row whose JSON has the wrong shape still lists, and a server restart fails interrupted gradings', () => {
+test('a row whose JSON has the wrong shape still lists, filters work, and a server restart fails interrupted gradings', () => {
   const { store, database_path } = scratchStore();
-  const id = store.createProject(file(card('c1', 'one')));
-  const exercise_id = store.readProject(id)!.exercises[0].id;
-  new DatabaseSync(database_path).prepare("UPDATE exercises SET content_json = 'null' WHERE id = ?").run(exercise_id);
-  assert.deepEqual(store.readProject(id)!.exercises.map(({ kind, preview }) => [kind, preview]), [['flashcard', '']]);
-  const { store: other, database_path: other_path } = scratchStore();
-  const other_id = other.createProject(file(rewrite('r', 'T.')));
-  const attempt = answer(other, other.readProject(other_id)!.exercises[0].id, null, 'ai');
-  assert.equal(openPracticeStore(other_path).failInterruptedGradings(), 1);
-  assert.equal(other.readAttempt(attempt.id)!.status, 'failed');
+  store.importFile(file(card('c1', 'one'), { ...rewrite('r1', 'T.'), tags: ['passive'] }), false);
+  new DatabaseSync(database_path).prepare("UPDATE exercises SET content_json = 'null' WHERE key = 'c1'").run();
+  assert.deepEqual(store.listExercises('week-1', { type: null, tag: null })!.map(({ kind, preview }) => [kind, preview]), [['flashcard', ''], ['Rewrite sentence', 'T.']]);
+  assert.deepEqual(store.listExercises('week-1', { type: 'rewrite', tag: null })!.map(({ key }) => key), ['r1']);
+  assert.deepEqual(store.listExercises('week-1', { type: null, tag: 'passive' })!.map(({ key }) => key), ['r1']);
+  assert.deepEqual(store.listExercises('week-1', { type: null, tag: 'nope' }), []);
+  const attempt = answer(store, idOf(store, 'r1'), null, 'ai', 'rewrite');
+  assert.equal(openPracticeStore(database_path).failInterruptedGradings(), 1);
+  assert.equal(store.readAttempt(attempt.id)!.status, 'failed');
 });
 
 // Schema 1 as it shipped, to test the migration on a file that looks like the real one.
@@ -192,14 +284,16 @@ test('schema 1 is migrated to 2: a backup first, keys from names, versions, atte
   database.close();
   // Every old attempt reads as it did, and the lists still work.
   assert.equal(store.readAttempt(1)!.result!.hasOwnProperty('text'), true);
-  assert.deepEqual(store.readAttempt(3)!.answer, { rating: 'known' });
+  assert.deepEqual([store.readAttempt(3)!.project, store.readAttempt(3)!.exercise, store.readAttempt(3)!.answer], ['day-1-19-10-2026', 'd1-card-1', { rating: 'known' }]);
   assert.equal(store.readAttempt(4)!.status, 'failed');
-  assert.deepEqual(store.listProjects().map(({ exercise_count, done_count }) => [exercise_count, done_count]), [[1, 1], [2, 1], [1, 0], [0, 0]]);
+  assert.deepEqual(store.listProjects('all').map(({ key, exercise_count, done_count }) => [key, exercise_count, done_count]), [
+    ['test-4', 0, 0], ['day-1-19-10-2026-v2', 1, 0], ['day-1-19-10-2026', 2, 1], ['test', 1, 1],
+  ]);
+  assert.deepEqual(store.listExercises('day-1-19-10-2026', { type: null, tag: null })!.map(({ key, last_attempt }) => [key, last_attempt?.id ?? null]), [['d1-card-1', 3], ['d1-fix-1', 4]]);
   // A deleted attempt's id is not given again.
-  const exercise = store.readExercise(2)!;
-  assert.equal(store.createAttempt({ exercise, answer: { rating: 'almost' }, writing_ms: 1, grader: 'self', outcome: { result: { rating: 'almost' }, summary: 'Almost' } }).id, 6);
+  assert.equal(store.createAttempt({ exercise_id: 2, answer: { rating: 'almost' }, writing_ms: 1, grader: 'self', outcome: { result: { rating: 'almost' }, summary: 'Almost' } }).id, 6);
   // Opening it again changes nothing and makes no second backup.
-  assert.equal(openPracticeStore(database_path).listProjects().length, 4);
+  assert.equal(openPracticeStore(database_path).listProjects('all').length, 4);
 });
 
 test('a migration that would lose a row changes nothing', () => {

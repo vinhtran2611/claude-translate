@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { modelLabelOf, runClaude } from '../../../shared/server/claude-runner.ts';
 import { formatCount, formatSeconds, log } from '../../../shared/server/log.ts';
-import type { AnswerByType, AttemptView, ChoiceContent, ExerciseBody, FillContent, GradingSettings, GradingStreamEvents } from '../api.ts';
+import type { AnswerByType, Attempt, ChoiceContent, ExerciseBody, FillContent, GradingSettings, GradingStreamEvents } from '../api.ts';
 import { countWords } from '../text.ts';
 import type { GradingOutcome, PracticeStore } from './store.ts';
 
@@ -48,7 +48,7 @@ interface Grading {
 
 export interface Grader {
   // Starts grading the attempt, which must be in status 'grading'; the outcome is written to the store when it ends.
-  start(attempt: AttemptView, settings: GradingSettings): void;
+  start(attempt: Attempt, settings: GradingSettings): void;
   // Answers a request to watch the attempt's grading; a 'finished' event at once when it is not being graded.
   watch(res: ServerResponse, attempt_id: number): void;
 }
@@ -61,10 +61,10 @@ export function createGrader(store: PracticeStore): Grader {
   // One entry per attempt being graded; removed when its outcome is saved.
   const gradings = new Map<number, Grading>();
 
-  function start(attempt: AttemptView, settings: GradingSettings): void {
+  function start(attempt: Attempt, settings: GradingSettings): void {
     if (gradings.has(attempt.id)) return;
     const request_number = ++grading_request_count;
-    const { exercise } = attempt;
+    const { snapshot: exercise } = attempt;
     const { model_id, effort } = settings;
     const grading: Grading = { settings, started_at: Date.now(), thinking_text: '', thinking_ms: null, text: '', watchers: new Set() };
     gradings.set(attempt.id, grading);

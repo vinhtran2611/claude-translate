@@ -75,6 +75,11 @@ function sendProblems(res: ServerResponse, problems: Problem[]): void {
 
 const notFound = (res: ServerResponse, what: string): void => sendError(res, 404, 'not_found', `No such ${what}.`);
 
+// 409 key_taken: a rename or a move would give a key that is already used.
+function keyTaken(res: ServerResponse, message: string): void {
+  sendError(res, 409, 'key_taken', message);
+}
+
 // The body as an object, or null with the error already sent. fields: the ones it may have; any other is a problem.
 async function readObjectBody(req: IncomingMessage, res: ServerResponse, max_bytes: number, fields?: string[]): Promise<Record<string, unknown> | null> {
   const body = await readRequestJson(req, res, max_bytes);
@@ -87,6 +92,27 @@ async function readObjectBody(req: IncomingMessage, res: ServerResponse, max_byt
   if (unknown.length === 0) return body;
   sendProblems(res, unknown.map((key) => ({ path: `/${key}`, code: 'unknown_field', message: `${key} is not a known field.` })));
   return null;
+}
+
+// The body of a rename or a move: an object with one field that holds a key. null with the error already sent.
+// problems: the ones found before the body (a bad query), sent together with the body's.
+async function readKeyBody(req: IncomingMessage, res: ServerResponse, field: string, problems: Problem[]): Promise<string | null> {
+  const body = await readObjectBody(req, res, MAX_EXERCISE_BODY_BYTES, [field]);
+  if (body === null) return null;
+  const value = body[field];
+  const path = `/${field}`;
+  if (value === undefined) {
+    problems.push({ path, code: 'required', message: `${field} is missing.` });
+  } else if (typeof value !== 'string') {
+    problems.push({ path, code: 'wrong_type', message: `${field} must be a key, like m1-day-01.` });
+  } else if (!KEY_PATTERN.test(value)) {
+    problems.push({ path, code: 'bad_key', message: `${field} must be 1 to 64 of a-z, 0-9 and -, not starting with -.` });
+  }
+  if (problems.length > 0) {
+    sendProblems(res, problems);
+    return null;
+  }
+  return value as string;
 }
 
 // ?name as one of `values` (its first when it is left out); a problem otherwise.
@@ -168,6 +194,19 @@ export function createPracticeFeature({ database_path }: { database_path: string
     const { project: saved, change } = store.putProject(key, project, is_dry_run);
     if (change !== 'unchanged' && !is_dry_run) log('info', null, 'practice', `project ${key} ${change}`);
     sendJson(res, change === 'created' ? 201 : 200, saved);
+  }
+
+  // A new key for a project. Its exercises and attempts stay linked; old URLs with the old key stop working.
+  async function renameProject(req: IncomingMessage, res: ServerResponse, [key]: string[], query: URLSearchParams): Promise<void> {
+    const problems: Problem[] = [];
+    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const new_key = await readKeyBody(req, res, 'key', problems);
+    if (new_key === null) return;
+    const outcome = store.renameProject(key, new_key, is_dry_run);
+    if (outcome === 'not_found') return notFound(res, `project "${key}"`);
+    if (outcome === 'key_taken') return keyTaken(res, `There is already a project "${new_key}".`);
+    if (new_key !== key && !is_dry_run) log('info', null, 'practice', `project ${key} renamed to ${new_key}`);
+    sendJson(res, 200, outcome);
   }
 
   function deleteProject(_req: IncomingMessage, res: ServerResponse, [key]: string[], query: URLSearchParams): void {
@@ -373,6 +412,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('GET', `/projects/${KEY}`, (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
     route('PUT', `/projects/${KEY}`, putProject, ['dry_run']),
     route('DELETE', `/projects/${KEY}`, deleteProject, ['with_attempts']),
+    route('POST', `/projects/${KEY}/rename`, renameProject, ['dry_run']),
     route('GET', `/projects/${KEY}/export`, exportProject),
     route('POST', '/import', importFile, ['dry_run']),
 

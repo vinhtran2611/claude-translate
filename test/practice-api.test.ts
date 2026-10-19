@@ -486,3 +486,63 @@ async function waitUntilGraded(attempt_id: number): Promise<void> {
   }
   throw new Error(`attempt ${attempt_id} is still grading`);
 }
+
+// ---- Rename, move and order (docs/practice-api-design.md §10) ----
+
+// Answers a flashcard; the attempt's id.
+async function answerCard(project_key: string, exercise_key: string): Promise<number> {
+  const reply = await call('POST', `/projects/${project_key}/exercises/${exercise_key}/attempts`, { answer: { rating: 'known' } });
+  assert.equal(reply.status, 201);
+  return reply.body.id;
+}
+
+test('renaming a project keeps its exercises and attempts', async () => {
+  await call('POST', '/import', fileOf('day-1-19-10-2026', card('c1', 'cheap')));
+  const attempt_id = await answerCard('day-1-19-10-2026', 'c1');
+
+  const reply = await call('POST', '/projects/day-1-19-10-2026/rename', { key: 'm1-day-01-renamed' });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.key, 'm1-day-01-renamed');
+  assert.equal(reply.body.exercise_count, 1);
+  assert.equal(reply.body.done_count, 1);
+
+  assert.equal((await call('GET', '/projects/day-1-19-10-2026')).status, 404);
+  assert.deepEqual(keysOf((await get('/projects/m1-day-01-renamed/exercises')).items), ['c1']);
+  const attempt = await get(`/attempts/${attempt_id}`);
+  assert.equal(attempt.project, 'm1-day-01-renamed');
+  const listed = await get('/attempts?project=m1-day-01-renamed&exercise=c1');
+  assert.deepEqual(listed.items.map((item: any) => item.id), [attempt_id]);
+});
+
+test('renaming a project: a dry run writes nothing; the same key is no change', async () => {
+  await call('POST', '/import', fileOf('rename-dry', card('c1', 'cheap')));
+
+  const dry = await call('POST', '/projects/rename-dry/rename?dry_run=true', { key: 'rename-dry-2' });
+  assert.equal(dry.status, 200);
+  assert.equal(dry.body.key, 'rename-dry-2');
+  assert.equal((await call('GET', '/projects/rename-dry-2')).status, 404);
+
+  const same = await call('POST', '/projects/rename-dry/rename', { key: 'rename-dry' });
+  assert.equal(same.status, 200);
+  assert.equal(same.body.key, 'rename-dry');
+});
+
+test('renaming a project: a taken key is a 409; a bad body or an unknown project is refused', async () => {
+  await call('POST', '/import', fileOf('rename-a', card('c1', 'cheap')));
+  await call('POST', '/import', fileOf('rename-b', card('c1', 'cheap')));
+
+  const taken = await call('POST', '/projects/rename-a/rename', { key: 'rename-b' });
+  assert.equal(taken.status, 409);
+  assert.equal(taken.body.error.code, 'key_taken');
+
+  assert.deepEqual(problemsOf(await call('POST', '/projects/rename-a/rename', {})), ['/key required']);
+  assert.deepEqual(problemsOf(await call('POST', '/projects/rename-a/rename', { key: 'Bad Key' })), ['/key bad_key']);
+  assert.deepEqual(problemsOf(await call('POST', '/projects/rename-a/rename', { key: 'x', name: 'y' })), ['/name unknown_field']);
+  assert.deepEqual(problemsOf(await call('POST', '/projects/rename-a/rename?dry_run=yes', { key: 5 })), [
+    '?dry_run not_allowed',
+    '/key wrong_type',
+  ]);
+
+  const missing = await call('POST', '/projects/nope/rename', { key: 'nope-2' });
+  assert.equal(missing.status, 404);
+});

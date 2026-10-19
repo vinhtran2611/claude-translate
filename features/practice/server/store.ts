@@ -151,6 +151,8 @@ export interface PracticeStore {
   listProjects(archived: 'false' | 'true' | 'all'): Project[];
   readProject(key: string): Project | null;
   putProject(key: string, input: Required<ProjectInput>, is_dry_run: boolean): { project: Project; change: Change };
+  // Gives a project a new key. Its exercises and attempts point at its id, so they stay linked.
+  renameProject(key: string, new_key: string, is_dry_run: boolean): Project | 'not_found' | 'key_taken';
   // A project with attempts is deleted only with is_with_attempts; its exercises and attempts go with it.
   deleteProject(key: string, is_with_attempts: boolean): 'deleted' | 'not_found' | 'has_attempts';
   // null: no such project.
@@ -287,6 +289,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   const insert_project = database.prepare(`
     INSERT INTO projects (key, name, description, archived_at, created_at, updated_at) VALUES ($key, $name, $description, $archived_at, $now, $now)`);
   const update_project = database.prepare('UPDATE projects SET name = $name, description = $description, archived_at = $archived_at, updated_at = $now WHERE id = $id');
+  const rename_project = database.prepare('UPDATE projects SET key = $new_key, updated_at = $now WHERE id = $id');
   const select_has_attempts = database.prepare('SELECT EXISTS (SELECT 1 FROM attempts WHERE project_id = $project_id) AS has_attempts');
   const delete_project = database.prepare('DELETE FROM projects WHERE id = $id');
   const touch_project = database.prepare('UPDATE projects SET last_activity_at = $now WHERE id = $id');
@@ -377,6 +380,18 @@ export function openPracticeStore(database_path: string): PracticeStore {
         change = 'updated';
       }
       return { project: readProject(key) as Project, change };
+    }, is_dry_run);
+  }
+
+  // The same key again is no change.
+  function renameProject(key: string, new_key: string, is_dry_run: boolean): Project | 'not_found' | 'key_taken' {
+    return inTransaction(database, () => {
+      const row = select_project.get({ key }) as ProjectRow | undefined;
+      if (row === undefined) return 'not_found';
+      if (new_key === key) return readProject(key) as Project;
+      if (select_project.get({ key: new_key }) !== undefined) return 'key_taken';
+      rename_project.run({ id: row.id, new_key, now: new Date().toISOString() });
+      return readProject(new_key) as Project;
     }, is_dry_run);
   }
 
@@ -588,7 +603,7 @@ export function openPracticeStore(database_path: string): PracticeStore {
   }
 
   return {
-    listProjects, readProject, putProject, deleteProject, listExercises, readExercise, putExercise, deleteExercise, importFile, exportProject,
+    listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, deleteExercise, importFile, exportProject,
     createAttempt, listAttempts, readAttempt, deleteAttempt, restartGrading, finishGrading, failInterruptedGradings,
   };
 }

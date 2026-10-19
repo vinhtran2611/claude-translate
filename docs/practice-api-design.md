@@ -1,7 +1,7 @@
 # Practice API and data model: design review and proposal
 
 Status: **built** (steps 1 to 5 of §6; step 6, the agent guide, is still to do). Date: 2026-10-19. Where the code differs from
-this doc, §9 says how and why.
+this doc, §9 says how and why. §10 adds rename, move and order, which the first version left out.
 
 This doc reviews the current Practice API and database, then proposes a replacement. It is written for one person, one
 machine, one SQLite file. Every choice below has **one** recommendation, the reason, and the cost. Section 8 lists what we
@@ -78,8 +78,8 @@ The numeric `id` stays as the internal primary key and is still returned in resp
 
 - Key format (same for both): `^[a-z0-9][a-z0-9-]{0,63}$`. Examples: `m1-day-01`, `d1-fix-3`.
 - Project keys are unique. Exercise keys are unique **inside a project** (two projects may both have `card-1`).
-- **Keys are immutable.** A key is chosen when the thing is created and never changes. To "rename", create the new one and
-  delete the old one.
+- **Keys change only by an explicit rename** (§10). `PUT` and import never change a key: a new key in a file is a new
+  exercise.
 
 Why:
 
@@ -94,8 +94,8 @@ Why:
 Cost: two identifiers per project/exercise. We hide this by using **only keys in URLs**. The numeric `id` appears in
 responses as plain data; no endpoint accepts it for projects or exercises.
 
-Why immutable keys: if keys could change, every saved URL, agent script and file would break silently. Renaming is rare;
-"create new + delete old" is good enough.
+Why no silent key changes: if keys could change by accident, every saved URL, agent script and file would break silently.
+The first version made keys immutable; §10 adds a rename action, because "create new + delete old" loses the attempts.
 
 ### 2.3 Decision: exercise content versioning
 
@@ -117,7 +117,8 @@ a question you did not see. Cheap, and it matters now that edits exist.
 
 | Thing | Rule |
 |---|---|
-| Project key, exercise key | Never change. |
+| Project key | Changes only by `POST /projects/{p}/rename` (§10.1). |
+| Exercise key | Never changes. |
 | Attempt: snapshot, answer, `submitted_at`, `exercise_version` | Never change. |
 | Attempt: status, result | Change only by grading: `grading → graded`, `grading → failed`, and `failed → grading` (regrade). This is the current rule (`store.ts:175-182`); keep it. |
 | Exercise content, project name/description | Editable. |
@@ -715,3 +716,40 @@ Small differences from the text above, each the simplest fix that keeps its inte
   is the file as written. Only the old request and response types were deleted.
 - **JSON errors give line and column** by walking the refused text with the JSON grammar, because V8 names a position only for
   some mistakes.
+
+---
+
+## 10. Rename, move and order
+
+The first version could not rename a key, move an exercise or reorder exercises without losing attempts or re-importing.
+This section closes those gaps with the same rules as §3.1: one error shape, `?dry_run=true` on every write, strict input,
+and one new error code:
+
+| code | status | meaning |
+|---|---|---|
+| `key_taken` | 409 | a rename or a move would give a key that is already used |
+
+All of them are actions on one resource, so they are `POST` (rule 2 in §3.1), except the order, which is replaced whole
+with `PUT`. A dry run answers exactly what the real call would, as everywhere else.
+
+### 10.1 Rename a project
+
+`POST /api/practice/projects/{p}/rename` with `{ "key": "m1-day-01" }` → `200 Project` (with the new key).
+
+- Errors: `404` (no such project), `409 key_taken`, `400 invalid` (`/key` is `required`, `wrong_type` or `bad_key`; any
+  other field is `unknown_field`).
+- The same key again is `200` and changes nothing.
+- Attempts and exercises point at the project's numeric `id`; the key is only shown. So nothing else changes and every
+  attempt stays linked: `GET /attempts?project={new}` lists them all.
+- Old URLs with the old key (and the page's `#/p/{old}` bookmarks) answer `404`. Files with the old `project.key` would
+  import as a new project, so change the key in the file too.
+- Why not `PUT /projects/{p}` with a new `"key"` in the body: `PUT` means "this object, at this URL". A key in the body
+  that differs from the URL would mean "move it", which is surprising, and a typo in it would rename by accident.
+
+Design Q1 is now two calls:
+
+```bash
+curl -s -X POST localhost:8787/api/practice/projects/day-1-19-10-2026/rename -H 'Content-Type: application/json' -d '{"key":"m1-day-01"}'
+curl -s -X DELETE localhost:8787/api/practice/projects/day-1-19-10-2026-v2
+```
+

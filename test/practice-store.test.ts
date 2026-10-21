@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ExerciseBody, FileExercise, ProjectFile } from '../features/practice/api.ts';
-import { keyFromName, openPracticeStore, type AttemptFilter, type PracticeStore } from '../features/practice/server/store.ts';
+import { openPracticeStore, type AttemptFilter, type PracticeStore } from '../features/practice/server/store.ts';
+import { keyFromName } from '../features/practice/server/store-schema.ts';
 
 // ---- Helpers ----
 
@@ -418,20 +419,57 @@ function schema1File() {
   project.run('Day 1 - 19/10/2026', '', '2026-10-19T13:39:35.305Z', '2026-10-19T13:42:01.965Z');
   project.run('Day 1 - 19/10/2026 - v2', 'Đề số 1', '2026-10-19T13:48:07.177Z', null);
   project.run('Test', '', '2026-10-19T14:00:00.000Z', null);
-  const exercise = database.prepare('INSERT INTO exercises (project_id, key, position, type, topic, tags_json, content_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const exercise = database.prepare(`
+    INSERT INTO exercises (project_id, key, position, type, topic, tags_json, content_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
   exercise.run(1, 'r1', 1, 'rewrite', 'transport', '["passive"]', '{"instruction":"Fix","text":"It go.","length":"sentence"}');
   exercise.run(2, 'd1-card-1', 1, 'flashcard', null, '[]', '{"front":"cheap","back":"rẻ"}');
   exercise.run(2, 'd1-fix-1', 2, 'rewrite', null, '[]', '{"instruction":"Fix","text":"He go.","length":"sentence","prefill":true}');
   exercise.run(3, 'd1-card-1', 1, 'flashcard', null, '[]', '{"front":"cheap","back":"rẻ"}');
-  const attempt = database.prepare(`INSERT INTO attempts (project_id, exercise_id, submitted_at, type, exercise_snapshot_json, answer_json, status, result_json,
-    summary, grader, model, grading_ms, error, writing_ms, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const snapshot = (id: number) => JSON.stringify({ type: id === 2 ? 'flashcard' : 'rewrite', topic: null, tags: [], content: JSON.parse((database.prepare('SELECT content_json FROM exercises WHERE id = ?').get(id) as { content_json: string }).content_json) });
-  attempt.run(1, 1, '2026-10-18T16:00:00.000Z', 'rewrite', snapshot(1), '{"text":"It goes."}', 'graded', '{"text":"Old feedback.","model":"claude-sonnet-5-5","ms":8105}', 'Graded', 'ai', 'claude-sonnet-5-5', 8105, null, 30000, '2026-10-18T16:00:09.000Z');
-  attempt.run(1, 1, '2026-10-18T16:24:42.538Z', 'rewrite', snapshot(1), '{"text":"It went."}', 'graded', '{"text":"**Close.**","thinking_text":"","thinking_ms":null,"model":"claude-sonnet-5-5","effort":"high","ms":9000}', 'Graded', 'ai', 'claude-sonnet-5-5', 9000, null, 1000, '2026-10-18T16:24:52.000Z');
-  attempt.run(2, 2, '2026-10-19T13:42:01.965Z', 'flashcard', snapshot(2), '{"rating":"known"}', 'graded', '{"rating":"known"}', 'Knew it', 'self', null, null, null, 900, '2026-10-19T13:42:01.965Z');
-  attempt.run(2, 3, '2026-10-19T13:42:00.000Z', 'rewrite', snapshot(3), '{"text":"He goes."}', 'failed', null, null, 'ai', null, 5, 'The server stopped while grading.', 1, null);
+
+  // The exercise as schema 1 kept it in an attempt.
+  const snapshotOf = (exercise_id: number): string => {
+    const row = database.prepare('SELECT type, content_json FROM exercises WHERE id = ?').get(exercise_id) as { type: string; content_json: string };
+    return JSON.stringify({ type: row.type, topic: null, tags: [], content: JSON.parse(row.content_json) });
+  };
+  const attempt = database.prepare(`
+    INSERT INTO attempts (project_id, exercise_id, submitted_at, type, exercise_snapshot_json, answer_json, status, result_json,
+                          summary, grader, model, grading_ms, error, writing_ms, graded_at)
+    VALUES ($project_id, $exercise_id, $submitted_at, $type, $snapshot, $answer, $status, $result,
+            $summary, $grader, $model, $grading_ms, $error, $writing_ms, $graded_at)`);
+  const insertAttempt = (row: Record<string, string | number | null> & { exercise_id: number }): void => {
+    const empty = { result: null, summary: null, model: null, grading_ms: null, error: null, graded_at: null };
+    attempt.run({ ...empty, ...row, snapshot: snapshotOf(row.exercise_id) });
+  };
+  // An AI grade from before the effort and thinking summary were kept.
+  insertAttempt({
+    project_id: 1, exercise_id: 1, submitted_at: '2026-10-18T16:00:00.000Z', type: 'rewrite', answer: '{"text":"It goes."}',
+    status: 'graded', result: '{"text":"Old feedback.","model":"claude-sonnet-5-5","ms":8105}', summary: 'Graded',
+    grader: 'ai', model: 'claude-sonnet-5-5', grading_ms: 8105, writing_ms: 30000, graded_at: '2026-10-18T16:00:09.000Z',
+  });
+  // An AI grade with its effort inside the result.
+  insertAttempt({
+    project_id: 1, exercise_id: 1, submitted_at: '2026-10-18T16:24:42.538Z', type: 'rewrite', answer: '{"text":"It went."}',
+    status: 'graded',
+    result: '{"text":"**Close.**","thinking_text":"","thinking_ms":null,"model":"claude-sonnet-5-5","effort":"high","ms":9000}',
+    summary: 'Graded', grader: 'ai', model: 'claude-sonnet-5-5', grading_ms: 9000, writing_ms: 1000, graded_at: '2026-10-18T16:24:52.000Z',
+  });
+  // A flashcard rated by hand.
+  insertAttempt({
+    project_id: 2, exercise_id: 2, submitted_at: '2026-10-19T13:42:01.965Z', type: 'flashcard', answer: '{"rating":"known"}',
+    status: 'graded', result: '{"rating":"known"}', summary: 'Knew it', grader: 'self', writing_ms: 900,
+    graded_at: '2026-10-19T13:42:01.965Z',
+  });
+  // A failed AI grade.
+  insertAttempt({
+    project_id: 2, exercise_id: 3, submitted_at: '2026-10-19T13:42:00.000Z', type: 'rewrite', answer: '{"text":"He goes."}',
+    status: 'failed', grader: 'ai', grading_ms: 5, error: 'The server stopped while grading.', writing_ms: 1,
+  });
   // A deleted attempt: the counter is ahead of the rows, as in a real file.
-  attempt.run(2, 3, '2026-10-19T13:43:00.000Z', 'rewrite', snapshot(3), '{"text":"x"}', 'failed', null, null, 'ai', null, 5, 'x', 1, null);
+  insertAttempt({
+    project_id: 2, exercise_id: 3, submitted_at: '2026-10-19T13:43:00.000Z', type: 'rewrite', answer: '{"text":"x"}',
+    status: 'failed', grader: 'ai', grading_ms: 5, error: 'x', writing_ms: 1,
+  });
   database.exec('DELETE FROM attempts WHERE id = 5');
   database.close();
   return { directory, database_path };

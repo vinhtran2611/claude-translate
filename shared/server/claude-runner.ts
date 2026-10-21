@@ -123,6 +123,15 @@ function formatQuota(rate_limit_info: RateLimitInfo): string {
   return fields.join(', ');
 }
 
+// The kind of a stream-json line, for the log: 'system/init', 'content_block_delta:text_delta', 'message_start'.
+function eventKindOf(message: ClaudeMessage): string {
+  if (message.subtype) return `${message.type}/${message.subtype}`;
+  const stream_event = message.type === 'stream_event' ? message.event : undefined;
+  const delta_type = stream_event?.type === 'content_block_delta' ? stream_event.delta?.type : undefined;
+  if (delta_type) return `${stream_event?.type}:${delta_type}`;
+  return message.event?.type ?? message.type;
+}
+
 // --setting-sources "" keeps ~/.claude/CLAUDE.md, skills and plugins out of the
 // context (measured 5982 -> 666 input tokens); --bare would also do that but drops the subscription login.
 export function spawnClaudeProcess({ model_id, effort, system_prompt }: ClaudeSettings) {
@@ -268,19 +277,95 @@ export function runClaude({ request_number, settings, user_message, first_token_
     // back to; after that, every token re-arms it as a stall timeout.
     const switch_to_fallback_after_ms = SWITCH_TO_FALLBACK_AFTER_MS + first_token_allowance_ms;
     const last_model_first_token_timeout_ms = LAST_MODEL_FIRST_TOKEN_TIMEOUT_MS + first_token_allowance_ms;
-    let token_timer = fallback_model_id === null
-      ? setTimeout(
-        () => stopForTimeout('no_response', `sent nothing within ${formatSeconds(last_model_first_token_timeout_ms)}`),
-        last_model_first_token_timeout_ms,
-      )
-      : setTimeout(switchToFallback, switch_to_fallback_after_ms);
+    const failForNoToken = (): void => {
+      stopForTimeout('no_response', `sent nothing within ${formatSeconds(last_model_first_token_timeout_ms)}`);
+    };
+    let token_timer: ReturnType<typeof setTimeout>;
+    if (fallback_model_id === null) token_timer = setTimeout(failForNoToken, last_model_first_token_timeout_ms);
+    else token_timer = setTimeout(switchToFallback, switch_to_fallback_after_ms);
     const clearTimers = () => clearTimeout(token_timer);
 
     // A write to a process that just died raises EPIPE here; 'close' below reports the failure.
     run_process.stdin.on('error', () => {});
     run_process.stdin.end(user_message_line);
 
-    run_process.stderr.on('data', (chunk) => { stderr_text += chunk; });
+    // The process takes ~1.5s more to exit after its result; the run ends without waiting.
+    const handleResult = (message: ClaudeMessage): void => {
+      has_result = true;
+      clearTimers();
+      handlers.onResultMessage?.(message.usage?.output_tokens ?? null);
+      if (last_stop_reason === 'max_tokens') {
+        const limit_message = `The reply reached the ${formatCount(MAX_OUTPUT_TOKENS)}-token output limit and was cut off.`;
+        finishError({ error_kind: 'output_limit', message: limit_message }, `stop_reason=max_tokens after claude's continuations`);
+      } else if (message.is_error) {
+        const result_text = String(message.result ?? message.subtype);
+        const status_note = message.api_error_status ? ` (${message.api_error_status})` : '';
+        finishError({ error_kind: 'claude_error', message: result_text }, `${result_text}${status_note}`);
+      } else {
+        finishDone();
+      }
+    };
+
+    const logRetry = (message: ClaudeMessage): void => {
+      const status_note = message.error_status ? ` (${message.error_status})` : '';
+      const next_note = `next in ${formatSeconds(message.retry_delay_ms ?? 0)}`;
+      log('warn', request_number, 'retry', `${message.attempt}/${message.max_retries} ${message.error}${status_note}, ${next_note}`);
+    };
+
+    // Every reply repeats the rate-limit state; a line is logged only when it reads differently.
+    const noteRateLimit = (rate_limit_info: RateLimitInfo): void => {
+      last_rate_limit_info = rate_limit_info;
+      const quota_key = quotaLogKey(rate_limit_info);
+      if (quota_key === last_logged_quota_key) return;
+      last_logged_quota_key = quota_key;
+      log(QUOTA_STATUS_LOG_LEVELS[rate_limit_info.status] ?? 'warn', null, 'quota', formatQuota(rate_limit_info));
+    };
+
+    const handleMessage = (message: ClaudeMessage): void => {
+      const stream_event = message.type === 'stream_event' ? message.event : undefined;
+      const stream_event_type = stream_event?.type;
+      // delta_type: 'thinking_delta' | 'signature_delta' | 'text_delta', or undefined for any other event.
+      const delta_type = stream_event_type === 'content_block_delta' ? stream_event?.delta?.type : undefined;
+      const is_thinking_start = stream_event_type === 'content_block_start' && stream_event?.content_block?.type === 'thinking';
+      last_event_kind = eventKindOf(message);
+      if (delta_type !== undefined || is_thinking_start) {
+        // A token: from now on, the timer waits for the next one.
+        clearTimeout(token_timer);
+        const stall_reason = `stopped streaming for ${STREAM_STALL_TIMEOUT_MS / 1000}s`;
+        token_timer = setTimeout(() => stopForTimeout('stalled', stall_reason), STREAM_STALL_TIMEOUT_MS);
+      }
+
+      if (is_thinking_start) {
+        open_thinking_block_index = stream_event?.index ?? null;
+        thinking_started_at = Date.now();
+      } else if (delta_type === 'thinking_delta' && stream_event?.delta?.thinking) {
+        handlers.onThinkingDelta?.(stream_event.delta.thinking);
+      } else if (stream_event_type === 'content_block_stop' && stream_event?.index === open_thinking_block_index) {
+        open_thinking_block_index = null;
+        handlers.onThinkingDone?.(Date.now() - thinking_started_at);
+      } else if (delta_type === 'text_delta') {
+        const text = stream_event?.delta?.text ?? '';
+        reply_text += text;
+        handlers.onText?.(text);
+      } else if (stream_event_type === 'message_delta') {
+        last_stop_reason = stream_event?.delta?.stop_reason ?? null;
+      } else if (message.type === 'user' && last_stop_reason === 'max_tokens') {
+        const limit_text = `${formatCount(MAX_OUTPUT_TOKENS)} output tokens`;
+        log('warn', request_number, 'continue', `${modelLabelOf(model_id)} hit ${limit_text}; claude asked it to continue`);
+      } else if (message.type === 'system' && message.subtype === 'api_retry') {
+        logRetry(message);
+        handlers.onRetry?.({ attempt: message.attempt ?? 0, max_retries: message.max_retries ?? 0, error: message.error ?? '' });
+      } else if (message.type === 'rate_limit_event' && message.rate_limit_info !== undefined) {
+        noteRateLimit(message.rate_limit_info);
+      } else if (message.type === 'result') {
+        handleResult(message);
+      }
+    };
+
+    run_process.stderr.on('data', (chunk) => {
+      stderr_text += chunk;
+    });
+    // stdout is one JSON message per line; a chunk can end in the middle of a line.
     run_process.stdout.on('data', (chunk) => {
       stdout_buffer += chunk;
       const lines = stdout_buffer.split('\n');
@@ -294,67 +379,7 @@ export function runClaude({ request_number, settings, user_message, first_token_
           log('warn', request_number, 'stdout', `not JSON: ${line}`);
           continue;
         }
-        const stream_event = message.type === 'stream_event' ? message.event : undefined;
-        const stream_event_type = stream_event?.type;
-        // delta_type: 'thinking_delta' | 'signature_delta' | 'text_delta', or undefined for any other event.
-        const delta_type = stream_event_type === 'content_block_delta' ? stream_event?.delta?.type : undefined;
-        const is_thinking_start = stream_event_type === 'content_block_start' && stream_event?.content_block?.type === 'thinking';
-        last_event_kind = message.subtype ? `${message.type}/${message.subtype}`
-          : delta_type ? `${stream_event_type}:${delta_type}`
-          : message.event?.type ?? message.type;
-        if (delta_type !== undefined || is_thinking_start) {
-          clearTimeout(token_timer);
-          token_timer = setTimeout(() => stopForTimeout('stalled', `stopped streaming for ${STREAM_STALL_TIMEOUT_MS / 1000}s`), STREAM_STALL_TIMEOUT_MS);
-        }
-        if (is_thinking_start) {
-          open_thinking_block_index = stream_event?.index ?? null;
-          thinking_started_at = Date.now();
-        } else if (delta_type === 'thinking_delta' && stream_event?.delta?.thinking) {
-          handlers.onThinkingDelta?.(stream_event.delta.thinking);
-        } else if (stream_event_type === 'content_block_stop' && stream_event?.index === open_thinking_block_index) {
-          open_thinking_block_index = null;
-          handlers.onThinkingDone?.(Date.now() - thinking_started_at);
-        } else if (delta_type === 'text_delta') {
-          const text = stream_event?.delta?.text ?? '';
-          reply_text += text;
-          handlers.onText?.(text);
-        } else if (stream_event_type === 'message_delta') {
-          last_stop_reason = stream_event?.delta?.stop_reason ?? null;
-        } else if (message.type === 'user' && last_stop_reason === 'max_tokens') {
-          log('warn', request_number, 'continue', `${modelLabelOf(model_id)} hit ${formatCount(MAX_OUTPUT_TOKENS)} output tokens; claude asked it to continue`);
-        } else if (message.type === 'system' && message.subtype === 'api_retry') {
-          log(
-            'warn', request_number, 'retry',
-            `${message.attempt}/${message.max_retries} ${message.error}${message.error_status ? ` (${message.error_status})` : ''}, ` +
-              `next in ${formatSeconds(message.retry_delay_ms ?? 0)}`,
-          );
-          handlers.onRetry?.({ attempt: message.attempt ?? 0, max_retries: message.max_retries ?? 0, error: message.error ?? '' });
-        } else if (message.type === 'rate_limit_event' && message.rate_limit_info !== undefined) {
-          last_rate_limit_info = message.rate_limit_info;
-          if (quotaLogKey(message.rate_limit_info) !== last_logged_quota_key) {
-            last_logged_quota_key = quotaLogKey(message.rate_limit_info);
-            log(QUOTA_STATUS_LOG_LEVELS[message.rate_limit_info.status] ?? 'warn', null, 'quota', formatQuota(message.rate_limit_info));
-          }
-        } else if (message.type === 'result') {
-          has_result = true;
-          clearTimers();
-          handlers.onResultMessage?.(message.usage?.output_tokens ?? null);
-          // The process takes ~1.5s more to exit after its result; the run ends without waiting.
-          if (last_stop_reason === 'max_tokens') {
-            finishError(
-              { error_kind: 'output_limit', message: `The reply reached the ${formatCount(MAX_OUTPUT_TOKENS)}-token output limit and was cut off.` },
-              `stop_reason=max_tokens after claude's continuations`,
-            );
-          } else if (message.is_error) {
-            const result_text = String(message.result ?? message.subtype);
-            finishError(
-              { error_kind: 'claude_error', message: result_text },
-              `${result_text}${message.api_error_status ? ` (${message.api_error_status})` : ''}`,
-            );
-          } else {
-            finishDone();
-          }
-        }
+        handleMessage(message);
       }
     });
 

@@ -8,11 +8,16 @@ import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Featur
 import { log } from '../../../shared/server/log.ts';
 import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
-  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems, MAX_EXERCISES,
-  MAX_FILE_CHARS, type Problem,
+  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
+  type Problem,
 } from '../import-check.ts';
 import { createGrader } from './ai-grading.ts';
 import { checkAnswer, graderOf, rateFlashcard } from './answers.ts';
+import {
+  choiceParam, DRY_RUN, isWholeNumber, keyTaken, MAX_EXERCISE_BODY_BYTES, notFound, readKeyBody, readObjectBody, sendProblems,
+  unknownParameterProblems, wholeNumberParam,
+} from './request-checks.ts';
+import { exerciseSchema, importSchema } from './schemas.ts';
 import { openPracticeStore, type AttemptFilter, type PracticeStore } from './store.ts';
 
 // features/practice/: this file is features/practice/server/routes.ts.
@@ -22,21 +27,32 @@ const DOCS_DIRECTORY = join(dirname(dirname(FEATURE_DIRECTORY)), 'docs');
 // What the browser may fetch. Modules are served with their types stripped. Every .ts and .css under web/ is listed (so a
 // new file needs no entry here), and so are the modules the server shares; URLs mirror the folders under features/practice/,
 // so a relative import resolves the same for tsc and the browser.
-const WEB_FILES = readdirSync(WEB_DIRECTORY, { recursive: true, encoding: 'utf8' }).filter((name) => /\.(ts|css)$/.test(name));
-const MODULES = new Map([
-  ...WEB_FILES.filter((name) => name.endsWith('.ts')).map((name): [string, string] => [`/practice/web/${name}`, join(WEB_DIRECTORY, name)]),
-  ...['import-check.ts', 'text.ts'].map((name): [string, string] => [`/practice/${name}`, join(FEATURE_DIRECTORY, name)]),
-]);
-const FILES = new Map([
-  ['/practice', { path: join(WEB_DIRECTORY, 'practice.html'), content_type: 'text/html; charset=utf-8' }],
-  ...WEB_FILES.filter((name) => name.endsWith('.css')).map((name) => [`/practice/web/${name}`, { path: join(WEB_DIRECTORY, name), content_type: 'text/css; charset=utf-8' }] as const),
-  ['/practice/example-project.json', { path: join(FEATURE_DIRECTORY, 'examples', 'example-project.json'), content_type: 'application/json; charset=utf-8' }],
-  ['/practice/format-guide.md', { path: join(DOCS_DIRECTORY, 'practice-import-format.md'), content_type: 'text/plain; charset=utf-8' }],
-]);
+// URL -> the module's path on disk.
+const MODULES = new Map<string, string>();
+// URL -> the file's path on disk and its Content-Type.
+const FILES = new Map<string, { path: string; content_type: string }>();
+for (const name of readdirSync(WEB_DIRECTORY, { recursive: true, encoding: 'utf8' })) {
+  const url = `/practice/web/${name}`;
+  if (name.endsWith('.ts')) MODULES.set(url, join(WEB_DIRECTORY, name));
+  if (name.endsWith('.css')) FILES.set(url, { path: join(WEB_DIRECTORY, name), content_type: 'text/css; charset=utf-8' });
+}
+for (const name of ['import-check.ts', 'text.ts']) {
+  MODULES.set(`/practice/${name}`, join(FEATURE_DIRECTORY, name));
+}
+FILES.set('/practice', {
+  path: join(WEB_DIRECTORY, 'practice.html'),
+  content_type: 'text/html; charset=utf-8',
+});
+FILES.set('/practice/example-project.json', {
+  path: join(FEATURE_DIRECTORY, 'examples', 'example-project.json'),
+  content_type: 'application/json; charset=utf-8',
+});
+FILES.set('/practice/format-guide.md', {
+  path: join(DOCS_DIRECTORY, 'practice-import-format.md'),
+  content_type: 'text/plain; charset=utf-8',
+});
 // The import body is the file itself.
 const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
-// Arbitrary: a PUT of one exercise or project; the longest exercise is far below it.
-const MAX_EXERCISE_BODY_BYTES = 200_000;
 // Arbitrary: far above the longest answer, below anything that could hurt the server.
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
 const ATTEMPTS_PAGE_DEFAULT = 50;
@@ -71,86 +87,28 @@ interface Route {
   handler: Handler;
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
-// 400 invalid with every problem.
-function sendProblems(res: ServerResponse, problems: Problem[]): void {
-  sendError(res, 400, 'invalid', problems.length === 1 ? 'The request has 1 problem.' : `The request has ${problems.length} problems.`, problems);
-}
-
-const notFound = (res: ServerResponse, what: string): void => sendError(res, 404, 'not_found', `No such ${what}.`);
-
-// 409 key_taken: a rename or a move would give a key that is already used.
-function keyTaken(res: ServerResponse, message: string): void {
-  sendError(res, 409, 'key_taken', message);
-}
-
-// The body as an object, or null with the error already sent. fields: the ones it may have; any other is a problem.
-async function readObjectBody(req: IncomingMessage, res: ServerResponse, max_bytes: number, fields?: string[]): Promise<Record<string, unknown> | null> {
-  const body = await readRequestJson(req, res, max_bytes);
-  if (body === undefined) return null;
-  if (!isObject(body)) {
-    sendProblems(res, [{ path: '', code: 'wrong_type', message: 'The body must be a JSON object.' }]);
-    return null;
+// The problems with the body's keys in PUT .../order: it must list exercise keys of the project, each once.
+function orderProblems(keys: unknown, known_keys: Set<string>, project_key: string): Problem[] {
+  if (keys === undefined) {
+    return [{ path: '/keys', code: 'required', message: 'keys is missing: the exercise keys in their new order.' }];
   }
-  const unknown = fields === undefined ? [] : Object.keys(body).filter((key) => !fields.includes(key));
-  if (unknown.length === 0) return body;
-  sendProblems(res, unknown.map((key) => ({ path: `/${key}`, code: 'unknown_field', message: `${key} is not a known field.` })));
-  return null;
-}
-
-// The body of a rename or a move: an object with one field that holds a key. null with the error already sent.
-// problems: the ones found before the body (a bad query), sent together with the body's.
-async function readKeyBody(req: IncomingMessage, res: ServerResponse, field: string, problems: Problem[]): Promise<string | null> {
-  const body = await readObjectBody(req, res, MAX_EXERCISE_BODY_BYTES, [field]);
-  if (body === null) return null;
-  const value = body[field];
-  const path = `/${field}`;
-  if (value === undefined) {
-    problems.push({ path, code: 'required', message: `${field} is missing.` });
-  } else if (typeof value !== 'string') {
-    problems.push({ path, code: 'wrong_type', message: `${field} must be a key, like m1-day-01.` });
-  } else if (!KEY_PATTERN.test(value)) {
-    problems.push({ path, code: 'bad_key', message: `${field} must be 1 to 64 of a-z, 0-9 and -, not starting with -.` });
+  if (!Array.isArray(keys)) {
+    return [{ path: '/keys', code: 'wrong_type', message: 'keys must be a list of exercise keys.' }];
   }
-  if (problems.length > 0) {
-    sendProblems(res, problems);
-    return null;
-  }
-  return value as string;
-}
-
-// ?name as one of `values` (its first when it is left out); a problem otherwise.
-function choiceParam<Value extends string>(query: URLSearchParams, name: string, values: readonly Value[], problems: Problem[]): Value {
-  const value = query.get(name) ?? values[0];
-  if (values.includes(value as Value)) return value as Value;
-  problems.push({ path: `?${name}`, code: 'not_allowed', message: `${name} must be one of: ${values.join(', ')}.` });
-  return values[0];
-}
-
-const DRY_RUN = ['false', 'true'] as const;
-
-// Every query parameter the route does not take, as a problem: an agent's typo is never silently ignored.
-function unknownParameterProblems(query: URLSearchParams, parameters: string[]): Problem[] {
-  const names = new Set(query.keys());
-  const unknown = [...names].filter((name) => !parameters.includes(name));
-  const takes = parameters.length > 0 ? ` (it takes ${parameters.join(', ')})` : '';
-  return unknown.map((name) => ({ path: `?${name}`, code: 'unknown_parameter', message: `${name} is not a parameter here${takes}.` }));
-}
-
-function isWholeNumber(value: unknown): boolean {
-  return Number.isInteger(value) && (value as number) >= 0;
-}
-
-// ?name as a whole number from min to max; null when it is left out. A problem otherwise.
-function wholeNumberParam(query: URLSearchParams, name: string, min: number, max: number, problems: Problem[]): number | null {
-  const text = query.get(name);
-  if (text === null) return null;
-  const value = /^\d{1,15}$/.test(text) ? Number(text) : NaN;
-  if (value >= min && value <= max) return value;
-  const range = max === Number.MAX_SAFE_INTEGER ? `${min} up` : `${min} to ${max}`;
-  problems.push({ path: `?${name}`, code: 'out_of_range', message: `${name} must be a whole number from ${range}.` });
-  return null;
+  const problems: Problem[] = [];
+  const seen = new Set<string>();
+  keys.forEach((key, index) => {
+    const path = `/keys/${index}`;
+    if (typeof key !== 'string') {
+      problems.push({ path, code: 'wrong_type', message: 'must be an exercise key.' });
+    } else if (!known_keys.has(key)) {
+      problems.push({ path, code: 'unknown_key', message: `project "${project_key}" has no exercise "${key}".` });
+    } else if (seen.has(key)) {
+      problems.push({ path, code: 'duplicate_key', message: `"${key}" is listed twice.` });
+    }
+    seen.add(key);
+  });
+  return problems;
 }
 
 export function createPracticeFeature({ database_path }: { database_path: string }): Feature {
@@ -311,30 +269,11 @@ export function createPracticeFeature({ database_path }: { database_path: string
     if (body === null) return;
     const items = store.listExercises(project_key, { type: null, tag: null });
     if (items === null) return notFound(res, `project "${project_key}"`);
-
-    const keys = body.keys;
-    if (keys === undefined) {
-      problems.push({ path: '/keys', code: 'required', message: 'keys is missing: the exercise keys in their new order.' });
-    } else if (!Array.isArray(keys)) {
-      problems.push({ path: '/keys', code: 'wrong_type', message: 'keys must be a list of exercise keys.' });
-    } else {
-      const known = new Set(items.map((item) => item.key));
-      const seen = new Set<string>();
-      keys.forEach((key, index) => {
-        const path = `/keys/${index}`;
-        if (typeof key !== 'string') {
-          problems.push({ path, code: 'wrong_type', message: 'must be an exercise key.' });
-        } else if (!known.has(key)) {
-          problems.push({ path, code: 'unknown_key', message: `project "${project_key}" has no exercise "${key}".` });
-        } else if (seen.has(key)) {
-          problems.push({ path, code: 'duplicate_key', message: `"${key}" is listed twice.` });
-        }
-        seen.add(key);
-      });
-    }
+    const known_keys = new Set(items.map((item) => item.key));
+    problems.push(...orderProblems(body.keys, known_keys, project_key));
     if (problems.length > 0) return sendProblems(res, problems);
 
-    const ordered = store.reorderExercises(project_key, keys as string[], is_dry_run) as ExerciseItem[];
+    const ordered = store.reorderExercises(project_key, body.keys as string[], is_dry_run) as ExerciseItem[];
     if (!is_dry_run) log('info', null, 'practice', `project ${project_key}: exercises reordered`);
     sendJson(res, 200, { items: ordered });
   }
@@ -460,7 +399,11 @@ export function createPracticeFeature({ database_path }: { database_path: string
     grader.start(attempt, settings);
   }
 
-  const found = (res: ServerResponse, body: unknown, what: string): void => (body === null ? notFound(res, what) : sendJson(res, 200, body));
+  // 200 with body, or 404 "No such {what}" when body is null.
+  function found(res: ServerResponse, body: unknown, what: string): void {
+    if (body === null) notFound(res, what);
+    else sendJson(res, 200, body);
+  }
 
   function watchAttempt(_req: IncomingMessage, res: ServerResponse, [id]: string[]): void {
     const attempt_id = Number(id);
@@ -523,13 +466,14 @@ export function createPracticeFeature({ database_path }: { database_path: string
   };
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    if (req.method === 'GET' && FILES.has(pathname)) {
-      const { path, content_type } = FILES.get(pathname) as { path: string; content_type: string };
-      await sendFile(res, path, content_type);
+    const file = FILES.get(pathname);
+    if (req.method === 'GET' && file !== undefined) {
+      await sendFile(res, file.path, file.content_type);
       return true;
     }
-    if (req.method === 'GET' && MODULES.has(pathname)) {
-      await sendModule(res, MODULES.get(pathname) as string);
+    const module_path = MODULES.get(pathname);
+    if (req.method === 'GET' && module_path !== undefined) {
+      await sendModule(res, module_path);
       return true;
     }
     return handleApi(req, res, pathname);

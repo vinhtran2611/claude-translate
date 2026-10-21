@@ -20,15 +20,28 @@ let grading_request_count = 0;
 // The answer as a person would read it: the text, the options picked, the gaps typed.
 function answerTextOf(exercise: ExerciseBody, answer: AnswerByType[keyof AnswerByType]): string {
   if ('text' in answer) return answer.text;
-  if ('chosen' in answer) return answer.chosen.map((index) => `${LETTERS[index]}. ${(exercise.content as ChoiceContent).options[index].text}`).join('\n');
-  if ('gaps' in answer) return (exercise.content as FillContent).gaps.map((_gap, index) => `Gap ${index + 1}: ${answer.gaps[index] === '' ? '(blank)' : answer.gaps[index]}`).join('\n');
+  if ('chosen' in answer) {
+    // "B. The option's text", one line per option picked.
+    const { options } = exercise.content as ChoiceContent;
+    return answer.chosen.map((index) => `${LETTERS[index]}. ${options[index].text}`).join('\n');
+  }
+  if ('gaps' in answer) {
+    // "Gap 2: what was typed", one line per gap.
+    const { gaps } = exercise.content as FillContent;
+    return gaps.map((_gap, index) => {
+      const typed = answer.gaps[index];
+      return `Gap ${index + 1}: ${typed === '' ? '(blank)' : typed}`;
+    }).join('\n');
+  }
   return '';
 }
 
 export function userMessageOf(exercise: ExerciseBody, answer: AnswerByType[keyof AnswerByType]): string {
   const { type, topic, tags, content } = exercise;
+  const exercise_json = JSON.stringify({ type, topic, tags, content }, null, 2);
   const words = 'text' in answer ? ` word_count="${countWords(answer.text)}"` : '';
-  return `Evaluate this answer.\n\n<exercise>\n${JSON.stringify({ type, topic, tags, content }, null, 2)}\n</exercise>\n\n<answer${words}>\n${answerTextOf(exercise, answer)}\n</answer>`;
+  const answer_text = answerTextOf(exercise, answer);
+  return `Evaluate this answer.\n\n<exercise>\n${exercise_json}\n</exercise>\n\n<answer${words}>\n${answer_text}\n</answer>`;
 }
 
 // Read at every grading, so an edit of the prompt applies without a restart.

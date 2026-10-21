@@ -14,8 +14,8 @@ export const KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const KEY_RULE = 'must be 1 to 64 of a-z, 0-9 and -, not starting with -.';
 
 // What a field may hold. `required` fields must be present; every other field may be left out. `about` is the field's
-// description in the JSON Schema.
-type Spec = { about?: string } & (
+// description in the JSON Schema (server/schemas.ts).
+export type Spec = { about?: string } & (
   | { kind: 'text'; max: number; required?: true }
   | { kind: 'key'; required?: true }
   | { kind: 'oneOf'; values: string[]; required?: true }
@@ -25,13 +25,24 @@ type Spec = { about?: string } & (
   | { kind: 'texts'; max: number; required?: true }
   | { kind: 'list'; of: Spec; min: number; max: number; required?: true }
   | { kind: 'object'; fields: Fields; required?: true });
-type Fields = Record<string, Spec>;
+export type Fields = Record<string, Spec>;
 
 const text = (max: number, required?: true): Spec => ({ kind: 'text', max, required });
 const list = (of: Spec, min: number, max: number, required?: true): Spec => ({ kind: 'list', of, min, max, required });
 const about = (spec: Spec, description: string): Spec => ({ ...spec, about: description });
 
-const CONTENT_FIELDS: { [Type in ExerciseType]: Fields } = {
+const objectOf = (fields: Fields): Spec => ({ kind: 'object', fields });
+
+// One planted mistake of an error-correction rewrite.
+const MISTAKE_FIELDS: Fields = { wrong: text(200, true), right: text(200, true), note: text(500) };
+const CHOICE_OPTION_FIELDS: Fields = { text: text(500, true), why: text(1_000, true), correct: { kind: 'flag' } };
+const GAP_FIELDS: Fields = {
+  answer: about({ kind: 'texts', max: 200, required: true }, 'A text, or a list of accepted answers.'),
+  hint: text(100),
+  why: text(1_000),
+};
+
+export const CONTENT_FIELDS: { [Type in ExerciseType]: Fields } = {
   rewrite: {
     instruction: text(1_000, true),
     text: about(text(20_000, true), 'The text to rewrite, translate or correct.'),
@@ -39,33 +50,39 @@ const CONTENT_FIELDS: { [Type in ExerciseType]: Fields } = {
     source_lang: about({ kind: 'oneOf', values: ['en', 'vi'] }, '"vi" makes it a translation. Default "en".'),
     prefill: about({ kind: 'flag' }, 'The answer box starts with text: error correction. Default false.'),
     constraints: about(list(text(100), 1, 3), 'Short rules the grader checks.'),
-    mistakes: about(list({ kind: 'object', fields: { wrong: text(200, true), right: text(200, true), note: text(500) } }, 1, 30),
-      'Planted mistakes, for error correction. Each wrong appears exactly once in text.'),
+    mistakes: about(list(objectOf(MISTAKE_FIELDS), 1, 30), 'Planted mistakes, for error correction. Each wrong appears exactly once in text.'),
     reference: about(text(20_000), 'A model answer, for the grader only.'),
   },
   write: {
-    prompt: text(2_000, true), min_words: about({ kind: 'whole', min: 1, max: 2_000 }, 'Default 250.'),
-    minutes: about({ kind: 'whole', min: 1, max: 180 }, 'A guide, never a limit.'), sample: about(text(20_000), 'A model essay, shown after grading.'),
+    prompt: text(2_000, true),
+    min_words: about({ kind: 'whole', min: 1, max: 2_000 }, 'Default 250.'),
+    minutes: about({ kind: 'whole', min: 1, max: 180 }, 'A guide, never a limit.'),
+    sample: about(text(20_000), 'A model essay, shown after grading.'),
   },
   choice: {
     question: text(2_000, true),
     context: text(5_000),
-    options: about(list({ kind: 'object', fields: { text: text(500, true), why: text(1_000, true), correct: { kind: 'flag' } } }, 2, 6, true),
-      'One correct option is single choice; two or more is multi-select. At least one must be correct.'),
+    options: about(
+      list(objectOf(CHOICE_OPTION_FIELDS), 2, 6, true),
+      'One correct option is single choice; two or more is multi-select. At least one must be correct.',
+    ),
   },
   fill: {
     text: about(text(5_000, true), 'Holds the markers {{1}} {{2}} ..., one per gap, in order.'),
-    gaps: list({ kind: 'object', fields: { answer: about({ kind: 'texts', max: 200, required: true }, 'A text, or a list of accepted answers.'), hint: text(100), why: text(1_000) } }, 1, 30, true),
+    gaps: list(objectOf(GAP_FIELDS), 1, 30, true),
     instruction: text(1_000),
   },
   flashcard: {
-    front: text(300, true), back: text(2_000, true), hint: text(300), example: about(text(1_000), 'Plain text.'),
+    front: text(300, true),
+    back: text(2_000, true),
+    hint: text(300),
+    example: about(text(1_000), 'Plain text.'),
     explanation: about(text(5_000), 'Markdown, up to 5,000 characters: the concept and a worked explanation, rendered under the answer.'),
   },
 };
 
 // The rules a field list cannot say (checkRelations), for the schema's description of each type.
-const TYPE_RULES: { [Type in ExerciseType]: string } = {
+export const TYPE_RULES: { [Type in ExerciseType]: string } = {
   rewrite: 'Graded by the AI. Each mistakes[].wrong appears exactly once in content.text.',
   write: 'Free writing, graded by the AI with estimated bands.',
   choice: 'Graded by the AI. At least one option has correct: true.',
@@ -74,22 +91,28 @@ const TYPE_RULES: { [Type in ExerciseType]: string } = {
 };
 
 // The key is required in a file, and may be left out in PUT (the URL names the exercise).
-function exerciseFields(is_key_required: boolean): Fields {
+export function exerciseFields(is_key_required: boolean): Fields {
+  const key: Spec = is_key_required ? { kind: 'key', required: true } : { kind: 'key' };
   return {
-    key: about(is_key_required ? { kind: 'key', required: true } : { kind: 'key' }, 'Names the exercise inside its project. Never changes.'),
+    key: about(key, 'Names the exercise inside its project. Never changes.'),
     type: { kind: 'oneOf', values: EXERCISE_TYPES, required: true },
     topic: text(100),
     tags: about(list(text(40), 0, 10), 'Shown as chips.'),
   };
 }
 
-const PROJECT_FIELDS: Fields = {
+export const PROJECT_FIELDS: Fields = {
   key: about({ kind: 'key', required: true }, 'Names the project: importing the file again updates it.'),
   name: text(80, true),
   description: text(500),
 };
 
-const PROJECT_INPUT_FIELDS: Fields = { name: text(80, true), description: text(500), archived: about({ kind: 'flag' }, 'Hidden from the default list. Default false.') };
+// The body of PUT /projects/:key: the URL names the key.
+const PROJECT_INPUT_FIELDS: Fields = {
+  name: text(80, true),
+  description: text(500),
+  archived: about({ kind: 'flag' }, 'Hidden from the default list. Default false.'),
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -104,7 +127,13 @@ function pointerOf(segments: Segment[]): string {
 
 // ["content", "options", 0, "why"] -> "content.options[0].why", the name a person reads.
 function nameOf(segments: Segment[]): string {
-  return segments.map((segment, index) => (typeof segment === 'number' ? `[${segment}]` : index === 0 ? segment : `.${segment}`)).join('');
+  let name = '';
+  segments.forEach((segment, index) => {
+    if (typeof segment === 'number') name += `[${segment}]`;
+    else if (index === 0) name += segment;
+    else name += `.${segment}`;
+  });
+  return name;
 }
 
 // Collects problems under one place of the body: `base` is where the checked object sits (["exercises", 2] for the third
@@ -142,7 +171,8 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
       checkText(value, spec.max, at, problems);
       break;
     case 'key':
-      if (typeof value !== 'string' || !KEY_PATTERN.test(value)) problems.add(at, typeof value === 'string' ? 'bad_key' : 'wrong_type', KEY_RULE);
+      if (typeof value !== 'string') problems.add(at, 'wrong_type', KEY_RULE);
+      else if (!KEY_PATTERN.test(value)) problems.add(at, 'bad_key', KEY_RULE);
       break;
     case 'oneOf':
       if (!spec.values.includes(value as string)) problems.add(at, 'not_allowed', `must be one of: ${spec.values.join(', ')}.`);
@@ -150,23 +180,39 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
     case 'flag':
       if (typeof value !== 'boolean') problems.add(at, 'wrong_type', 'must be true or false.');
       break;
-    case 'whole':
-      if (!Number.isInteger(value) || (value as number) < spec.min || (value as number) > spec.max) {
-        problems.add(at, Number.isInteger(value) ? 'out_of_range' : 'wrong_type', `must be a whole number from ${spec.min} to ${spec.max}.`);
+    case 'whole': {
+      const rule = `must be a whole number from ${spec.min} to ${spec.max}.`;
+      if (!Number.isInteger(value)) problems.add(at, 'wrong_type', rule);
+      else if ((value as number) < spec.min || (value as number) > spec.max) problems.add(at, 'out_of_range', rule);
+      break;
+    }
+    case 'texts': {
+      // A list of 1 to 10 texts is checked text by text; anything else must be one text.
+      const is_text_list = Array.isArray(value) && value.length >= 1 && value.length <= 10;
+      if (!is_text_list) {
+        checkText(value, spec.max, at, problems);
+        break;
       }
+      value.forEach((item, index) => {
+        checkText(item, spec.max, [...at, index], problems);
+      });
       break;
-    case 'texts':
-      if (Array.isArray(value) && value.length >= 1 && value.length <= 10) value.forEach((item, index) => { checkText(item, spec.max, [...at, index], problems); });
-      else checkText(value, spec.max, at, problems);
-      break;
-    case 'list':
-      if (!Array.isArray(value) || value.length < spec.min || value.length > spec.max) {
-        const code = !Array.isArray(value) ? 'wrong_type' : value.length < spec.min ? 'too_few' : 'too_many';
-        problems.add(at, code, `must be a list of ${spec.min} to ${spec.max} items.`);
+    }
+    case 'list': {
+      const rule = `must be a list of ${spec.min} to ${spec.max} items.`;
+      if (!Array.isArray(value)) {
+        problems.add(at, 'wrong_type', rule);
+      } else if (value.length < spec.min) {
+        problems.add(at, 'too_few', rule);
+      } else if (value.length > spec.max) {
+        problems.add(at, 'too_many', rule);
       } else {
-        value.forEach((item, index) => { checkValue(item, spec.of, [...at, index], problems); });
+        value.forEach((item, index) => {
+          checkValue(item, spec.of, [...at, index], problems);
+        });
       }
       break;
+    }
     case 'object':
       if (isObject(value)) checkFields(value, spec.fields, at, problems);
       else problems.add(at, 'wrong_type', 'must be an object.');
@@ -186,22 +232,41 @@ function checkFields(object: Record<string, unknown>, fields: Fields, at: Segmen
   }
 }
 
+// A choice exercise needs at least one correct option.
+function checkChoiceOptions(options: unknown[], problems: Problems): void {
+  const has_correct_option = options.some((option) => isObject(option) && option.correct === true);
+  if (!has_correct_option) problems.addRule(['content', 'options'], 'no_correct_option', 'no option is marked correct.');
+}
+
+// A fill exercise's text holds {{1}} to {{n}}, in order, one per gap.
+function checkFillMarkers(text: string, gaps: unknown[], problems: Problems): void {
+  const markers = [...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
+  const is_in_order = markers.length === gaps.length && markers.every((marker, index) => marker === index + 1);
+  if (is_in_order) return;
+  const found = markers.map((marker) => `{{${marker}}}`).join(' ') || 'none';
+  const message = `the markers must be {{1}} to {{${gaps.length}}} in order, one per gap (found ${found}).`;
+  problems.addRule(['content', 'text'], 'fill_markers', message);
+}
+
+// Each planted mistake of an error-correction rewrite appears exactly once in its text.
+function checkMistakes(text: string, mistakes: unknown[], problems: Problems): void {
+  mistakes.forEach((mistake, index) => {
+    if (!isObject(mistake) || typeof mistake.wrong !== 'string' || mistake.wrong === '') return;
+    const count = text.split(mistake.wrong).length - 1;
+    if (count === 1) return;
+    const message = `"${mistake.wrong}" must appear exactly once in text (found ${count}).`;
+    problems.add(['content', 'mistakes', index, 'wrong'], 'mistake_not_once', message);
+  });
+}
+
 // The rules a field list cannot say. They run on what looks right so far, so one slip is not reported twice.
 function checkRelations(type: ExerciseType, content: Record<string, unknown>, problems: Problems): void {
   if (type === 'choice' && Array.isArray(content.options)) {
-    if (!content.options.some((option) => isObject(option) && option.correct === true)) problems.addRule(['content', 'options'], 'no_correct_option', 'no option is marked correct.');
+    checkChoiceOptions(content.options, problems);
   } else if (type === 'fill' && typeof content.text === 'string' && Array.isArray(content.gaps)) {
-    const markers = [...content.text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
-    if (markers.length !== content.gaps.length || markers.some((marker, index) => marker !== index + 1)) {
-      problems.addRule(['content', 'text'], 'fill_markers', `the markers must be {{1}} to {{${content.gaps.length}}} in order, one per gap (found ${markers.map((marker) => `{{${marker}}}`).join(' ') || 'none'}).`);
-    }
+    checkFillMarkers(content.text, content.gaps, problems);
   } else if (type === 'rewrite' && typeof content.text === 'string' && Array.isArray(content.mistakes)) {
-    const { text } = content;
-    content.mistakes.forEach((mistake, index) => {
-      if (!isObject(mistake) || typeof mistake.wrong !== 'string' || mistake.wrong === '') return;
-      const count = text.split(mistake.wrong).length - 1;
-      if (count !== 1) problems.add(['content', 'mistakes', index, 'wrong'], 'mistake_not_once', `"${mistake.wrong}" must appear exactly once in text (found ${count}).`);
-    });
+    checkMistakes(content.text, content.mistakes, problems);
   }
 }
 
@@ -226,8 +291,12 @@ function checkExercise(value: unknown, problems: Problems, url_key: string | nul
     checkRelations(type, content, problems);
   }
   if (problems.list.length > count_before || type === undefined) return null;
+  // No problems, so every field has the shape its spec says.
   return {
-    key: url_key ?? value.key as string, type, topic: (value.topic as string | undefined) ?? null, tags: (value.tags as string[] | undefined) ?? [],
+    key: url_key ?? (value.key as string),
+    type,
+    topic: (value.topic as string | undefined) ?? null,
+    tags: (value.tags as string[] | undefined) ?? [],
     content: value.content as ContentByType[ExerciseType],
   } as FileExercise;
 }
@@ -247,27 +316,48 @@ export function checkImportValue(parsed: unknown): CheckedFile {
   else if (parsed.format !== 3) problems.add(['format'], 'unsupported_format', 'must be 3.');
   if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS, ['project'], problems);
   else problems.add(['project'], parsed.project === undefined ? 'required' : 'wrong_type', 'is missing.');
-  const exercises: FileExercise[] = [];
-  if (!Array.isArray(parsed.exercises) || parsed.exercises.length < 1 || parsed.exercises.length > MAX_EXERCISES) {
-    const code = !Array.isArray(parsed.exercises) ? 'wrong_type' : parsed.exercises.length < 1 ? 'too_few' : 'too_many';
-    problems.add(['exercises'], code, `must be a list of 1 to ${MAX_EXERCISES} items.`);
-  } else {
-    const first_seen = new Map<string, number>();
-    parsed.exercises.forEach((value, index) => {
-      const exercise_problems = new Problems(['exercises', index], problems.list);
-      const exercise = checkExercise(value, exercise_problems);
-      const key = isObject(value) && typeof value.key === 'string' ? value.key : null;
-      if (key !== null && first_seen.has(key)) {
-        exercise_problems.add(['key'], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
-      } else if (key !== null) {
-        first_seen.set(key, index + 1);
-      }
-      if (exercise !== null) exercises.push(exercise);
-    });
-  }
+  const exercises = checkFileExercises(parsed.exercises, problems);
   if (problems.list.length > 0) return { file: null, problems: problems.list };
   const project = parsed.project as { key: string; name: string; description?: string };
-  return { file: { key: project.key, name: project.name.trim(), description: project.description?.trim() ?? '', exercises }, problems: null };
+  const file: ProjectFile = {
+    key: project.key,
+    name: project.name.trim(),
+    description: project.description?.trim() ?? '',
+    exercises,
+  };
+  return { file, problems: null };
+}
+
+// The file's "exercises": a list of 1 to MAX_EXERCISES exercises, each key used once. The ones without problems.
+function checkFileExercises(value: unknown, problems: Problems): FileExercise[] {
+  const rule = `must be a list of 1 to ${MAX_EXERCISES} items.`;
+  if (!Array.isArray(value)) {
+    problems.add(['exercises'], 'wrong_type', rule);
+    return [];
+  }
+  if (value.length < 1) {
+    problems.add(['exercises'], 'too_few', rule);
+    return [];
+  }
+  if (value.length > MAX_EXERCISES) {
+    problems.add(['exercises'], 'too_many', rule);
+    return [];
+  }
+  const exercises: FileExercise[] = [];
+  // key -> the 1-based number of the exercise that used it first.
+  const first_seen = new Map<string, number>();
+  value.forEach((exercise_value, index) => {
+    const exercise_problems = new Problems(['exercises', index], problems.list);
+    const exercise = checkExercise(exercise_value, exercise_problems);
+    const key = isObject(exercise_value) && typeof exercise_value.key === 'string' ? exercise_value.key : null;
+    if (key !== null && first_seen.has(key)) {
+      exercise_problems.add(['key'], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
+    } else if (key !== null) {
+      first_seen.set(key, index + 1);
+    }
+    if (exercise !== null) exercises.push(exercise);
+  });
+  return exercises;
 }
 
 // The file's text: checked as above, after its size and its JSON.
@@ -278,8 +368,12 @@ export function checkProjectFile(file_text: string): CheckedFile {
     parsed = JSON.parse(file_text);
   } catch (error) {
     const position = /position (\d+)/.exec((error as Error).message);
-    const line = position === null ? null : file_text.slice(0, Number(position[1])).split('\n').length;
-    return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${line === null ? '' : ` (line ${line})`}.` }] };
+    let line_note = '';
+    if (position !== null) {
+      const line = file_text.slice(0, Number(position[1])).split('\n').length;
+      line_note = ` (line ${line})`;
+    }
+    return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${line_note}.` }] };
   }
   return checkImportValue(parsed);
 }
@@ -312,65 +406,6 @@ export function checkProjectInput(value: unknown): { project: Required<ProjectIn
 // A key in a URL, as a problem when it cannot be one ("#key", per docs/practice-api-design.md §3.3).
 export function keyProblems(key: string): Problem[] {
   return KEY_PATTERN.test(key) ? [] : [{ path: '#key', code: 'bad_key', message: `The key in the URL ${KEY_RULE}` }];
-}
-
-// ---- JSON Schema (draft 2020-12), made from the same specs, so it can never disagree with the checks ----
-
-function schemaOf(spec: Spec): Record<string, unknown> {
-  const description = spec.about === undefined ? {} : { description: spec.about };
-  switch (spec.kind) {
-    case 'text': return { type: 'string', minLength: 1, maxLength: spec.max, ...description };
-    case 'key': return { type: 'string', pattern: KEY_PATTERN.source, ...description };
-    case 'oneOf': return { enum: spec.values, ...description };
-    case 'flag': return { type: 'boolean', ...description };
-    case 'whole': return { type: 'integer', minimum: spec.min, maximum: spec.max, ...description };
-    case 'texts': {
-      const one = { type: 'string', minLength: 1, maxLength: spec.max };
-      return { oneOf: [one, { type: 'array', minItems: 1, maxItems: 10, items: one }], ...description };
-    }
-    case 'list': return { type: 'array', minItems: spec.min, maxItems: spec.max, items: schemaOf(spec.of), ...description };
-    case 'object': return objectSchema(spec.fields, description);
-  }
-}
-
-function objectSchema(fields: Fields, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  const required = Object.entries(fields).filter(([, spec]) => 'required' in spec && spec.required).map(([key]) => key);
-  return {
-    type: 'object', additionalProperties: false, required, ...extra,
-    properties: Object.fromEntries(Object.entries(fields).map(([key, spec]) => [key, schemaOf(spec)])),
-  };
-}
-
-const SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema';
-
-// GET /api/practice/schemas/exercise.json: one exercise as a file holds it, one $defs entry per type.
-export function exerciseSchema(): Record<string, unknown> {
-  const $defs = Object.fromEntries(EXERCISE_TYPES.map((type) => {
-    const { type: _type, ...outer } = exerciseFields(true);
-    const fields = { ...outer, content: { kind: 'object', fields: CONTENT_FIELDS[type], required: true } as Spec };
-    const schema = objectSchema(fields, { description: TYPE_RULES[type] });
-    const properties = schema.properties as Record<string, unknown>;
-    return [type, { ...schema, required: ['key', 'type', 'content'], properties: { key: properties.key, type: { const: type }, ...properties } }];
-  }));
-  return {
-    $schema: SCHEMA_DIALECT, $id: '/api/practice/schemas/exercise.json', title: 'Practice exercise',
-    description: 'In PUT /api/practice/projects/{project}/exercises/{key}, key may be left out; when present it must equal the URL key. Texts must not be only spaces.',
-    oneOf: EXERCISE_TYPES.map((type) => ({ $ref: `#/$defs/${type}` })), $defs,
-  };
-}
-
-// GET /api/practice/schemas/import.json: the import file, format 3.
-export function importSchema(): Record<string, unknown> {
-  return {
-    $schema: SCHEMA_DIALECT, $id: '/api/practice/schemas/import.json', title: 'Practice import file (format 3)',
-    description: 'One file is one project. Importing it again updates the project and its exercises by key; it never deletes an exercise.',
-    type: 'object', additionalProperties: false, required: ['format', 'project', 'exercises'],
-    properties: {
-      format: { const: 3 },
-      project: objectSchema(PROJECT_FIELDS),
-      exercises: { type: 'array', minItems: 1, maxItems: MAX_EXERCISES, items: { $ref: 'exercise.json' }, description: 'Keys are unique in the file.' },
-    },
-  };
 }
 
 // A problem as one line for a person: "Exercise 6 (choice, d2-pick-1): content.options: no option is marked correct."

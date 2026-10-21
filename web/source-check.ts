@@ -1,6 +1,6 @@
 // The one place that decides whether the source column kept every word of the input.
-import type { Pair } from '../shared/api.ts';
-import { parseInline, plainTextOf } from '../shared/web/markdown.ts';
+import type { Pair } from '../src/shared/api.ts';
+import { parseInline, plainTextOf } from '../src/shared/web/markdown.ts';
 
 // Syntax the source column may drop or add around the words: heading #, quote >, list markers and checkboxes,
 // fences, table pipes, thematic breaks and setext underlines.

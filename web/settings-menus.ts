@@ -1,7 +1,7 @@
 // The two settings menus under the text box: Mode, and Model with Effort. They hold what the next translation runs
 // with, remember it in localStorage, and show the latest quota warning.
-import type { Effort, EffortOption, Mode, QuotaWarning, TranslationOptions } from '../shared/api.ts';
-import { readStored, requiredElement, writeStored } from '../shared/web/ui.ts';
+import type { Effort, EffortOption, Mode, QuotaWarning, TranslationOptions } from '../src/shared/api.ts';
+import { readStored, requiredElement, writeStored } from '../src/shared/web/ui.ts';
 import { fetchJson } from './fetch-json.ts';
 
 // What the next translation runs with.

@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import type { ApiErrorBody, ApiProblem } from '../api.ts';
 
-// What a feature (features/<name>/) gives the entry file: its routes. handle returns true when it answered.
+// What a feature (src/features/<name>/) gives the entry file: its routes. handle returns true when it answered.
 export interface Feature {
   name: string;
   handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean>;

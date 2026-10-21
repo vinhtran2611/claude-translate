@@ -1,10 +1,10 @@
-// Tests for shared/web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
+// Tests for src/shared/web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
 // Spec data and fixtures are read from vendor/ and fixtures/ next to this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Pair } from '../shared/api.ts';
-import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../shared/web/markdown.ts';
+import type { Pair } from '../src/shared/api.ts';
+import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../src/shared/web/markdown.ts';
 
 interface SpecExample {
   markdown: string;
@@ -24,7 +24,7 @@ globalThis.document = {
     return { set innerHTML(html: string) { value = ENTITIES[html]?.characters ?? html; }, get value() { return value; } };
   },
 } as unknown as Document;
-const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../shared/web/markdown.ts');
+const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../src/shared/web/markdown.ts');
 
 const escapeHtml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const encodeHref = (url: string | null): string => encodeURI(url ?? '').replace(/%25([0-9a-fA-F]{2})/g, '%$1');

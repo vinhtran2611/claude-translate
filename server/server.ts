@@ -3,16 +3,16 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { basename, dirname, join } from 'node:path';
 import type {
   Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
-} from '../shared/api.ts';
+} from '../src/shared/api.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
-} from '../shared/server/claude-runner.ts';
-import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
-import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../shared/server/log.ts';
-import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from '../shared/server/paths.ts';
-import { backupDaily } from '../shared/server/sqlite.ts';
-import { createPracticeFeature } from '../features/practice/server/routes.ts';
+} from '../src/shared/server/claude-runner.ts';
+import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../src/shared/server/http.ts';
+import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../src/shared/server/log.ts';
+import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from '../src/shared/server/paths.ts';
+import { backupDaily } from '../src/shared/server/sqlite.ts';
+import { createPracticeFeature } from '../src/features/practice/server/routes.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
@@ -355,7 +355,12 @@ const SHARED_WEB_FILES = new Map([
 ]);
 // The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
 const WEB_MODULE_PATHS = modulePathsUnder(WEB_DIRECTORY, '/');
-const SHARED_WEB_MODULE_PATHS = modulePathsUnder(SHARED_WEB_DIRECTORY, '/shared/web/');
+// Practice's modules import shared code as /shared/web/..., the Translate page's (still in web/) as /src/shared/web/...;
+// both URLs are served until every file is served at its path under src/.
+const SHARED_WEB_MODULE_PATHS = new Map([
+  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/shared/web/'),
+  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/src/shared/web/'),
+]);
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // A rebinding page can retry without end; one line per Host names it without flooding the log.

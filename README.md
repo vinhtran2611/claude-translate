@@ -69,14 +69,14 @@ Open http://localhost:8787/practice, or **Practice** at the top of the page.
    | `fill` | fill in the blanks | Claude |
    | `flashcard` | vocabulary and rules | you: *Didn't know*, *Almost*, *Knew it* |
 
-   [features/practice/examples/example-project.json](features/practice/examples/example-project.json) has one of each.
+   [src/features/practice/examples/example-project.json](src/features/practice/examples/example-project.json) has one of each.
 2. **Import it.** On the Projects page, choose **New project** and drop the file. The page lists any problems and imports
    nothing until the file is right. Importing the same file again updates the exercises in place.
 3. **Practise.** Write your answer and press **Submit**. Claude's feedback streams in under your answer, and keeps going
    if you close the page. **Try again** makes a new attempt.
 4. **Look back.** The sidebar lists your latest attempt for each exercise. Click one to see it exactly as it was.
 
-The grading prompt is [features/practice/prompts/grade.md](features/practice/prompts/grade.md). Edit it and the next
+The grading prompt is [src/features/practice/prompts/grade.md](src/features/practice/prompts/grade.md). Edit it and the next
 grading uses it.
 
 ### Practice API (for scripts and AI agents)
@@ -131,14 +131,14 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 |---|---|
 | `server/` | the HTTP server and the Translate routes |
 | `web/` | the Translate page |
-| `features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
-| `shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, the Markdown renderer, the model picker |
+| `src/features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
+| `src/shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, repo paths, the Markdown renderer, the model picker |
 | `prompts/` | the translation prompt and glossary |
 | `test/` | tests; the server tests run against a fake `claude` |
 | `docs/` | design docs |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`), so there is no build step.
-A feature imports only from itself and `shared/` (checked by `test/boundaries.test.ts`).
+A feature imports only from itself and `src/shared/` (checked by `test/boundaries.test.ts`).
 
 ## Troubleshooting
 

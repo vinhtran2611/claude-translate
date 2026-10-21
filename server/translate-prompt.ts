@@ -1,8 +1,8 @@
 // The translation modes and the system prompt each one runs with, built from the files in prompts/.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Mode, ModeOption } from '../shared/api.ts';
-import { APP_DIRECTORY } from '../shared/server/paths.ts';
+import type { Mode, ModeOption } from '../src/shared/api.ts';
+import { APP_DIRECTORY } from '../src/shared/server/paths.ts';
 
 const PROMPTS_DIRECTORY = join(APP_DIRECTORY, 'prompts');
 // The system prompt, in order: these shared parts, then the mode's source part.

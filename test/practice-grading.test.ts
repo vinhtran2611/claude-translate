@@ -2,10 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { AnswerByType, ExerciseBody } from '../features/practice/api.ts';
-import { systemPrompt, userMessageOf } from '../features/practice/server/ai-grading.ts';
-import { checkAnswer, graderOf, rateFlashcard } from '../features/practice/server/answers.ts';
-import { kindOf, previewOf } from '../features/practice/text.ts';
+import type { AnswerByType, ExerciseBody } from '../src/features/practice/api.ts';
+import { systemPrompt, userMessageOf } from '../src/features/practice/server/ai-grading.ts';
+import { checkAnswer, graderOf, rateFlashcard } from '../src/features/practice/server/answers.ts';
+import { kindOf, previewOf } from '../src/features/practice/text.ts';
 
 const body = (type: string, content: object, extra: object = {}) => ({ type, topic: null, tags: [], content, ...extra }) as ExerciseBody;
 const single = body('choice', { question: 'Q', options: [{ text: 'a', why: 'x' }, { text: 'b', why: 'y', correct: true }, { text: 'c', why: 'z' }] });
@@ -60,7 +60,7 @@ test('the request has the whole exercise, with its right answers, and the answer
 
 test('one common prompt serves every type, and the request holds each AI-graded type\'s exercise and answer', () => {
   const prompt = systemPrompt();
-  assert.equal(prompt, `${readFileSync(new URL('../features/practice/prompts/grade.md', import.meta.url), 'utf8').trim()}\n`);
+  assert.equal(prompt, `${readFileSync(new URL('../src/features/practice/prompts/grade.md', import.meta.url), 'utf8').trim()}\n`);
   for (const section of ['<role>', '<context>', '<input_handling>', '<how_to_evaluate>', '<output_structure>']) assert.ok(prompt.includes(section), section);
   const cases: [ExerciseBody, AnswerByType[keyof AnswerByType], RegExp[]][] = [
     [rewrite({ reference: 'Ref.' }), { text: 'My rewrite.' }, [/"type": "rewrite"/, /"reference": "Ref\."/, /<answer word_count="2">\nMy rewrite\.\n<\/answer>/]],

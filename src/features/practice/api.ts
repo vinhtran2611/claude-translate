@@ -1,5 +1,5 @@
-// The Practice contract: the import file format and the HTTP API between features/practice/server and
-// features/practice/web (docs/practice-import-format.md). Types only, erased before anything runs.
+// The Practice contract: the import file format and the HTTP API between src/features/practice/server and
+// src/features/practice/web (docs/practice-import-format.md). Types only, erased before anything runs.
 import type { Effort, EffortOption, ModelOption } from '../../shared/api.ts';
 
 // ---- The import file: one file is one project ----

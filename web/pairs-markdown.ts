@@ -1,7 +1,7 @@
 // Rebuilds Markdown from the pairs on screen, for Copy and for editing: the model gave each pair's marker and level
 // apart from its text.
-import type { Pair } from '../shared/api.ts';
-import { quoteContentOf } from '../shared/web/markdown.ts';
+import type { Pair } from '../src/shared/api.ts';
+import { quoteContentOf } from '../src/shared/web/markdown.ts';
 
 export type PairSide = 'source' | 'translation';
 

@@ -2,7 +2,7 @@
 
 One file is one project: a group of exercises (one day, a topic). The file names its project by **key**, so importing a fixed
 file again updates that project in place. The format is strict: an unknown field is a problem, and one problem means nothing
-is imported. A ready example with every type: `features/practice/examples/example-project.json` (also **Download an example
+is imported. A ready example with every type: `src/features/practice/examples/example-project.json` (also **Download an example
 file** on the Import page). The machine-readable version of this page is the JSON Schema at
 `/api/practice/schemas/import.json`; the whole API is in [practice-api-design.md](practice-api-design.md).
 
@@ -89,7 +89,7 @@ exercise's `"id"` to `"key"`.
 
 ## How answers are graded
 
-- `rewrite`, `write`, `choice` and `fill` go to `claude -p` with one prompt, `features/practice/prompts/grade.md`, which you can
+- `rewrite`, `write`, `choice` and `fill` go to `claude -p` with one prompt, `src/features/practice/prompts/grade.md`, which you can
   edit (it is read at every grading). The request holds that prompt, the exercise as stored (type, topic, tags and the whole
   `content`, so the model sees the right options, accepted answers, reasons, reference and planted mistakes) and your answer. The
   reply is free text. It is shown as written, and an estimated band appears only for essays.

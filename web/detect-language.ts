@@ -1,5 +1,5 @@
 // Which language the typed text is in, so the page can pick the translation direction by itself.
-import type { Language } from '../shared/api.ts';
+import type { Language } from '../src/shared/api.ts';
 
 const VIETNAMESE_LETTER = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
 const ENGLISH_FUNCTION_WORDS = new Set([

@@ -1,12 +1,12 @@
-// The page's pure helpers (features/practice/web/): nothing here touches the DOM.
+// The page's pure helpers (src/features/practice/web/): nothing here touches the DOM.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { listDrafts, readDraft, writeDraft } from '../features/practice/web/drafts.ts';
-import { formatClock, pluralize, relativeDay, typeMix } from '../features/practice/web/format.ts';
-import { choice } from '../features/practice/web/templates/choice.ts';
-import { fill } from '../features/practice/web/templates/fill.ts';
-import { rewrite } from '../features/practice/web/templates/rewrite.ts';
+import { listDrafts, readDraft, writeDraft } from '../src/features/practice/web/drafts.ts';
+import { formatClock, pluralize, relativeDay, typeMix } from '../src/features/practice/web/format.ts';
+import { choice } from '../src/features/practice/web/templates/choice.ts';
+import { fill } from '../src/features/practice/web/templates/fill.ts';
+import { rewrite } from '../src/features/practice/web/templates/rewrite.ts';
 
 // localStorage for the drafts, which read it as a global.
 const storage = new Map<string, string>();
@@ -63,7 +63,7 @@ test('templates know an empty answer from one worth keeping, and when Submit is 
 });
 
 test('the two dark colour blocks of base.css say the same', () => {
-  const css = readFileSync(new URL('../shared/web/base.css', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/shared/web/base.css', import.meta.url), 'utf8');
   const blockOf = (opening: string) => {
     const start = css.indexOf(opening) + opening.length;
     return css.slice(start, css.indexOf('}', start)).trim().replace(/\s+/g, ' ');

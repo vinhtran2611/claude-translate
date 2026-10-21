@@ -1,4 +1,4 @@
-// Practice through the real server (features/practice/server/routes.ts), with a fake claude: the page and its files,
+// Practice through the real server (src/features/practice/server/routes.ts), with a fake claude: the page and its files,
 // grading, the grading stream and errors. The key-addressed resources themselves are in practice-api.test.ts.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startTestServer, type TestServer } from './server-harness.ts';
 
-const GRADE_PROMPT = readFileSync(new URL('../features/practice/prompts/grade.md', import.meta.url), 'utf8');
-const EXAMPLE = JSON.parse(readFileSync(new URL('../features/practice/examples/example-project.json', import.meta.url), 'utf8'));
+const GRADE_PROMPT = readFileSync(new URL('../src/features/practice/prompts/grade.md', import.meta.url), 'utf8');
+const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/examples/example-project.json', import.meta.url), 'utf8'));
 
 let server: TestServer;
 before(async () => { server = await startTestServer(); });

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { APP_DIRECTORY } from '../shared/server/paths.ts';
+import { APP_DIRECTORY } from '../src/shared/server/paths.ts';
 
 const FAKE_CLAUDE_DIRECTORY = join(APP_DIRECTORY, 'test', 'fake-claude');
 

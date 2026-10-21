@@ -1,8 +1,8 @@
 // The page: the text box, the side-by-side pairs and the history sidebar. Loaded by index.html; the server strips
 // its types as it serves it. The settings menus live in settings-menus.ts.
-import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, renderCellContent } from '../shared/web/markdown.ts';
-import { foldForSearch, historyGroupOf, ICONS, readStored, requiredElement, writeStored } from '../shared/web/ui.ts';
-import type { HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, StreamEvent } from '../shared/api.ts';
+import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, renderCellContent } from '../src/shared/web/markdown.ts';
+import { foldForSearch, historyGroupOf, ICONS, readStored, requiredElement, writeStored } from '../src/shared/web/ui.ts';
+import type { HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, StreamEvent } from '../src/shared/api.ts';
 import { alertForError, type PageErrorKind } from './alert-text.ts';
 import { detectSourceLanguage } from './detect-language.ts';
 import { fetchJson } from './fetch-json.ts';

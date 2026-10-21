@@ -1,10 +1,10 @@
-// The import file check (features/practice/import-check.ts): the example is valid, and every rule gives one clear line.
+// The import file check (src/features/practice/import-check.ts): the example is valid, and every rule gives one clear line.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { checkProjectFile, problemLine } from '../features/practice/import-check.ts';
+import { checkProjectFile, problemLine } from '../src/features/practice/import-check.ts';
 
-const EXAMPLE = JSON.parse(readFileSync(new URL('../features/practice/examples/example-project.json', import.meta.url), 'utf8'));
+const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/examples/example-project.json', import.meta.url), 'utf8'));
 const exercise = (key: string, type: string, content: object, extra: object = {}) => ({ key, type, content, ...extra });
 const fileWith = (...exercises: object[]) => JSON.stringify({ format: 3, project: { key: 'p', name: 'P' }, exercises });
 // The problems as the page shows them: one line each, or null for a good file.

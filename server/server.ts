@@ -1,28 +1,26 @@
-import { mkdirSync, readdirSync, readFileSync, watchFile } from 'node:fs';
+import { mkdirSync, readdirSync, watchFile } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  Effort, ErrorKind, HistoryEntry, Language, Mode, ModeOption, Outcome, Pair, PairType, StreamEvent, TranslateRequest, TranslationOptions,
+  Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
 } from '../shared/api.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
 } from '../shared/server/claude-runner.ts';
 import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
-import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES } from '../shared/server/log.ts';
+import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../shared/server/log.ts';
 import { backupDaily } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
+import { createPairStreamParser } from './pair-stream-parser.ts';
+import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
 
 // The project root: this file is server/server.ts.
 const APP_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
-const PROMPTS_DIRECTORY = join(APP_DIRECTORY, 'prompts');
 const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
 const SHARED_WEB_DIRECTORY = join(APP_DIRECTORY, 'shared', 'web');
-// The system prompt, in order: these shared parts (glossary.tsv is data: it replaces {{glossary}} in the style part), then the mode's source part.
-const SHARED_PROMPT_PATHS = ['core.md', 'style-vi.md', 'style-en.md'].map((name) => join(PROMPTS_DIRECTORY, name));
-const GLOSSARY_PATH = join(PROMPTS_DIRECTORY, 'glossary.tsv');
 const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
 const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
 const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'history.sqlite');
@@ -36,11 +34,6 @@ const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path:
 const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const PORT = Number(process.env.PORT ?? 8787);
 
-// source_prompt_path: the mode's "# Source" section, the last part of the system prompt.
-interface ModeConfig extends ModeOption {
-  source_prompt_path: string;
-}
-
 // What a translate process is started with; all three are fixed for its lifetime.
 interface TranslateSettings {
   model_id: string;
@@ -48,12 +41,6 @@ interface TranslateSettings {
   mode: Mode;
 }
 
-// Menu order.
-const MODE_OPTIONS: ModeConfig[] = [
-  { mode: 'translate', label: 'As pasted', description: 'Keeps your text exactly as pasted.', source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate.md') },
-  { mode: 'translate_markdown', label: 'Markdown', description: 'Tidies pasted text into headings, lists and paragraphs, then translates. Words never change.', source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate_markdown.md') },
-];
-const DEFAULT_MODE: Mode = 'translate';
 // Output is the ceiling, not input: the reply restates the source and adds the translation, ~1.05 output tokens per
 // source char (measured en->vi), so 100k chars leaves ~20k of MAX_OUTPUT_TOKENS for thinking.
 const MAX_TEXT_CHARS = 100_000;
@@ -73,24 +60,6 @@ function modulePathsUnder(directory: string, url_prefix: string): Map<string, st
     if (name.endsWith('.ts')) module_paths.set(`${url_prefix}${name}`, join(directory, name));
   }
   return module_paths;
-}
-
-function modeOptionOf(mode: string | undefined): ModeConfig | undefined {
-  return MODE_OPTIONS.find((option) => option.mode === mode);
-}
-
-function isMode(mode: unknown): mode is Mode {
-  return modeOptionOf(mode as string) !== undefined;
-}
-
-// Read at every spawn, so a prompt edit reaches the next process without a restart.
-function systemPromptOf(mode: Mode): string {
-  const { source_prompt_path } = modeOptionOf(mode) as ModeConfig;
-  const glossary_lines = readFileSync(GLOSSARY_PATH, 'utf8').split('\n').filter((line) => line.trim() !== '' && !line.startsWith('#'));
-  const glossary_block = `<glossary>\nEnglish term -> form to use in Vietnamese ("keep" = leave the English term):\n${
-    glossary_lines.map((line) => line.replace(/\t+/g, ' -> ').trim()).join('\n')}\n</glossary>`;
-  const parts = SHARED_PROMPT_PATHS.map((path) => readFileSync(path, 'utf8').trim().replace('{{glossary}}', () => glossary_block));
-  return `${parts.join('\n\n')}\n\n${readFileSync(source_prompt_path, 'utf8').trim()}\n`;
 }
 
 function spawnTranslateProcess({ model_id, effort, mode }: TranslateSettings): ClaudeProcess {
@@ -122,125 +91,6 @@ function sendEvent(res: ServerResponse, ...[event_name, data]: StreamEvent): voi
   if (res.destroyed || res.writableEnded) return;
   res.write(`event: ${event_name}\ndata: ${JSON.stringify(data)}\n\n`);
 }
-
-const PAIR_TYPES = new Set<string>(['heading', 'paragraph', 'list_item', 'table', 'code', 'quote', 'other']);
-const PAIR_OPEN_TAG = /<pair\b([^>]*)>/;
-type PairParserState = 'between_pairs' | 'in_pair' | 'in_source' | 'in_translation';
-const PAIR_FIELD_OPEN_TAGS: Record<string, PairParserState> = { '<source>': 'in_source', '<translation>': 'in_translation' };
-
-function parsePairAttributes(attribute_text: string): { pair_type: PairType; level: number; marker: string } {
-  const attributes: Record<string, string | undefined> = Object.fromEntries([...attribute_text.matchAll(/(\w+)="([^"]*)"/g)].map((match) => [match[1], match[2]]));
-  return {
-    pair_type: attributes.type !== undefined && PAIR_TYPES.has(attributes.type) ? attributes.type as PairType : 'other',
-    level: Number.parseInt(attributes.level ?? '', 10) || 0,
-    marker: attributes.marker ?? '',
-  };
-}
-
-// Index from which text could still be the start of closing_tag; text.length when no suffix can be.
-function heldTailStart(text: string, closing_tag: string): number {
-  for (let index = Math.max(0, text.length - closing_tag.length + 1); index < text.length; index++) {
-    if (closing_tag.startsWith(text.slice(index))) return index;
-  }
-  return text.length;
-}
-
-// Turns the model's <pair><source/><translation/></pair> stream into [event_name, data] tuples as text arrives.
-// Text outside any pair becomes unpaired_delta, which is how a reply that ignores the format still reaches the page.
-function createPairStreamParser(): { push(text: string): StreamEvent[]; finish(): StreamEvent[] } {
-  let buffer = '';
-  let state: PairParserState = 'between_pairs';
-  let pair_index = -1;
-  let is_field_start = false;
-  // The delta event for text inside the field being read.
-  const fieldDelta = (text: string): StreamEvent =>
-    state === 'in_source' ? ['source_delta', { pair_index, text }] : ['translation_delta', { pair_index, text }];
-
-  function push(text: string): StreamEvent[] {
-    buffer += text;
-    const events: StreamEvent[] = [];
-    while (buffer !== '') {
-      if (state === 'between_pairs') {
-        const open_match = PAIR_OPEN_TAG.exec(buffer);
-        if (open_match) {
-          const unpaired_text = buffer.slice(0, open_match.index);
-          if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
-          pair_index += 1;
-          events.push(['pair_start', { pair_index, ...parsePairAttributes(open_match[1]) }]);
-          buffer = buffer.slice(open_match.index + open_match[0].length);
-          state = 'in_pair';
-          continue;
-        }
-        const last_open_bracket = buffer.lastIndexOf('<');
-        const is_tag_pending = last_open_bracket !== -1 && buffer.indexOf('>', last_open_bracket) === -1;
-        const flush_end = is_tag_pending ? last_open_bracket : buffer.length;
-        const unpaired_text = buffer.slice(0, flush_end);
-        if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
-        buffer = buffer.slice(flush_end);
-        break;
-      }
-
-      if (state === 'in_pair') {
-        buffer = buffer.trimStart();
-        const field_tag = Object.keys(PAIR_FIELD_OPEN_TAGS).find((tag) => buffer.startsWith(tag));
-        if (field_tag !== undefined) {
-          state = PAIR_FIELD_OPEN_TAGS[field_tag];
-          buffer = buffer.slice(field_tag.length);
-          is_field_start = true;
-          continue;
-        }
-        if (buffer.startsWith('</pair>')) {
-          state = 'between_pairs';
-          buffer = buffer.slice('</pair>'.length);
-          continue;
-        }
-        const is_tag_prefix = [...Object.keys(PAIR_FIELD_OPEN_TAGS), '</pair>'].some((tag) => tag.startsWith(buffer));
-        if (is_tag_prefix) break;
-        const next_bracket = buffer.indexOf('<', 1);
-        buffer = next_bracket === -1 ? '' : buffer.slice(next_bracket);
-        continue;
-      }
-
-      const field_name = state === 'in_source' ? 'source' : 'translation';
-      const closing_tag = `</${field_name}>`;
-      if (is_field_start) {
-        if (buffer.startsWith('\n')) buffer = buffer.slice(1);
-        is_field_start = false;
-        if (buffer === '') break;
-      }
-      const close_index = buffer.indexOf(closing_tag);
-      if (close_index !== -1) {
-        const field_text = buffer.slice(0, close_index).replace(/\n$/, '');
-        if (field_text !== '') events.push(fieldDelta(field_text));
-        buffer = buffer.slice(close_index + closing_tag.length);
-        state = 'in_pair';
-        continue;
-      }
-      // Holds a trailing newline too: it belongs to the field only if more text follows before the closing tag.
-      let hold_from = heldTailStart(buffer, closing_tag);
-      if (hold_from > 0 && buffer[hold_from - 1] === '\n') hold_from -= 1;
-      const field_text = buffer.slice(0, hold_from);
-      if (field_text !== '') events.push(fieldDelta(field_text));
-      buffer = buffer.slice(hold_from);
-      break;
-    }
-    return events;
-  }
-
-  function finish(): StreamEvent[] {
-    const events: StreamEvent[] = [];
-    if ((state === 'in_source' || state === 'in_translation') && buffer.replace(/\n$/, '') !== '') {
-      events.push(fieldDelta(buffer.replace(/\n$/, '')));
-    } else if (state === 'between_pairs' && buffer.trim() !== '') {
-      events.push(['unpaired_delta', { text: buffer }]);
-    }
-    buffer = '';
-    return events;
-  }
-
-  return { push, finish };
-}
-
 
 // One started-up process always waits for the next request, hiding ~1.5s of startup (measured: first text 2.2s
 // cold vs 1.0s warm). Each process translates once, so no context carries over.
@@ -281,7 +131,7 @@ function takeClaudeProcess(settings: TranslateSettings): { claude_process: Claud
 }
 
 // The spare's prompt was read at its spawn, so without this a prompt edit lands one translation late.
-for (const prompt_path of [...SHARED_PROMPT_PATHS, GLOSSARY_PATH, ...MODE_OPTIONS.map((option) => option.source_prompt_path)]) {
+for (const prompt_path of PROMPT_PATHS) {
   watchFile(prompt_path, { interval: 1000 }, () => {
     spare_process?.kill();
     spawnSpareProcess(spare_settings);
@@ -294,6 +144,32 @@ function rejectBadRequest(res: ServerResponse, reason: string): void {
   res.writeHead(400).end(reason);
 }
 
+// Why the body is not a translate request, or null when it is one.
+function translateRequestProblem(body: Partial<TranslateRequest>): string | null {
+  const is_valid_direction =
+    (body.source_language === 'en' && body.target_language === 'vi') ||
+    (body.source_language === 'vi' && body.target_language === 'en');
+  if (!is_valid_direction) return 'Direction must be en->vi or vi->en';
+  if (typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > MAX_TEXT_CHARS) {
+    return `text must be a non-empty string of at most ${MAX_TEXT_CHARS} chars`;
+  }
+  // Checked here because the CLI does not: an unknown --effort only prints a warning and runs at its default.
+  if (modelOptionOf(body.model_id) === undefined) {
+    return `model_id must be one of ${MODEL_OPTIONS.map((option) => option.model_id).join(', ')}`;
+  }
+  if (!isEffort(body.effort)) return `effort must be one of ${EFFORT_OPTIONS.map((option) => option.effort).join(', ')}`;
+  if (!isMode(body.mode)) return `mode must be one of ${MODE_OPTIONS.map((option) => option.mode).join(', ')}`;
+  return null;
+}
+
+// The closing log line is a warning when the model ignored the pair format, an error when the run failed.
+function closingLogLevel(outcome: Outcome, pair_count: number, unpaired_char_count: number): LogLevel {
+  if (outcome === 'error') return 'error';
+  const is_pair_format_broken = outcome === 'done' && (pair_count === 0 || unpaired_char_count > 0);
+  if (is_pair_format_broken) return 'warn';
+  return 'info';
+}
+
 async function handleTranslate(req: IncomingMessage, res: ServerResponse, history_store: HistoryStore): Promise<void> {
   let body: Partial<TranslateRequest>;
   try {
@@ -302,28 +178,9 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     rejectBadRequest(res, 'Body must be JSON');
     return;
   }
-  const isValidDirection =
-    (body.source_language === 'en' && body.target_language === 'vi') ||
-    (body.source_language === 'vi' && body.target_language === 'en');
-  if (!isValidDirection) {
-    rejectBadRequest(res, 'Direction must be en->vi or vi->en');
-    return;
-  }
-  if (typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > MAX_TEXT_CHARS) {
-    rejectBadRequest(res, `text must be a non-empty string of at most ${MAX_TEXT_CHARS} chars`);
-    return;
-  }
-  // Checked here because the CLI does not: an unknown --effort only prints a warning and runs at its default.
-  if (modelOptionOf(body.model_id) === undefined) {
-    rejectBadRequest(res, `model_id must be one of ${MODEL_OPTIONS.map((option) => option.model_id).join(', ')}`);
-    return;
-  }
-  if (!isEffort(body.effort)) {
-    rejectBadRequest(res, `effort must be one of ${EFFORT_OPTIONS.map((option) => option.effort).join(', ')}`);
-    return;
-  }
-  if (!isMode(body.mode)) {
-    rejectBadRequest(res, `mode must be one of ${MODE_OPTIONS.map((option) => option.mode).join(', ')}`);
+  const problem = translateRequestProblem(body);
+  if (problem !== null) {
+    rejectBadRequest(res, problem);
     return;
   }
   const { source_language, target_language, text, model_id: requested_model_id, effort, mode } = body as TranslateRequest;
@@ -399,19 +256,21 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
         log('error', request_number, 'history', `save failed: ${(save_error as Error).message}`);
       }
     }
-    const is_pair_format_broken = outcome === 'done' && (pair_count === 0 || unpaired_char_count > 0);
-    log(
-      outcome === 'error' ? 'error' : is_pair_format_broken ? 'warn' : 'info',
-      request_number,
+    const summary = formatRequestSummary({
       outcome,
-      formatRequestSummary({
-        outcome, model_label: modelLabelOf(served_model_id), effort, duration_ms,
-        failure_text: error === null ? '' : `${error.error_kind}: ${failure_text}`,
-        first_text_ms, thinking_duration_ms: translation_output.thinking_duration_ms, pair_count, unpaired_char_count,
-        output_tokens, history_id,
-      }),
-      failure_detail_lines,
-    );
+      model_label: modelLabelOf(served_model_id),
+      effort,
+      duration_ms,
+      failure_text: error === null ? '' : `${error.error_kind}: ${failure_text}`,
+      first_text_ms,
+      thinking_duration_ms: translation_output.thinking_duration_ms,
+      pair_count,
+      unpaired_char_count,
+      output_tokens,
+      history_id,
+    });
+    const log_level = closingLogLevel(outcome, pair_count, unpaired_char_count);
+    log(log_level, request_number, outcome, summary, failure_detail_lines);
     if (outcome === 'cancelled') return;
     const is_fallback = served_model_id !== requested_model_id;
     if (outcome === 'done') sendEvent(res, 'done', { duration_ms, served_model_id, effort, is_fallback, history_id });
@@ -420,11 +279,9 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   }
 
   const { claude_process, is_cold_start } = takeClaudeProcess({ model_id: requested_model_id, effort, mode });
-  log(
-    'info', request_number, 'start',
-    `${source_language}->${target_language}  ${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${mode}` +
-      `${is_cold_start ? '  cold start' : ''}`,
-  );
+  const cold_start_note = is_cold_start ? '  cold start' : '';
+  const request_line = `${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${mode}`;
+  log('info', request_number, 'start', `${source_language}->${target_language}  ${request_line}${cold_start_note}`);
   run = runClaude({
     request_number,
     settings: { model_id: requested_model_id, effort, system_prompt: systemPromptOf(mode) },

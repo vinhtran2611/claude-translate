@@ -5,9 +5,11 @@ import { stripTypeScriptTypes } from 'node:module';
 import type { ApiErrorBody, ApiProblem } from '../api.ts';
 
 // What a feature (src/features/<name>/) gives the entry file: its routes. handle returns true when it answered.
+// start, when there is one, runs once the server is listening.
 export interface Feature {
   name: string;
   handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean>;
+  start?(): void;
 }
 
 // Throws when the body is not JSON. max_bytes: a larger body throws too, before it is all read into memory.

@@ -129,9 +129,9 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 
 | Folder | What is in it |
 |---|---|
-| `server/` | the HTTP server and the Translate routes |
+| `src/server.ts` | the HTTP server: startup, static files and the list of features |
 | `web/` | the Translate page |
-| `src/features/translate/` | the Translate feature: `server/` (history store, reply parser, prompt builder), `prompts/` (the translation prompt and glossary) |
+| `src/features/translate/` | the Translate feature: `server/` (its routes, history store, reply parser, prompt builder), `prompts/` (the translation prompt and glossary) |
 | `src/features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
 | `src/shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, repo paths, the Markdown renderer, the model picker |
 | `test/` | tests; the server tests run against a fake `claude` |

@@ -111,8 +111,9 @@ as it is.
 
 ## How it works
 
-1. `start.sh` checks requirements, then runs `node server/server.ts`.
-2. `server/server.ts` serves `web/index.html` on `127.0.0.1` only and handles `POST /translate`.
+1. `start.sh` checks requirements, then runs `node src/server.ts`.
+2. `src/server.ts` serves `web/index.html` on `127.0.0.1` only; `src/features/translate/server/routes.ts` handles
+   `POST /translate`.
    Every `.ts` file under `web/` and `src/shared/web/` (for example `web/app.ts` and `/shared/web/markdown.ts`) is served as
    JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as

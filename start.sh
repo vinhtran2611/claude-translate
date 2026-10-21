@@ -54,4 +54,4 @@ fi
 
 # Node runs the TypeScript directly; the server strips types from web/*.ts with node:module's stripTypeScriptTypes,
 # which still prints an ExperimentalWarning once.
-exec env PORT="$PORT" node --disable-warning=ExperimentalWarning "$APP_DIRECTORY/server/server.ts"
+exec env PORT="$PORT" node --disable-warning=ExperimentalWarning "$APP_DIRECTORY/src/server.ts"

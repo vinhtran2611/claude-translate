@@ -32,7 +32,7 @@ export async function startTestServer(): Promise<TestServer> {
   const port = await freePort();
   const data_directory = mkdtempSync(join(tmpdir(), 'claude-translate-test-'));
   const claude_log_path = join(data_directory, 'fake-claude.log');
-  const server_process: ChildProcess = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(APP_DIRECTORY, 'server', 'server.ts')], {
+  const server_process: ChildProcess = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(APP_DIRECTORY, 'src', 'server.ts')], {
     env: {
       ...process.env,
       PORT: String(port),

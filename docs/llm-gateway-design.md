@@ -4,7 +4,7 @@ Status: **proposal for review**. Nothing here is built yet. Date: 2026-10-19.
 
 ## 0. What this design is about
 
-Today two features call `claude -p`: Translate (`server/server.ts:290-470`) and Practice grading
+Today two features call `claude -p`: Translate (`src/features/translate/server/routes.ts`) and Practice grading
 (`src/features/practice/server/ai-grading.ts`). Each one builds its own prompt, checks the model and effort itself, streams to
 the page in its own way, and saves the result in its own way. The shared file `src/shared/server/claude-runner.ts` **is**
 `claude -p`: it starts the process and reads the CLI's own JSON lines.
@@ -430,5 +430,5 @@ one retry that shows the model its problems.
 
 **Q4. Where does the code live?**
 *Recommendation:* the gateway in `src/shared/server/llm/` (every feature needs it, and features may import only from
-`src/shared/`). The `/api/llm` routes go in `server/server.ts`, which already puts the features together. Each feature's tasks
+`src/shared/`). The `/api/llm` routes go in `src/server.ts`, which already puts the features together. Each feature's tasks
 stay in the feature.

@@ -1,36 +1,20 @@
-import { mkdirSync, readdirSync, watchFile } from 'node:fs';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { basename, dirname, join } from 'node:path';
+// Translate's routes: the settings menus, POST /translate (one `claude -p` run streamed back as Server-Sent Events) and
+// the history. The page itself is still served by the entry file.
+import { watchFile } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { basename } from 'node:path';
 import type {
   Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
-} from '../src/shared/api.ts';
+} from '../../../shared/api.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
-} from '../src/shared/server/claude-runner.ts';
-import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../src/shared/server/http.ts';
-import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../src/shared/server/log.ts';
-import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from '../src/shared/server/paths.ts';
-import { backupDaily } from '../src/shared/server/sqlite.ts';
-import { createPracticeFeature } from '../src/features/practice/server/routes.ts';
-import { openHistoryStore, type HistoryStore } from '../src/features/translate/server/history-store.ts';
-import { createPairStreamParser } from '../src/features/translate/server/pair-stream-parser.ts';
-import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from '../src/features/translate/server/translate-prompt.ts';
-
-const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
-const SHARED_WEB_DIRECTORY = join(SHARED_DIRECTORY, 'web');
-const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
-const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
-const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(DATA_DIRECTORY, 'history.sqlite');
-const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'practice-v2.sqlite');
-// Next to the database by default, so a test server on a scratch database never writes into the real log.
-const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(HISTORY_DATABASE_PATH), 'server.log');
-const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');
-// Each database gets one copy a day; the check runs at start and then hourly, so a server left running past
-// midnight still makes the next day's copy.
-const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice-v2' }];
-const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const PORT = Number(process.env.PORT ?? 8787);
+} from '../../../shared/server/claude-runner.ts';
+import { readJsonBody, sendJson, type Feature } from '../../../shared/server/http.ts';
+import { formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../../../shared/server/log.ts';
+import { openHistoryStore, type HistoryStore } from './history-store.ts';
+import { createPairStreamParser } from './pair-stream-parser.ts';
+import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
 
 // What a translate process is started with; all three are fixed for its lifetime.
 interface TranslateSettings {
@@ -49,16 +33,9 @@ const CHARS_PER_TOKEN: Record<Language, number> = { en: 4, vi: 1.3 };
 const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
 
-let translate_request_count = 0;
+const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 
-// Every .ts file under directory, by the URL it is served at: url_prefix, then its path inside directory.
-function modulePathsUnder(directory: string, url_prefix: string): Map<string, string> {
-  const module_paths = new Map<string, string>();
-  for (const name of readdirSync(directory, { recursive: true, encoding: 'utf8' })) {
-    if (name.endsWith('.ts')) module_paths.set(`${url_prefix}${name}`, join(directory, name));
-  }
-  return module_paths;
-}
+let translate_request_count = 0;
 
 function spawnTranslateProcess({ model_id, effort, mode }: TranslateSettings): ClaudeProcess {
   return spawnClaudeProcess({ model_id, effort, system_prompt: systemPromptOf(mode) });
@@ -129,12 +106,14 @@ function takeClaudeProcess(settings: TranslateSettings): { claude_process: Claud
 }
 
 // The spare's prompt was read at its spawn, so without this a prompt edit lands one translation late.
-for (const prompt_path of PROMPT_PATHS) {
-  watchFile(prompt_path, { interval: 1000 }, () => {
-    spare_process?.kill();
-    spawnSpareProcess(spare_settings);
-    log('info', null, 'prompt', `${basename(prompt_path)} changed; spare restarted`);
-  });
+function watchPromptFiles(): void {
+  for (const prompt_path of PROMPT_PATHS) {
+    watchFile(prompt_path, { interval: 1000 }, () => {
+      spare_process?.kill();
+      spawnSpareProcess(spare_settings);
+      log('info', null, 'prompt', `${basename(prompt_path)} changed; spare restarted`);
+    });
+  }
 }
 
 function rejectBadRequest(res: ServerResponse, reason: string): void {
@@ -312,17 +291,6 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   });
 }
 
-function runDailyBackups(): void {
-  for (const { path, name } of DAILY_BACKUPS) {
-    try {
-      const backup_path = backupDaily(path, BACKUPS_DIRECTORY, name);
-      if (backup_path !== null) log('info', null, 'backup', backup_path);
-    } catch (error) {
-      log('error', null, 'backup', `${name} failed: ${(error as Error).message}`);
-    }
-  }
-}
-
 function toHistoryResponse(entry: Omit<HistoryEntry, 'is_fallback'>): HistoryEntry {
   return { ...entry, is_fallback: entry.served_model_id !== entry.requested_model_id };
 }
@@ -343,56 +311,14 @@ function translationOptionsResponse(): TranslationOptions {
   };
 }
 
-// Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
-mkdirSync(dirname(SERVER_LOG_PATH), { recursive: true });
-configureLogFile(SERVER_LOG_PATH);
-const history_store = openHistoryStore(HISTORY_DATABASE_PATH);
-// Every feature but translate, which is still served from server/ and web/ (see docs/practice-proposal.md §6).
-const features: Feature[] = [createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH })];
-// URLs mirror the folders, so a page module's relative import of shared/web/ui.ts resolves the same for tsc and the browser.
-const SHARED_WEB_FILES = new Map([
-  ['/shared/web/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
-]);
-// The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
-const WEB_MODULE_PATHS = modulePathsUnder(WEB_DIRECTORY, '/');
-// Practice's modules import shared code as /shared/web/..., the Translate page's (still in web/) as /src/shared/web/...;
-// both URLs are served until every file is served at its path under src/.
-const SHARED_WEB_MODULE_PATHS = new Map([
-  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/shared/web/'),
-  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/src/shared/web/'),
-]);
-const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
-const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
-// A rebinding page can retry without end; one line per Host names it without flooding the log.
-const logged_forbidden_hosts = new Set<string>();
+export function createTranslateFeature({ database_path }: { database_path: string }): Feature {
+  // Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
+  const history_store = openHistoryStore(database_path);
+  watchPromptFiles();
 
-const server = createServer(async (req, res) => {
-  // Loopback binding alone does not stop DNS rebinding: a page on another site whose name resolves to
-  // 127.0.0.1 would otherwise read /history as same-origin. Its requests carry that site's Host header.
-  const host = req.headers.host ?? '';
-  if (!ALLOWED_HOSTS.has(host)) {
-    if (!logged_forbidden_hosts.has(host)) {
-      logged_forbidden_hosts.add(host);
-      log('warn', null, 'http', `403 ${req.method} ${req.url} from Host ${JSON.stringify(host)}`);
-    }
-    res.writeHead(403).end('Forbidden host');
-    return;
-  }
-  const { pathname } = new URL(req.url ?? '/', 'http://localhost');
-  const history_entry_match = HISTORY_ENTRY_PATH.exec(pathname);
-  try {
-    if (req.method === 'GET' && pathname === '/') {
-      await sendFile(res, INDEX_HTML_PATH, 'text/html; charset=utf-8');
-    } else if (req.method === 'GET' && WEB_MODULE_PATHS.has(pathname)) {
-      await sendModule(res, WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && SHARED_WEB_MODULE_PATHS.has(pathname)) {
-      await sendModule(res, SHARED_WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && SHARED_WEB_FILES.has(pathname)) {
-      const { path, content_type } = SHARED_WEB_FILES.get(pathname) as { path: string; content_type: string };
-      await sendFile(res, path, content_type);
-    } else if (req.method === 'GET' && (pathname === '/favicon.svg' || pathname === '/favicon.ico')) {
-      await sendFile(res, FAVICON_PATH, 'image/svg+xml');
-    } else if (req.method === 'GET' && pathname === '/translation-options') {
+  async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const history_entry_match = HISTORY_ENTRY_PATH.exec(pathname);
+    if (req.method === 'GET' && pathname === '/translation-options') {
       sendJson(res, 200, translationOptionsResponse());
     } else if (req.method === 'POST' && pathname === '/translate') {
       await handleTranslate(req, res, history_store);
@@ -406,30 +332,16 @@ const server = createServer(async (req, res) => {
       const is_deleted = history_store.deleteEntry(Number(history_entry_match[1]));
       res.writeHead(is_deleted ? 204 : 404).end();
     } else {
-      let is_handled = false;
-      for (const feature of features) {
-        is_handled = await feature.handle(req, res, pathname);
-        if (is_handled) break;
-      }
-      // A JSON API answers in its one error shape; anything else stays a bare 404.
-      if (!is_handled && pathname.startsWith('/api/')) sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
-      else if (!is_handled) res.writeHead(404).end();
+      return false;
     }
-  } catch (error) {
-    const failure = error instanceof Error ? error : new Error(String(error));
-    const stack_frame_lines = String(failure.stack ?? '').split('\n').slice(1, 1 + LOG_DETAIL_MAX_LINES)
-      .map((line) => line.replaceAll(`file://${APP_DIRECTORY}/`, ''));
-    log('error', null, 'http', `500 ${req.method} ${pathname}: ${failure.message}`, stack_frame_lines);
-    if (res.headersSent) res.end();
-    else if (pathname.startsWith('/api/')) sendError(res, 500, 'internal', 'Internal error: the details are in the server log.');
-    else res.writeHead(500).end('Internal error');
+    return true;
   }
-});
 
-// Bound to loopback only: anyone who can reach this port spends your Claude subscription.
-server.listen(PORT, '127.0.0.1', () => {
-  log('info', null, 'ready', `http://localhost:${PORT}  (Ctrl-C stops)`);
-  spawnSpareProcess(spare_settings);
-  runDailyBackups();
-  setInterval(runDailyBackups, BACKUP_CHECK_INTERVAL_MS).unref();
-});
+  // Once the server listens, a spare process starts for the default settings.
+  function start(): void {
+    spawnSpareProcess(spare_settings);
+  }
+
+  return { name: 'translate', handle, start };
+}
+

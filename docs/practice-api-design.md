@@ -31,7 +31,7 @@ The goal: one clean, predictable API that all three can use with the same JSON.
   (`store.ts:272-274`). This is a solid async-job design; keep it as it is.
 - **Safe storage**: `STRICT` tables with `CHECK`s, schema version in `PRAGMA user_version`, migrations in one transaction,
   `synchronous = FULL`, daily backups (`src/shared/server/sqlite.ts`).
-- **Safe network**: loopback only, with a `Host` allow-list (`server/server.ts:495-504, 558`).
+- **Safe network**: loopback only, with a `Host` allow-list (`src/server.ts`).
 - **One shared spec** for the file check, used by the page and the server (`import-check.ts:26-58`).
 
 ### 1.2 Problems

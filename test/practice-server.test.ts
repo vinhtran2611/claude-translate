@@ -94,7 +94,7 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   assert.equal(JSON.parse(await example.text()).format, 3);
   assert.equal((await fetch(`${server.base_url}/practice/format-guide.md`)).status, 200);
 
-  assert.equal((await fetch(`${server.base_url}/practice/web/../../server/server.ts`)).status, 404);
+  assert.equal((await fetch(`${server.base_url}/practice/web/../../src/server.ts`)).status, 404);
   assert.equal((await fetch(`${server.base_url}/practice/server/store.ts`)).status, 404);
 });
 

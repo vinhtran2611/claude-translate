@@ -1,0 +1,53 @@
+// Lint only (`npm run lint`). Formatting is left as it is: the code has its own style, and reformatting every file
+// would bury real changes in a huge diff. Each rule turned off below says why.
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+	"files": {
+		// Third-party test data, copied as it is.
+		"includes": ["**", "!test/vendor", "!package-lock.json"]
+	},
+	"formatter": { "enabled": false },
+	"assist": { "enabled": false },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				// `element!` is used where the page's own HTML guarantees the element exists.
+				"noNonNullAssertion": "off"
+			},
+			"complexity": {
+				// findIndex with === keeps TypeScript's types; indexOf(document.activeElement) does not type-check.
+				"useIndexOf": "off",
+				// `[hidden] { display: none !important }` and the reduced-motion reset need !important to work.
+				"noImportantStyles": "off"
+			},
+			"correctness": {
+				// Route handlers end with `return reject(...)`: one line to answer and stop.
+				"noVoidTypeReturn": "off",
+				// False alarm on a valid 2 x 2 grid in web/index.html.
+				"noInvalidGridAreas": "off"
+			},
+			"a11y": {
+				// The translate box is the whole page; focusing it on load is the point.
+				"noAutofocus": "off"
+			}
+		}
+	},
+	"css": {
+		"linter": { "enabled": true }
+	},
+	"overrides": [
+		{
+			// Stylesheets are ordered by component, not by selector specificity.
+			"includes": ["**/*.css", "**/*.html"],
+			"linter": { "rules": { "style": { "noDescendingSpecificity": "off" } } }
+		},
+		{
+			// Tests read loose JSON answers from the API.
+			"includes": ["test/**"],
+			"linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+		}
+	]
+}

@@ -7,10 +7,13 @@
   },
   "scripts": {
     "start": "bash start.sh",
+    "lint": "biome lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm test"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   }

@@ -1,2 +1,16 @@
 node_modules/
+# Your translations, practice answers and their backups: personal, never committed.
 data/
+
+# Secrets: environment files and keys.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Local tools and OS files.
+.claude/worktrees/
+.claude/settings.local.json
+.DS_Store
+*.log

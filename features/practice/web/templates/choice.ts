@@ -38,7 +38,7 @@ export const choice: Template<'choice'> = {
     group.setAttribute('role', multi ? 'group' : 'radiogroup');
     group.setAttribute('aria-label', 'Options');
     group.addEventListener('change', () => {
-      options.forEach((option) => option.classList.toggle('is-selected', option.input.checked));
+      options.forEach((option) => { option.classList.toggle('is-selected', option.input.checked); });
       change({ chosen: options.flatMap((option, index) => (option.input.checked ? [index] : [])) });
     });
     return [group];

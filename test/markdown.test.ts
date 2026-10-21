@@ -26,18 +26,18 @@ globalThis.document = {
 } as unknown as Document;
 const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../shared/web/markdown.ts');
 
-const escape = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escapeHtml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const encodeHref = (url: string | null): string => encodeURI(url ?? '').replace(/%25([0-9a-fA-F]{2})/g, '%$1');
 function htmlOf(nodes: InlineNode[]): string {
   return nodes.map((node) => {
-    if (node.kind === 'text') return escape(node.text);
+    if (node.kind === 'text') return escapeHtml(node.text);
     if (node.kind === 'line_break') return '<br />\n';
-    if (node.kind === 'code') return `<code>${escape(node.text)}</code>`;
+    if (node.kind === 'code') return `<code>${escapeHtml(node.text)}</code>`;
     if (node.kind === 'strong' || node.kind === 'em' || node.kind === 'del') return `<${node.kind}>${htmlOf(node.children)}</${node.kind}>`;
-    if (node.kind === 'autolink') return `<a href="${escape(encodeHref(node.destination))}">${escape(node.text)}</a>`;
-    if (node.kind === 'link') return `<a href="${escape(encodeHref(node.destination))}"${node.title === null ? '' : ` title="${escape(node.title)}"`}>${htmlOf(node.children)}</a>`;
-    if (node.kind === 'image') return `<img src="${escape(encodeHref(node.destination))}" alt="${escape(node.alt)}"${node.title === null ? '' : ` title="${escape(node.title)}"`} />`;
-    if (node.kind === 'footnote_ref') return `<sup>${escape(node.label)}</sup>`;
+    if (node.kind === 'autolink') return `<a href="${escapeHtml(encodeHref(node.destination))}">${escapeHtml(node.text)}</a>`;
+    if (node.kind === 'link') return `<a href="${escapeHtml(encodeHref(node.destination))}"${node.title === null ? '' : ` title="${escapeHtml(node.title)}"`}>${htmlOf(node.children)}</a>`;
+    if (node.kind === 'image') return `<img src="${escapeHtml(encodeHref(node.destination))}" alt="${escapeHtml(node.alt)}"${node.title === null ? '' : ` title="${escapeHtml(node.title)}"`} />`;
+    if (node.kind === 'footnote_ref') return `<sup>${escapeHtml(node.label)}</sup>`;
     throw new Error((node as { kind: string }).kind);
   }).join('');
 }

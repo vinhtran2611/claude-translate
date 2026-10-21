@@ -501,7 +501,7 @@ test('after the migration every old attempt reads as before, and the lists work'
   assert.equal(flashcard.project, 'day-1-19-10-2026');
   assert.equal(flashcard.exercise, 'd1-card-1');
   assert.deepEqual(flashcard.answer, { rating: 'known' });
-  assert.equal(store.readAttempt(1)!.result!.hasOwnProperty('text'), true);
+  assert.equal(Object.hasOwn(store.readAttempt(1)!.result!, 'text'), true);
   assert.equal(store.readAttempt(4)!.status, 'failed');
 
   const day_1 = store.readProject('day-1-19-10-2026')!;

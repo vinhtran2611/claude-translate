@@ -1,0 +1,20 @@
+# Runs on every push and pull request: the linter and the type check.
+# Tests are not run here yet: two Markdown tests need test/fixtures/, which is not in the repo.
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck

@@ -156,7 +156,7 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
       }
       break;
     case 'texts':
-      if (Array.isArray(value) && value.length >= 1 && value.length <= 10) value.forEach((item, index) => checkText(item, spec.max, [...at, index], problems));
+      if (Array.isArray(value) && value.length >= 1 && value.length <= 10) value.forEach((item, index) => { checkText(item, spec.max, [...at, index], problems); });
       else checkText(value, spec.max, at, problems);
       break;
     case 'list':
@@ -164,7 +164,7 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
         const code = !Array.isArray(value) ? 'wrong_type' : value.length < spec.min ? 'too_few' : 'too_many';
         problems.add(at, code, `must be a list of ${spec.min} to ${spec.max} items.`);
       } else {
-        value.forEach((item, index) => checkValue(item, spec.of, [...at, index], problems));
+        value.forEach((item, index) => { checkValue(item, spec.of, [...at, index], problems); });
       }
       break;
     case 'object':

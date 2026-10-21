@@ -117,7 +117,7 @@ export function replyTextSinceLastPrompt(transcript: string): string[] {
   const texts: string[] = [];
   const lines = transcript.trim().split('\n');
   for (let index = lines.length - 1; index >= 0; index--) {
-    let entry;
+    let entry: { type?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
     try {
       entry = JSON.parse(lines[index]);
     } catch {

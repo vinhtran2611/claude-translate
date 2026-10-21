@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, Exercise, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
+import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems, MAX_EXERCISES,
   MAX_FILE_CHARS, type Problem,

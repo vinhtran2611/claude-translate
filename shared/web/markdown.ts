@@ -82,8 +82,10 @@ const UNICODE_PUNCTUATION = /^[\p{P}\p{S}]$/u;
 const UNICODE_WHITESPACE = /^\s$/u;
 const ENTITY_SOURCE = /^&(?:#[xX]([0-9a-fA-F]{1,6})|#([0-9]{1,7})|([A-Za-z][A-Za-z0-9]{1,31}));/;
 const ENTITY_PREFIX_AT_END = /^&(?:#[xX]?[0-9a-fA-F]{0,7}|[A-Za-z][A-Za-z0-9]{0,31})?$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: CommonMark defines autolinks by these control characters.
 const URI_AUTOLINK = /^<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\u0000- <>]*)>/;
 const EMAIL_AUTOLINK = /^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: CommonMark defines autolinks by these control characters.
 const AUTOLINK_PREFIX_AT_END = /^<[A-Za-z][A-Za-z0-9+.-]{0,31}(?::[^\u0000- <>]*)?$|^<[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?:@[a-zA-Z0-9.-]*)?$/;
 // GFM extended autolinks (https://github.github.com/gfm/#autolinks-extension-), matched where a word starts.
 const EXTENDED_URL_AUTOLINK = /^(?:(?:https?|ftp):\/\/|www\.)[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*[^\s<]*/iu;
@@ -156,6 +158,7 @@ function parseLinkTail(text: string, start: number): LinkTail {
       if (char === '\\' && position + 1 < text.length && ASCII_PUNCTUATION.test(text[position + 1])) { position += 2; continue; }
       if (char === '(') depth++;
       else if (char === ')') { if (depth === 0) break; depth--; }
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: CommonMark ends a bare URL at a control character.
       else if (/[\u0000- \u007f]/.test(char)) break;
       position++;
     }
@@ -480,7 +483,7 @@ export function parseInline(text: string, { is_streaming = false, link_definitio
       // "[label]" at the very end, or "[label][ref" still arriving: whether it becomes a link is not decided yet.
       const is_label_undecided = is_streaming && !target && (next_char === undefined || (next_char === '[' && !text.slice(position + 2).includes(']')));
       if (!target && !is_destination_arriving && !is_label_undecided) {
-        const full_reference = /^\[((?:[^\\\[\]]|\\.){0,999})\]/.exec(text.slice(position + 1));
+        const full_reference = /^\[((?:[^\\[\]]|\\.){0,999})\]/.exec(text.slice(position + 1));
         const reference_label = full_reference && full_reference[1].trim() !== '' ? full_reference[1] : label_text;
         const definition = reference_label.trim() === '' ? undefined : link_definitions.get(normalizeLabel(reference_label));
         if (definition) {
@@ -601,7 +604,7 @@ export function plainTextOf(nodes: InlineNode[]): string {
 export const THEMATIC_BREAK = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const THEMATIC_BREAK_PREFIX = /^\s*([-*_])(\s*\1)?\s*$/;
 const FOOTNOTE_DEFINITION = /^\[\^([^\s\]]{1,99})\]:[ \t]*/;
-const LINK_DEFINITION = /^\[((?:[^\\\[\]]|\\.){1,999})\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)(?:[ \t]+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?[ \t]*$/;
+const LINK_DEFINITION = /^\[((?:[^\\[\]]|\\.){1,999})\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)(?:[ \t]+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?[ \t]*$/;
 const TABLE_DELIMITER_ROW = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const TABLE_DELIMITER_PREFIX = /^\s*\|?[\s:|-]*$/;
 const ORDERED_MARKER = /^(\d{1,9})([.)])$/;
@@ -715,7 +718,7 @@ function tableBlockOf(text: string, inline_options: InlineOptions): Block | null
     const is_line_closed = is_pipe_table ? /(?<!\\)\|\s*$/.test(line) : separator !== null && line.endsWith(separator);
     return cells.map((cell, column) => parseInline(cell, optionsAt(inline_options, is_last_line && !is_line_closed && column === cells.length - 1)));
   };
-  let header_line_index = 0;
+  const header_line_index = 0;
   let body_start = 1;
   let alignments: (Alignment | null)[] = [];
   if (is_pipe_table) {
@@ -927,7 +930,7 @@ export function linkTargetOf(destination: string | null, anchor_ids: Set<string>
     const id = `${ANCHOR_ID_PREFIX}${fragment.toLowerCase()}`;
     return anchor_ids === null || anchor_ids.has(id) ? { href: `#${id}`, is_external: false } : null;
   }
-  let url;
+  let url: URL;
   try { url = new URL(trimmed); } catch { return null; }
   return CLICKABLE_PROTOCOLS.has(url.protocol) ? { href: url.href, is_external: true } : null;
 }

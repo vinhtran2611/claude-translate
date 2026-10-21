@@ -8,8 +8,8 @@ import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Featur
 import { log } from '../../../shared/server/log.ts';
 import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
-  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, exerciseSchema, importSchema, KEY_PATTERN, keyProblems, MAX_EXERCISES,
-  MAX_FILE_CHARS, type Problem,
+  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
+  type Problem,
 } from '../import-check.ts';
 import { createGrader } from './ai-grading.ts';
 import { checkAnswer, graderOf, rateFlashcard } from './answers.ts';
@@ -17,6 +17,7 @@ import {
   choiceParam, DRY_RUN, isWholeNumber, keyTaken, MAX_EXERCISE_BODY_BYTES, notFound, readKeyBody, readObjectBody, sendProblems,
   unknownParameterProblems, wholeNumberParam,
 } from './request-checks.ts';
+import { exerciseSchema, importSchema } from './schemas.ts';
 import { openPracticeStore, type AttemptFilter, type PracticeStore } from './store.ts';
 
 // features/practice/: this file is features/practice/server/routes.ts.

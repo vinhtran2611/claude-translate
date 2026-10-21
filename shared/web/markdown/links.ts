@@ -20,11 +20,21 @@ export function linkTargetOf(destination: string | null, anchor_ids: Set<string>
   const trimmed = destination.trim();
   if (trimmed.startsWith('#') && trimmed.length > 1) {
     let fragment = trimmed.slice(1);
-    try { fragment = decodeURIComponent(fragment); } catch {}
+    try {
+      fragment = decodeURIComponent(fragment);
+    } catch {
+      // A broken %-escape: the fragment is used as written.
+    }
     const id = `${ANCHOR_ID_PREFIX}${fragment.toLowerCase()}`;
-    return anchor_ids === null || anchor_ids.has(id) ? { href: `#${id}`, is_external: false } : null;
+    if (anchor_ids !== null && !anchor_ids.has(id)) return null;
+    return { href: `#${id}`, is_external: false };
   }
   let url: URL;
-  try { url = new URL(trimmed); } catch { return null; }
-  return CLICKABLE_PROTOCOLS.has(url.protocol) ? { href: url.href, is_external: true } : null;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (!CLICKABLE_PROTOCOLS.has(url.protocol)) return null;
+  return { href: url.href, is_external: true };
 }

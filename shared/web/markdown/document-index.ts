@@ -25,6 +25,9 @@ export function slugOf(text: string, used_slugs: Set<string>): string {
   return slug;
 }
 
+// "[^label]" that is not the start of a definition "[^label]:".
+const FOOTNOTE_REFERENCE = /\[\^([^\s\]]{1,99})\](?!:)/g;
+
 // pairs: [{ pair_type, source_text, translation_text }]. Returns
 //   link_definitions: Map(normalized label -> { destination, title })   for [text][label] in any cell
 //   footnote_numbers: Map(label -> n)       n by order of first reference, as GitHub numbers them
@@ -42,17 +45,22 @@ export function documentIndexOf(pairs: readonly (IndexedPair | undefined)[]): Do
     if (!pair || pair.pair_type === 'code') return;
     for (const text of [pair.source_text, pair.translation_text]) {
       const definition = definitionOf(text);
-      if (definition?.kind === 'link_definition' && !link_definitions.has(normalizeLabel(definition.label))) {
-        link_definitions.set(normalizeLabel(definition.label), { destination: definition.destination, title: definition.title });
-      }
+      if (definition?.kind !== 'link_definition') continue;
+      // The first definition of a label wins, as in CommonMark.
+      const label = normalizeLabel(definition.label);
+      if (link_definitions.has(label)) continue;
+      link_definitions.set(label, { destination: definition.destination, title: definition.title });
     }
     const source_definition = definitionOf(pair.source_text);
-    if (source_definition?.kind === 'footnote_definition') anchor_ids.add(`${ANCHOR_ID_PREFIX}fn-${source_definition.label}`);
-    for (const match of pair.source_text.matchAll(/\[\^([^\s\]]{1,99})\](?!:)/g)) {
-      if (footnote_numbers.has(match[1])) continue;
-      footnote_numbers.set(match[1], footnote_numbers.size + 1);
-      footnote_first_pair.set(match[1], pair_index);
-      anchor_ids.add(`${ANCHOR_ID_PREFIX}fnref-${match[1]}`);
+    if (source_definition?.kind === 'footnote_definition') {
+      anchor_ids.add(`${ANCHOR_ID_PREFIX}fn-${source_definition.label}`);
+    }
+    for (const match of pair.source_text.matchAll(FOOTNOTE_REFERENCE)) {
+      const label = match[1];
+      if (footnote_numbers.has(label)) continue;
+      footnote_numbers.set(label, footnote_numbers.size + 1);
+      footnote_first_pair.set(label, pair_index);
+      anchor_ids.add(`${ANCHOR_ID_PREFIX}fnref-${label}`);
     }
     if (pair.pair_type === 'heading') {
       const slug = slugOf(plainTextOf(parseInline(pair.source_text)), used_slugs);

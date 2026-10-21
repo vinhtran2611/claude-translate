@@ -87,7 +87,7 @@ inside it, inline Markdown follows CommonMark 0.31.2 plus the GitHub extensions 
   waits, so raw Markdown never flashes. When the reply ends, every cell renders again strictly.
 
 Tests (plain Node, no packages): the CommonMark spec examples, GFM, the URL policy, and a check that
-no raw syntax flashes on every prefix of real documents (`test/fixtures/`):
+no raw syntax flashes on every prefix of small made-up documents (`test/fixtures/translations/`):
 
 ```
 npm test

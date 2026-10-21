@@ -125,7 +125,7 @@ npm test             # Node's test runner, with a fake `claude`
 npm run check        # all three
 ```
 
-GitHub Actions runs the lint and the type check on every push.
+GitHub Actions runs the lint, the type check and the tests on every push.
 
 | Folder | What is in it |
 |---|---|

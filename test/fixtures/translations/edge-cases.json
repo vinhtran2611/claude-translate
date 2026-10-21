@@ -1,0 +1,10 @@
+{
+  "description": "Made up. The three cases the streaming renderer cannot show without a flash; see test/markdown.test.ts.",
+  "pairs": [
+    { "pair_type": "heading", "level": 1, "marker": "#", "source_text": "Edge cases", "translation_text": "Trường hợp biên" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "**Source:**text", "translation_text": "**Nguồn:**văn bản" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "A plain line between them.", "translation_text": "Một dòng thường ở giữa." },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "See [collapsed][] and [the spec][cm].", "translation_text": "Xem [collapsed][] và [đặc tả][cm]." },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "[cm]: https://spec.commonmark.org/0.31.2/", "translation_text": "[cm]: https://spec.commonmark.org/0.31.2/" }
+  ]
+}

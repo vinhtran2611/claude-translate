@@ -151,17 +151,17 @@ test('URL policy', () => {
   }
 });
 
-test('document index: GitHub slugs, footnote order, entry 28 table of contents', () => {
-  const entry = readJson<{ pairs: Pair[] }>('./fixtures/entry-28.json');
+test('document index: GitHub slugs, footnote order, a table of contents', () => {
+  const entry = readJson<{ pairs: Pair[] }>('./fixtures/translations/table-of-contents.json');
   const index = documentIndexOf(entry.pairs);
   const fragments = entry.pairs.flatMap((pair) => [...pair.source_text.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]));
   const resolved = fragments.filter((fragment) => index.anchor_ids.has(`md-${fragment}`));
-  // The input stops at section 5, so the 7 entries for sections 6-12 have no heading to point at.
-  assert.equal(fragments.length, 16);
-  assert.equal(resolved.length, 9);
-  const altman = documentIndexOf(readJson<{ pairs: Pair[] }>('./fixtures/entry-30.json').pairs);
-  assert.equal(altman.footnote_numbers.get('1'), 1);
-  assert.ok(altman.anchor_ids.has('md-fn-1') && altman.anchor_ids.has('md-fnref-1'));
+  // The notes stop at section 5, so the 5 links to prospects, the appendix and sources have no heading to point at.
+  assert.equal(fragments.length, 13);
+  assert.equal(resolved.length, 8);
+  const essay = documentIndexOf(readJson<{ pairs: Pair[] }>('./fixtures/translations/footnotes.json').pairs);
+  assert.equal(essay.footnote_numbers.get('1'), 1);
+  assert.ok(essay.anchor_ids.has('md-fn-1') && essay.anchor_ids.has('md-fnref-1'));
 });
 
 // The text a reader sees in a block.
@@ -220,17 +220,17 @@ export function streamingStabilityOf(pairs: Pair[]): {
   return result;
 }
 
-test('streaming: no raw syntax flashes in the real entries; the fixture flashes only its known edge cases', () => {
-  for (const name of ['entry-28', 'entry-29', 'entry-30', 'entry-31', 'entry-32', 'fixture']) {
-    const { pairs } = readJson<{ pairs: Pair[] }>(`./fixtures/${name}.json`);
+test('streaming: no raw syntax flashes in the documents; the edge cases flash only where expected', () => {
+  for (const name of ['table-of-contents', 'footnotes', 'documents', 'edge-cases']) {
+    const { pairs } = readJson<{ pairs: Pair[] }>(`./fixtures/translations/${name}.json`);
     const result = streamingStabilityOf(pairs);
     console.log(name, JSON.stringify({ ...result, unstable_cells: result.unstable_cells.join(' '), end_of_stream_changes: result.end_of_stream_changes.join(' ') }));
-    if (name === 'fixture') {
-      // 3: "**Source:**text" is literal by CommonMark flanking but bold while streaming. 9: "[collapsed][]" has no
-      // definition, so its held "[" comes back. 41: "[cm]:" reads as text until its destination makes it a definition.
-      // 9 also changes at the end: "[the spec][cm]" resolves only once the "[cm]:" pair has arrived.
-      assert.deepEqual(result.unstable_cells, ['3:source', '3:translation', '9:source', '9:translation', '41:source', '41:translation']);
-      assert.deepEqual(result.end_of_stream_changes, ['9:source', '9:translation']);
+    if (name === 'edge-cases') {
+      // 1: "**Source:**text" is literal by CommonMark flanking but bold while streaming. 3: "[collapsed][]" has no
+      // definition, so its held "[" comes back. 4: "[cm]:" reads as text until its destination makes it a definition.
+      // 3 also changes at the end: "[the spec][cm]" resolves only once the "[cm]:" pair has arrived.
+      assert.deepEqual(result.unstable_cells, ['1:source', '1:translation', '3:source', '3:translation', '4:source', '4:translation']);
+      assert.deepEqual(result.end_of_stream_changes, ['3:source', '3:translation']);
     } else {
       assert.deepEqual(result.unstable_cells, []);
     }

@@ -132,7 +132,6 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 | `server/` | the HTTP server and the Translate routes |
 | `web/` | the Translate page |
 | `features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
-| `features/english-log/` | Claude Code hooks that save the English you type and its corrections |
 | `shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, the Markdown renderer, the model picker |
 | `prompts/` | the translation prompt and glossary |
 | `test/` | tests; the server tests run against a fake `claude` |

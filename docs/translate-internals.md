@@ -71,7 +71,8 @@ the price of exact pairing.
 
 ### Markdown
 
-`shared/web/markdown.ts` is the one Markdown renderer (no dependencies). The pair's type decides the block;
+`shared/web/markdown.ts` is the one Markdown renderer (no dependencies). It is the entry point; each job has its own file under
+`shared/web/markdown/`: `inline.ts`, `blocks.ts`, `document.ts`, `document-index.ts`, `links.ts` and `render.ts`. The pair's type decides the block;
 inside it, inline Markdown follows CommonMark 0.31.2 plus the GitHub extensions people paste:
 `~~strikethrough~~`, bare URLs, tables (pipe or tab-separated), task lists and footnotes.
 
@@ -112,10 +113,10 @@ as it is.
 
 1. `start.sh` checks requirements, then runs `node server/server.ts`.
 2. `server/server.ts` serves `web/index.html` on `127.0.0.1` only and handles `POST /translate`.
-   The page's modules (`web/app.ts`, `web/source-check.ts`; `shared/web/markdown.ts` too, at `/shared/web/markdown.ts`) are served as JavaScript with
-   their types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
+   Every `.ts` file under `web/` and `shared/web/` (for example `web/app.ts` and `/shared/web/markdown.ts`) is served as
+   JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
-   they stream and forwards them to the page as Server-Sent Events.
+   they stream (`server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
 
 ### The `claude` command
 
@@ -132,7 +133,7 @@ claude -p
 
 `--thinking-display summarized` is not listed in `claude --help` (checked on 2.1.301). Without it
 every thinking delta arrives empty. If a later `claude` drops the flag, every translation fails with
-an `exited` error; delete that line in `spawnClaudeProcess` to recover.
+an `exited` error; delete that line in `spawnClaudeProcess` (`shared/server/claude-runner.ts`) to recover.
 
 `--setting-sources ""` and the two flags after it keep your `~/.claude/CLAUDE.md`, skills,
 plugins and MCP servers out of the request (measured: 5982 input tokens without them,
@@ -291,6 +292,7 @@ engineer would say them in English, and write natural Vietnamese rather than Eng
 traced word by word. Changes to the skill do not reach this app; copy them over by hand.
 
 The modes, models and efforts the menus offer, their descriptions, fallbacks and defaults are the
-`MODE_OPTIONS`, `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables at the top of `server/server.ts`; restart after
+`MODE_OPTIONS` table in `server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
+`shared/server/claude-runner.ts`; restart after
 changing them. A new mode also needs its value in the `mode` CHECK of `server/history-store.ts`.
 

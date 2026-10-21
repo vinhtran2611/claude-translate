@@ -3,7 +3,7 @@
 // flashcard's Answer. It only draws: the page decides when each state starts.
 import { renderDocument } from '../../../shared/web/markdown.ts';
 import { createIcon } from '../../../shared/web/ui.ts';
-import type { AiResult } from '../api.ts';
+import type { AiResult } from '../api-types.ts';
 import type { GradingEvent } from './client.ts';
 import { h } from './dom.ts';
 

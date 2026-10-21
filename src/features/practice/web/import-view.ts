@@ -2,7 +2,7 @@
 // project (project.key): a new key makes a project, a key that exists updates that project in place.
 // The file is checked in the page with the same code the server runs again before it stores anything.
 import { createIcon } from '../../../shared/web/ui.ts';
-import type { ExerciseType, ProjectFile } from '../api.ts';
+import type { ExerciseType, ProjectFile } from '../api-types.ts';
 import { checkProjectFile, MAX_FILE_CHARS, problemLine, type Problem } from '../import-check.ts';
 import { importFile, listProjects, problemsOf } from './client.ts';
 import { button, h, link } from './dom.ts';

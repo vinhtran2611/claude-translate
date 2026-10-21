@@ -1,7 +1,7 @@
 // Unsent answers, kept in the browser so a closed tab never loses what you wrote: one entry per exercise, removed once the
 // server has the answer. Another tab may change them at any time, so every read checks what it gets.
 import { readStored, removeStored, writeStored } from '../../../shared/web/ui.ts';
-import type { AnswerByType, ExerciseType } from '../api.ts';
+import type { AnswerByType, ExerciseType } from '../api-types.ts';
 
 const PREFIX = 'practice.draft.';
 const KEY_PATTERN = /^practice\.draft\.(\d+)$/;

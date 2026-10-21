@@ -1,7 +1,7 @@
 // Runs one `claude -p` request for any feature: the safe flags, the stream-json reading, first-token fallback,
 // stall timeout, API retries and quota logging. What the reply text means is the caller's business.
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { Effort, EffortOption, ErrorKind, ModelOption } from '../api.ts';
+import type { Effort, EffortOption, ErrorKind, ModelOption } from '../api-types.ts';
 import { formatCount, formatSeconds, formatWeekdayTime, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from './log.ts';
 import { APP_DIRECTORY } from './paths.ts';
 

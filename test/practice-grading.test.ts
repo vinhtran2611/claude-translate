@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { AnswerByType, ExerciseBody } from '../src/features/practice/api.ts';
+import type { AnswerByType, ExerciseBody } from '../src/features/practice/api-types.ts';
 import { systemPrompt, userMessageOf } from '../src/features/practice/server/ai-grading.ts';
 import { checkAnswer, graderOf, rateFlashcard } from '../src/features/practice/server/answers.ts';
 import { kindOf, previewOf } from '../src/features/practice/text.ts';

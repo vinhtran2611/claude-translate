@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Pair } from '../src/shared/api.ts';
+import type { Pair } from '../src/shared/api-types.ts';
 import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../src/shared/web/markdown.ts';
 
 interface SpecExample {

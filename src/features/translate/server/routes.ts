@@ -3,9 +3,7 @@
 import { watchFile } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
-import type {
-  Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
-} from '../../../shared/api.ts';
+import type { Effort, ErrorKind, Pair } from '../../../shared/api-types.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
@@ -13,6 +11,9 @@ import {
 import { readJsonBody, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../../../shared/server/log.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
+import type {
+  HistoryEntry, Language, Mode, Outcome, StreamEvent, TranslateRequest, TranslationOptions,
+} from '../api-types.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';

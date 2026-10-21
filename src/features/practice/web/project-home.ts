@@ -1,5 +1,5 @@
 // #/p/<project> : the next exercise to do and what is not done yet; Export, Archive and Delete for the project.
-import type { ExerciseItem, Project } from '../api.ts';
+import type { ExerciseItem, Project } from '../api-types.ts';
 import { ApiError, deleteProject, errorText, exportUrl, putProject, readProjectView } from './client.ts';
 import { button, h, link } from './dom.ts';
 import { pluralize } from './format.ts';

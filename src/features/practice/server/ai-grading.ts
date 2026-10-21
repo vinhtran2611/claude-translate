@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { modelLabelOf, runClaude } from '../../../shared/server/claude-runner.ts';
 import { formatCount, formatSeconds, log } from '../../../shared/server/log.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
-import type { AnswerByType, Attempt, ChoiceContent, ExerciseBody, FillContent, GradingSettings, GradingStreamEvents } from '../api.ts';
+import type { AnswerByType, Attempt, ChoiceContent, ExerciseBody, FillContent, GradingSettings, GradingStreamEvents } from '../api-types.ts';
 import { countWords } from '../text.ts';
 import type { GradingOutcome, PracticeStore } from './store.ts';
 

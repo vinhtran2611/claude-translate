@@ -1,5 +1,5 @@
 // The block parser for one cell: pair_type already names the block, so each type has exactly one shape.
-import type { PairType } from '../../api.ts';
+import type { PairType } from '../../api-types.ts';
 import { type InlineNode, type InlineOptions, parseInline, unescapeString } from './inline.ts';
 
 export interface ListMarker {

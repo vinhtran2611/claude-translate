@@ -1,5 +1,5 @@
 // flashcard: say the meaning to yourself, look at the answer, rate how well you knew it. Nothing to grade: the rating is the answer.
-import type { Rating } from '../../api.ts';
+import type { Rating } from '../../api-types.ts';
 import { RATING_LABELS } from '../../text.ts';
 import { renderDocument } from '../../../../shared/web/markdown.ts';
 import { button, h } from '../dom.ts';

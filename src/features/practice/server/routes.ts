@@ -5,7 +5,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIO
 import { readRequestJson, sendError, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
 import { DOCS_DIRECTORY, FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
-import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
+import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api-types.ts';
 import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
   type Problem,

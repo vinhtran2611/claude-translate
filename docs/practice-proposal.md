@@ -58,13 +58,13 @@ The old `data/practice.sqlite` is not read; re-import your files.
 The API and its data model are in [practice-api-design.md](practice-api-design.md): projects and exercises addressed by key
 (`/projects/{project}/exercises/{exercise}`), `PUT` to create or replace, `DELETE`, `POST /import` with the file itself as the
 body, export, a list of attempts, one error shape (`{ error: { code, message, problems? } }`) and `?dry_run=true` on every write
-with a body. `GET /api/practice` lists the version, the limits and the JSON Schemas. The shapes are in `src/features/practice/api.ts`.
+with a body. `GET /api/practice` lists the version, the limits and the JSON Schemas. The shapes are in `src/features/practice/api-types.ts`.
 
 ## 6. Code
 
 | Where | What |
 |---|---|
-| `api.ts`, `text.ts`, `import-check.ts` | shared by server and page: types, kind and preview of an exercise, the file check |
+| `api-types.ts`, `text.ts`, `import-check.ts` | shared by server and page: types, kind and preview of an exercise, the file check |
 | `server/` | `routes.ts`, `store.ts` (the only code that touches the database), `answers.ts` (answer check, flashcard), `ai-grading.ts` |
 | `web/` | `practice.ts` (router: one abort signal per navigation, so a late answer never draws over a newer page), `side.ts`, `exercise.ts`, project and import views, `drafts.ts`, `templates/` |
 | `prompts/grade.md` | the grading prompt |

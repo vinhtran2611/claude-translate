@@ -1,5 +1,5 @@
-// Reads the reply of POST /translate: Server-Sent Events, as the server writes them (see shared/api.ts StreamEvents).
-import type { StreamEvent } from '../../../shared/api.ts';
+// Reads the reply of POST /translate: Server-Sent Events, as the server writes them (see StreamEvents in ../api-types.ts).
+import type { StreamEvent } from '../api-types.ts';
 
 // One event block: an "event:" line and a "data:" line of JSON.
 function parseStreamEvent(raw_event: string): StreamEvent {

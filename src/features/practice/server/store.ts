@@ -1,11 +1,11 @@
 // The one place that reads and writes the practice database (docs/practice-proposal.md §4).
 import type { DatabaseSync } from 'node:sqlite';
-import type { Effort } from '../../../shared/api.ts';
+import type { Effort } from '../../../shared/api-types.ts';
 import { inTransaction, openDatabase } from '../../../shared/server/sqlite.ts';
 import type {
   AiResult, AnswerByType, Attempt, AttemptStatus, Change, Exercise, ExerciseBody, ExerciseItem, ExerciseType, ImportFile, ImportResult, List, Project,
   ProjectFile, ProjectInput, ResultByType,
-} from '../api.ts';
+} from '../api-types.ts';
 import { kindOf, previewOf } from '../text.ts';
 import { CREATE_TABLES, migrateFrom1, SCHEMA_VERSION } from './store-schema.ts';
 

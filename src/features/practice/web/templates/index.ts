@@ -1,5 +1,5 @@
 // The five exercise types, one module each. Adding a type means a module here, a place in the import check and a grader.
-import type { ExerciseType } from '../../api.ts';
+import type { ExerciseType } from '../../api-types.ts';
 import { choice } from './choice.ts';
 import { fill } from './fill.ts';
 import { flashcard } from './flashcard.ts';

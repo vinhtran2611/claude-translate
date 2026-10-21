@@ -1,5 +1,5 @@
 // The document index: the only cross-pair facts (reference links, footnote numbers, heading anchors).
-import type { Pair } from '../../api.ts';
+import type { Pair } from '../../api-types.ts';
 import { definitionOf } from './blocks.ts';
 import { type LinkDefinition, normalizeLabel, parseInline, plainTextOf } from './inline.ts';
 import { ANCHOR_ID_PREFIX } from './links.ts';

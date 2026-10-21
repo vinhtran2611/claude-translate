@@ -1,6 +1,6 @@
 // What every exercise type provides. The shell (../exercise.ts) owns the layout and the phases (answering, grading, graded,
 // failed); a template draws what is inside the panes, and a flashcard its Answer. The AI's feedback is the shell's.
-import type { AnswerByType, ExerciseBody, ExerciseType } from '../../api.ts';
+import type { AnswerByType, ExerciseBody, ExerciseType } from '../../api-types.ts';
 
 // What the shell tells a template when it draws a panel.
 export interface View<Type extends ExerciseType> {

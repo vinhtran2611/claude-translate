@@ -1,5 +1,5 @@
 // Small text helpers for what the page shows. Pure, so they are tested without a browser.
-import type { ExerciseType } from '../api.ts';
+import type { ExerciseType } from '../api-types.ts';
 
 const TYPE_NAMES: Record<ExerciseType, string> = { rewrite: 'Rewrite', write: 'Write', choice: 'Choice', fill: 'Fill', flashcard: 'Flashcard' };
 const TYPE_ORDER = Object.keys(TYPE_NAMES);

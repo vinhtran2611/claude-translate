@@ -3,7 +3,7 @@
 // "New exercise" and the latest attempt of each exercise, unsent drafts first. Outside one it lists the projects, so the page has
 // the same shape wherever you are. Also the row of chips under the masthead.
 import { createIcon, foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { Project } from '../api.ts';
+import type { Project } from '../api-types.ts';
 import type { ProjectView } from './client.ts';
 import { h, link } from './dom.ts';
 import { listDrafts } from './drafts.ts';

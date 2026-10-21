@@ -1,6 +1,6 @@
 // #/ : every project as a card, with a search and a sort.
 import { requiredElement } from '../../../shared/web/ui.ts';
-import type { Project } from '../api.ts';
+import type { Project } from '../api-types.ts';
 import { listProjects } from './client.ts';
 import { h, link } from './dom.ts';
 import { pluralize, relativeDay, typeMix } from './format.ts';

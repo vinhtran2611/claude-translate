@@ -1,7 +1,7 @@
 // Tests for the translate page's pure helpers: web/detect-language.ts and web/pairs-markdown.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Pair } from '../src/shared/api.ts';
+import type { Pair } from '../src/shared/api-types.ts';
 import { detectSourceLanguage } from '../src/features/translate/web/detect-language.ts';
 import { composePairsMarkdown } from '../src/features/translate/web/pairs-markdown.ts';
 

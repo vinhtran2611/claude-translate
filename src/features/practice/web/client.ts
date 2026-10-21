@@ -1,11 +1,11 @@
-// The page's side of the HTTP API (features/practice/api.ts). Every read takes the navigation's AbortSignal, so a response
+// The page's side of the HTTP API (src/features/practice/api-types.ts). Every read takes the navigation's AbortSignal, so a response
 // that arrives after the page has moved on is dropped, never drawn.
-import type { ApiErrorBody, ApiProblem } from '../../../shared/api.ts';
+import type { ApiErrorBody, ApiProblem } from '../../../shared/api-types.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
   AnswerByType, Attempt, CreateAttemptRequest, Exercise, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, GradingStreamEvents, ImportResult,
   List, Project, ProjectInput,
-} from '../api.ts';
+} from '../api-types.ts';
 
 // A non-2xx answer: its status and the API's one error shape (docs/practice-api-design.md §3.3).
 export class ApiError extends Error {

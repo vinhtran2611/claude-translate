@@ -1,8 +1,8 @@
 // Checks an import file (docs/practice-import-format.md) and returns every problem: where it is (a JSON Pointer), a stable
 // code and a sentence. Strict: an unknown field is a problem, and any problem means nothing is imported. Pure, so the page
 // runs it for its live preview and the server runs it again before it stores anything.
-import type { ApiProblem } from '../../shared/api.ts';
-import type { ContentByType, ExerciseBody, ExerciseType, FileExercise, ProjectFile, ProjectInput } from './api.ts';
+import type { ApiProblem } from '../../shared/api-types.ts';
+import type { ContentByType, ExerciseBody, ExerciseType, FileExercise, ProjectFile, ProjectInput } from './api-types.ts';
 
 export type Problem = ApiProblem;
 

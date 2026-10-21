@@ -1,5 +1,5 @@
 // What an answer is: the check of one that arrives over HTTP, and the self-rated flashcard.
-import type { AnswerByType, ChoiceContent, ExerciseBody, ExerciseType, FillContent, RewriteContent } from '../api.ts';
+import type { AnswerByType, ChoiceContent, ExerciseBody, ExerciseType, FillContent, RewriteContent } from '../api-types.ts';
 import { RATING_LABELS } from '../text.ts';
 
 // Arbitrary: the longest a person would write for each kind of answer.

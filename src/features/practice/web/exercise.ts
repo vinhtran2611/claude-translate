@@ -3,7 +3,7 @@
 // grading (the AI is working, its words streaming in), graded, failed. A template draws the insides of the panes (./templates/);
 // this file draws the cards, the buttons and the phases.
 import { createModelPicker, type ModelPicker } from '../../../shared/web/model-picker.ts';
-import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType } from '../api.ts';
+import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType } from '../api-types.ts';
 import { kindOf } from '../text.ts';
 import {
   ApiError, deleteExercise, errorText, readAttempt, readExercise, readGradingOptions, readProjectView, regrade, submitAttempt, watchGrading, type ProjectView,

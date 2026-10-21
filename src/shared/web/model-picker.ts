@@ -1,7 +1,7 @@
 // The "Sonnet 5.5 · High" control: a chip that opens a menu of models and efforts, the same as Claude Translate's (the markup
 // and keys are the same, so base.css styles both). The choice is kept in localStorage under the page's own key.
 // Served at /shared/web/model-picker.ts with its types stripped.
-import type { Effort, EffortOption, ModelOption } from '../api.ts';
+import type { Effort, EffortOption, ModelOption } from '../api-types.ts';
 import { createIcon, readStored, writeStored } from './ui.ts';
 
 export interface PickerOptions {

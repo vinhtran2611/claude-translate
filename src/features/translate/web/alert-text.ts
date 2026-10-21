@@ -1,5 +1,5 @@
 // The words of the error alert: a title and a sentence for each way a translation can fail.
-import type { ErrorKind } from '../../../shared/api.ts';
+import type { ErrorKind } from '../../../shared/api-types.ts';
 
 // The server's error kinds, plus the two the page detects itself.
 export type PageErrorKind = ErrorKind | 'server_unreachable' | 'request_rejected';

@@ -1,5 +1,5 @@
 // choice: one or several correct options. The AI grades it, with the right answers and the reasons from the file.
-import type { ChoiceContent } from '../../api.ts';
+import type { ChoiceContent } from '../../api-types.ts';
 import { h } from '../dom.ts';
 import { tagList } from './parts.ts';
 import type { Template } from './types.ts';

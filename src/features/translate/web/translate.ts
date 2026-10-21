@@ -2,7 +2,8 @@
 // its types as it serves it. The settings menus live in settings-menus.ts.
 import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, renderCellContent } from '../../../shared/web/markdown.ts';
 import { foldForSearch, historyGroupOf, ICONS, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, StreamEvent } from '../../../shared/api.ts';
+import type { Pair } from '../../../shared/api-types.ts';
+import type { HistoryEntry, HistorySummary, Language, Mode, Outcome, StreamEvent } from '../api-types.ts';
 import { alertForError, type PageErrorKind } from './alert-text.ts';
 import { detectSourceLanguage } from './detect-language.ts';
 import { fetchJson } from './fetch-json.ts';

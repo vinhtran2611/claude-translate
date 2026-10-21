@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
-import type { ApiErrorBody, ApiProblem } from '../api.ts';
+import type { ApiErrorBody, ApiProblem } from '../api-types.ts';
 
 // What a feature (src/features/<name>/) gives the entry file: its routes. handle returns true when it answered.
 // start, when there is one, runs once the server is listening.

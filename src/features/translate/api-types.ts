@@ -1,34 +1,10 @@
-// The HTTP contract between src/features/translate/server/routes.ts and src/features/translate/web/translate.ts (see README "API"). Types only: both sides import it with
-// `import type`, so it is erased before anything runs and never reaches the browser.
+// The HTTP contract between server/routes.ts and web/translate.ts (see docs/translate-internals.md "API"). Types only: both
+// sides import it with `import type`, so it is erased before anything runs and never reaches the browser.
+import type { Effort, EffortOption, ErrorKind, ModelOption, Pair, PairType } from '../../shared/api-types.ts';
 
 export type Language = 'en' | 'vi';
-export type Effort = 'low' | 'medium' | 'high';
 export type Mode = 'translate' | 'translate_markdown';
 export type Outcome = 'done' | 'error' | 'cancelled';
-export type PairType = 'heading' | 'paragraph' | 'list_item' | 'table' | 'code' | 'quote' | 'other';
-export type ErrorKind = 'no_response' | 'stalled' | 'claude_error' | 'output_limit' | 'start_failed' | 'exited';
-
-// One unit of the input and its translation, as the model returned it.
-export interface Pair {
-  pair_type: PairType;
-  level: number;
-  marker: string;
-  source_text: string;
-  translation_text: string;
-}
-
-export interface ModelOption {
-  model_id: string;
-  label: string;
-  short_label: string;
-  description: string;
-}
-
-export interface EffortOption {
-  effort: Effort;
-  label: string;
-  description: string;
-}
 
 export interface ModeOption {
   mode: Mode;
@@ -112,17 +88,4 @@ export interface HistoryEntry extends Omit<HistorySummary, 'input_preview' | 'ou
   // '' and null when the model did not think.
   thinking_text: string;
   thinking_duration_ms: number | null;
-}
-
-// One problem of a rejected request. path is a JSON Pointer into the body ("/exercises/5/content/options"), "?name" for a
-// query parameter, "#key" for the key in the URL. code is stable: programs switch on it.
-export interface ApiProblem {
-  path: string;
-  code: string;
-  message: string;
-}
-
-// The body of every non-2xx JSON API answer (docs/practice-api-design.md §3.3). problems is only there for code "invalid".
-export interface ApiErrorBody {
-  error: { code: string; message: string; problems?: ApiProblem[] };
 }

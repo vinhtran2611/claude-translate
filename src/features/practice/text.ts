@@ -1,5 +1,5 @@
 // Small facts about an exercise or an answer that both the server (lists) and the page (templates) need.
-import type { ExerciseBody, Rating, RewriteContent } from './api.ts';
+import type { ExerciseBody, Rating, RewriteContent } from './api-types.ts';
 
 // Words as IELTS counts them, roughly: runs of non-space characters.
 export function countWords(text: string): number {

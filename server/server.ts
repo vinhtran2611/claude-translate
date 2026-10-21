@@ -13,9 +13,9 @@ import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAI
 import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from '../src/shared/server/paths.ts';
 import { backupDaily } from '../src/shared/server/sqlite.ts';
 import { createPracticeFeature } from '../src/features/practice/server/routes.ts';
-import { openHistoryStore, type HistoryStore } from './history-store.ts';
-import { createPairStreamParser } from './pair-stream-parser.ts';
-import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
+import { openHistoryStore, type HistoryStore } from '../src/features/translate/server/history-store.ts';
+import { createPairStreamParser } from '../src/features/translate/server/pair-stream-parser.ts';
+import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from '../src/features/translate/server/translate-prompt.ts';
 
 const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
 const SHARED_WEB_DIRECTORY = join(SHARED_DIRECTORY, 'web');

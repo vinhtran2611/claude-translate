@@ -116,7 +116,7 @@ as it is.
    Every `.ts` file under `web/` and `src/shared/web/` (for example `web/app.ts` and `/shared/web/markdown.ts`) is served as
    JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
-   they stream (`server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
+   they stream (`src/features/translate/server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
 
 ### The `claude` command
 
@@ -126,7 +126,7 @@ claude -p
   --tools ""                                   # translate only, no file or shell access
   --setting-sources "" --disable-slash-commands --strict-mcp-config
   --no-session-persistence
-  --system-prompt <the prompts/ files, see Changing the translation style>
+  --system-prompt <the translate/prompts/ files, see Changing the translation style>
   --input-format stream-json --output-format stream-json --verbose --include-partial-messages
   --thinking-display summarized                # hidden flag: readable thinking summaries
 ```
@@ -257,7 +257,7 @@ only; `NO_COLOR=1 bash start.sh` turns it off.
 | Event | Level | Meaning |
 |---|---|---|
 | `ready` | none | the server is listening |
-| `prompt` | none | a file in `prompts/` changed; the spare process was replaced |
+| `prompt` | none | a file in `src/features/translate/prompts/` changed; the spare process was replaced |
 | `spare` | WARN | the waiting `claude` died before a request used it; its stderr follows. Logged once until a spare works again |
 | `start` | none | a translation began, with the chosen model, effort and mode; `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
 | `retry` | WARN | the API is busy and `claude` retries: attempt/max, error (HTTP status), delay |
@@ -277,7 +277,7 @@ failure, `first text` (time to the first translated text), `thought` (thinking t
 
 ## Changing the translation style
 
-The system prompt is assembled from files in `prompts/`, in this order, each wrapped in its own XML tag
+The system prompt is assembled from files in `src/features/translate/prompts/`, in this order, each wrapped in its own XML tag
 (Anthropic's prompting guidance): `core.md` (`<role>`, `<task>`, `<input_handling>`, `<output_format>` with worked
 examples), `style-vi.md` (`<style_guide>` with the `{{glossary}}` placeholder), `style-en.md`, then the mode's
 `source-translate.md` or `source-translate_markdown.md`. `glossary.tsv` is data: one `term<TAB>rule` per
@@ -292,7 +292,7 @@ engineer would say them in English, and write natural Vietnamese rather than Eng
 traced word by word. Changes to the skill do not reach this app; copy them over by hand.
 
 The modes, models and efforts the menus offer, their descriptions, fallbacks and defaults are the
-`MODE_OPTIONS` table in `server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
+`MODE_OPTIONS` table in `src/features/translate/server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
 `src/shared/server/claude-runner.ts`; restart after
-changing them. A new mode also needs its value in the `mode` CHECK of `server/history-store.ts`.
+changing them. A new mode also needs its value in the `mode` CHECK of `src/features/translate/server/history-store.ts`.
 

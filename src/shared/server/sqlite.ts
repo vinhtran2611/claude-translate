@@ -1,4 +1,4 @@
-// Opening a feature's SQLite file: the same safety rules as server/history-store.ts, for any feature's database.
+// Opening a feature's SQLite file: the same safety rules as Translate's history-store.ts, for any feature's database.
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';

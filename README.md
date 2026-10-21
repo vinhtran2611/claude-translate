@@ -48,7 +48,7 @@ Node runs the TypeScript files directly.
 **Models:** Opus 5.5 for the best tone, Sonnet 5.5 for everyday text, Haiku 5.5 for speed.
 **Effort** is how long the model may think first: Low, Medium or High.
 
-Every translation is saved in your history. To change the translation style, edit the files in `prompts/`;
+Every translation is saved in your history. To change the translation style, edit the files in `src/features/translate/prompts/`;
 the next translation uses them, with no restart.
 
 How it works inside (the `claude` command, streaming, timeouts, the API, the log):
@@ -131,9 +131,9 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 |---|---|
 | `server/` | the HTTP server and the Translate routes |
 | `web/` | the Translate page |
+| `src/features/translate/` | the Translate feature: `server/` (history store, reply parser, prompt builder), `prompts/` (the translation prompt and glossary) |
 | `src/features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
 | `src/shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, repo paths, the Markdown renderer, the model picker |
-| `prompts/` | the translation prompt and glossary |
 | `test/` | tests; the server tests run against a fake `claude` |
 | `docs/` | design docs |
 

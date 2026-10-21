@@ -1,7 +1,7 @@
 // Turns the model's <pair><source>…</source><translation>…</translation></pair> reply into page events as the text
 // arrives. Text outside any pair becomes unpaired_delta, which is how a reply that ignores the format still reaches
 // the page.
-import type { PairType, StreamEvent } from '../src/shared/api.ts';
+import type { PairType, StreamEvent } from '../../../shared/api.ts';
 
 const PAIR_TYPES = new Set<string>(['heading', 'paragraph', 'list_item', 'table', 'code', 'quote', 'other']);
 const PAIR_OPEN_TAG = /<pair\b([^>]*)>/;

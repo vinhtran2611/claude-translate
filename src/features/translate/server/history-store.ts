@@ -2,7 +2,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { HistoryEntry, HistorySummary, Pair } from '../src/shared/api.ts';
+import type { HistoryEntry, HistorySummary, Pair } from '../../../shared/api.ts';
 
 const SCHEMA_VERSION = 4;
 const HISTORY_LIST_LIMIT = 200;

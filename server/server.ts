@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, watchFile } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, watchFile } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +25,6 @@ const SHARED_PROMPT_PATHS = ['core.md', 'style-vi.md', 'style-en.md'].map((name)
 const GLOSSARY_PATH = join(PROMPTS_DIRECTORY, 'glossary.tsv');
 const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
 const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
-// The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
-const WEB_MODULE_PATHS = new Map(['app.ts', 'source-check.ts'].map((name) => [`/${name}`, join(WEB_DIRECTORY, name)]));
 const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'history.sqlite');
 const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice-v2.sqlite');
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
@@ -67,6 +65,15 @@ const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
 
 let translate_request_count = 0;
+
+// Every .ts file under directory, by the URL it is served at: url_prefix, then its path inside directory.
+function modulePathsUnder(directory: string, url_prefix: string): Map<string, string> {
+  const module_paths = new Map<string, string>();
+  for (const name of readdirSync(directory, { recursive: true, encoding: 'utf8' })) {
+    if (name.endsWith('.ts')) module_paths.set(`${url_prefix}${name}`, join(directory, name));
+  }
+  return module_paths;
+}
 
 function modeOptionOf(mode: string | undefined): ModeConfig | undefined {
   return MODE_OPTIONS.find((option) => option.mode === mode);
@@ -491,7 +498,9 @@ const features: Feature[] = [createPracticeFeature({ database_path: PRACTICE_DAT
 const SHARED_WEB_FILES = new Map([
   ['/shared/web/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
 ]);
-const SHARED_WEB_MODULE_PATHS = new Map(['ui.ts', 'markdown.ts', 'model-picker.ts'].map((name) => [`/shared/web/${name}`, join(SHARED_WEB_DIRECTORY, name)]));
+// The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
+const WEB_MODULE_PATHS = modulePathsUnder(WEB_DIRECTORY, '/');
+const SHARED_WEB_MODULE_PATHS = modulePathsUnder(SHARED_WEB_DIRECTORY, '/shared/web/');
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // A rebinding page can retry without end; one line per Host names it without flooding the log.

@@ -85,6 +85,8 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   const css = await fetch(`${server.base_url}/practice/web/practice.css`);
   assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
   assert.equal((await fetch(`${server.base_url}/shared/web/ui.ts`)).status, 200);
+  // A module in a folder under shared/web/ is served too: markdown.ts imports its parts from markdown/.
+  assert.equal((await fetch(`${server.base_url}/shared/web/markdown/inline.ts`)).status, 200);
   assert.equal((await fetch(`${server.base_url}/shared/web/base.css`)).status, 200);
 
   const example = await fetch(`${server.base_url}/practice/example-project.json`);

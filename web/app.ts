@@ -1,12 +1,15 @@
 // The page: the text box, the side-by-side pairs, the history sidebar and the settings menus. Loaded by index.html;
 // the server strips its types as it serves it.
-import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, quoteContentOf, renderCellContent } from '../shared/web/markdown.ts';
-import { findSourceDivergence } from './source-check.ts';
-import { foldForSearch, historyGroupOf } from '../shared/web/ui.ts';
+import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, renderCellContent } from '../shared/web/markdown.ts';
+import { foldForSearch, historyGroupOf, ICONS, readStored, requiredElement, writeStored } from '../shared/web/ui.ts';
 import type {
-  Effort, EffortOption, ErrorKind, HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, QuotaWarning, StreamEvent,
-  TranslationOptions,
+  Effort, EffortOption, HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, QuotaWarning, StreamEvent, TranslationOptions,
 } from '../shared/api.ts';
+import { alertForError, type PageErrorKind } from './alert-text.ts';
+import { detectSourceLanguage } from './detect-language.ts';
+import { composePairsMarkdown, type PairSide, translationTextOf } from './pairs-markdown.ts';
+import { findSourceDivergence, type SourceDivergence } from './source-check.ts';
+import { readStreamEvents } from './stream-events.ts';
 
 // A pair on screen: what the model returned, plus the cells it renders into.
 interface ShownPair extends Pair {
@@ -15,14 +18,10 @@ interface ShownPair extends Pair {
   translation_content: HTMLElement;
 }
 
-type PairSide = 'source' | 'translation';
 type PairEvent = Extract<StreamEvent, ['pair_start' | 'source_delta' | 'translation_delta', unknown]>;
 type TargetState = 'empty' | 'waiting' | 'streaming' | 'done' | 'error';
 // 'edit' shows the textarea and a plain translation; 'pairs' shows the side-by-side pairs.
 type ViewMode = 'edit' | 'pairs';
-// The server's error kinds, plus the two the page detects itself.
-type PageErrorKind = ErrorKind | 'server_unreachable' | 'request_rejected';
-
 interface StreamingCell {
   pair: ShownPair;
   side: PairSide;
@@ -71,30 +70,6 @@ const CHAR_COUNT_VISIBLE_FROM = 16000;
 // One placeholder bar per ~70 source chars, roughly one rendered line at 16px in a 1280px layout.
 const CHARS_PER_SKELETON_BAR = 70;
 
-const VIETNAMESE_LETTER = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
-const ENGLISH_FUNCTION_WORDS = new Set(['the', 'a', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'from', 'by', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'can', 'could', 'should', 'it', 'its', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'we', 'they', 'my', 'your', 'our', 'their', 'me', 'us', 'them', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'not', 'if', 'so', 'as', 'just', 'about', 'into', 'than', 'then', 'there', 'here', 'some', 'any', 'all', 'let']);
-
-function wordsOf(text: string): string[] {
-  return text.toLowerCase().split(/[^\p{L}\p{N}']+/u).filter((word) => /\p{L}/u.test(word));
-}
-
-// The share of accented words alone cannot separate code-mixed Vietnamese ("anh check giúp em latency p99", 0.29)
-// from English naming a person or dish ("Thanks Nguyễn Văn An for the review", 0.29); function words break the tie.
-function detectSourceLanguage(text: string): Language {
-  const unquoted_words = wordsOf(text.replace(/"[^"]*"|“[^”]*”|`[^`]*`/g, ' '));
-  const words = unquoted_words.length > 0 ? unquoted_words : wordsOf(text);
-  const vietnamese_word_count = words.filter((word) => VIETNAMESE_LETTER.test(word)).length;
-  const english_function_word_count = words.filter((word) => ENGLISH_FUNCTION_WORDS.has(word)).length;
-  return vietnamese_word_count > english_function_word_count ? 'vi' : 'en';
-}
-
-// The element index.html must have; throws at load when the markup and this code disagree.
-function requiredElement<Type extends Element>(selector: string, type: new () => Type, root: ParentNode = document): Type {
-  const found = root.querySelector(selector);
-  if (!(found instanceof type)) throw new Error(`index.html has no ${type.name} matching ${selector}`);
-  return found;
-}
-
 // The element an event happened on, or null for a non-element target.
 function eventElement(event: Event): Element | null {
   return event.target instanceof Element ? event.target : null;
@@ -126,8 +101,7 @@ const edit_button = requiredElement('#edit-button', HTMLButtonElement);
 const undo_clear_button = requiredElement('#undo-clear-button', HTMLButtonElement);
 const has_escape_key = !matchMedia('(pointer: coarse)').matches;
 
-let source_language: Language = 'en';
-try { if (localStorage.getItem('source_language') === 'vi') source_language = 'vi'; } catch {}
+let source_language: Language = readStored('source_language') === 'vi' ? 'vi' : 'en';
 let is_direction_auto = true;
 let active_request: AbortController | null = null;
 let current_target_state: TargetState = 'empty';
@@ -155,18 +129,15 @@ function refreshDocumentIndex() {
   document_index = documentIndexOf(translation_pairs);
 }
 
-// Code units come back with an empty translation by contract; their source is shown on both sides.
-function translationTextOf(pair: Pair): string {
-  return pair.pair_type === 'code' ? pair.source_text : pair.translation_text;
-}
-
 // side: 'source' | 'translation'. Only the cell being streamed into renders provisionally; every other cell is final.
 function renderPairCell(pair: ShownPair, side: PairSide): void {
   const is_streaming = streaming_cell !== null && streaming_cell.pair === pair && streaming_cell.side === side;
   const text = side === 'source' ? pair.source_text : translationTextOf(pair);
-  const blocks = parseCellBlocks(pair.pair_type, pair.marker, pair.level, text, { is_streaming, link_definitions: document_index.link_definitions });
-  renderCellContent(side === 'source' ? pair.source_content : pair.translation_content, blocks,
-    { side, pair_index: pair.pair_index, document_index, is_streaming, is_document_complete: streaming_cell === null });
+  const inline_options = { is_streaming, link_definitions: document_index.link_definitions };
+  const blocks = parseCellBlocks(pair.pair_type, pair.marker, pair.level, text, inline_options);
+  const content_element = side === 'source' ? pair.source_content : pair.translation_content;
+  const is_document_complete = streaming_cell === null;
+  renderCellContent(content_element, blocks, { side, pair_index: pair.pair_index, document_index, is_streaming, is_document_complete });
 }
 
 function renderPairCells(pair: ShownPair): void {
@@ -180,9 +151,6 @@ function renderAllPairCells(): void {
   translation_pairs.forEach(renderPairCells);
 }
 
-const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg>';
-const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-
 const copy_reset_timers = new WeakMap();
 
 // button: holds one copy icon <svg>, plus a .copy-label span if it shows text.
@@ -194,13 +162,13 @@ async function copyWithFeedback(button: HTMLElement, text: string): Promise<void
     return;
   }
   const label = button.querySelector('.copy-label');
-  requiredElement('svg', SVGSVGElement, button).outerHTML = CHECK_ICON;
+  requiredElement('svg', SVGSVGElement, button).outerHTML = ICONS.check;
   if (label) label.textContent = 'Copied';
   button.classList.add('is-done');
   // One pending reset per button: a second click restarts it instead of being cut short by the first.
   clearTimeout(copy_reset_timers.get(button));
   copy_reset_timers.set(button, setTimeout(() => {
-    requiredElement('svg', SVGSVGElement, button).outerHTML = COPY_ICON;
+    requiredElement('svg', SVGSVGElement, button).outerHTML = ICONS.copy;
     if (label) label.textContent = 'Copy';
     button.classList.remove('is-done');
   }, 1400));
@@ -216,7 +184,7 @@ function createPairCell(cell_classes: string[], copy_label: string, getCellText:
   copy_button.className = 'cell-copy-button';
   copy_button.title = copy_label;
   copy_button.setAttribute('aria-label', copy_label);
-  copy_button.innerHTML = COPY_ICON;
+  copy_button.innerHTML = ICONS.copy;
   copy_button.addEventListener('click', () => copyWithFeedback(copy_button, getCellText()));
   cell.append(content, copy_button);
   return { cell, content };
@@ -246,8 +214,23 @@ function setThinking(text: string, duration_ms: number | null, is_open: boolean)
   thinking_block.hidden = text === '';
   thinking_block.open = is_open;
   thinking_block.classList.toggle('is-live', is_live);
-  thinking_label.textContent = text === '' ? '' : is_live ? 'Thinking…' : `Thought for ${Math.max(1, Math.round((duration_ms ?? 0) / 1000))}s`;
-  renderCellContent(thinking_body, parseCellBlocks('paragraph', '', 0, text.trim(), { is_streaming: false, link_definitions: new Map() }), { side: 'translation', pair_index: -1, document_index: documentIndexOf([]), is_streaming: false, is_document_complete: true });
+  thinking_label.textContent = thinkingLabelOf(text, duration_ms);
+  const blocks = parseCellBlocks('paragraph', '', 0, text.trim(), { is_streaming: false, link_definitions: new Map() });
+  renderCellContent(thinking_body, blocks, {
+    side: 'translation',
+    pair_index: -1,
+    document_index: documentIndexOf([]),
+    is_streaming: false,
+    is_document_complete: true,
+  });
+}
+
+// "Thinking…" while the summary arrives, then "Thought for 12s".
+function thinkingLabelOf(text: string, duration_ms: number | null): string {
+  if (text === '') return '';
+  if (duration_ms === null) return 'Thinking…';
+  const seconds = Math.max(1, Math.round(duration_ms / 1000));
+  return `Thought for ${seconds}s`;
 }
 
 function isTranslating(): boolean {
@@ -283,7 +266,9 @@ function applyPairEvent([event_name, data]: PairEvent): void {
     const pair = { ...data, source_text: '', translation_text: '' };
     const source = createPairCell(['pair-cell', 'source', ...cell_classes], 'Copy source', () => pair.source_text);
     const translation = createPairCell(['pair-cell', 'translation', ...cell_classes], 'Copy translation', () => translationTextOf(pair));
-    for (const cell of [source.cell, translation.cell]) cell.style.setProperty('--level', String(Math.max(1, data.level)));
+    const indent_level = String(Math.max(1, data.level));
+    source.cell.style.setProperty('--level', indent_level);
+    translation.cell.style.setProperty('--level', indent_level);
     // display: contents on screen; print turns each row into one unbreakable block.
     const row = document.createElement('div');
     row.className = 'pair-row';
@@ -302,27 +287,11 @@ function applyPairEvent([event_name, data]: PairEvent): void {
   renderPairCell(pair, side);
 }
 
-// Rebuilds Markdown from the pairs: the model gave markers and levels separately from the text.
-// side: 'source' | 'translation'.
-function composePairsMarkdown(pairs: Pair[], side: PairSide): string {
-  return pairs.map((pair, pair_index) => {
-    const text = side === 'source' ? pair.source_text : translationTextOf(pair);
-    let block = text;
-    if (pair.pair_type === 'heading') block = `${'#'.repeat(Math.min(6, Math.max(1, pair.level)))} ${text}`;
-    if (pair.pair_type === 'list_item') block = `${'   '.repeat(Math.max(0, pair.level - 1))}${pair.marker || '-'} ${text}`;
-    if (pair.pair_type === 'quote') block = quoteContentOf(text).split('\n').map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
-    if (pair.pair_type === 'code' && pair.marker) block = `${pair.marker}\n${text}\n${pair.marker.match(/^(`+|~+)/)?.[0] ?? '```'}`;
-    const previous_pair = pairs[pair_index - 1];
-    const is_same_list = previous_pair?.pair_type === 'list_item' && pair.pair_type === 'list_item';
-    return (pair_index === 0 ? '' : is_same_list ? '\n' : '\n\n') + block;
-  }).join('');
-}
-
 // Only a Markdown-mode left column differs from the textarea; elsewhere the text as typed is the source. A column that
 // lost words (a cut-off run, or the model dropped some) never stands in for the input.
 function isReformattedSourceShown(): boolean {
-  return !pairs_view.hidden && shown_result_mode === 'translate_markdown' && translation_pairs.length > 0 &&
-    findSourceDivergence(source_text.value, translation_pairs) === null;
+  if (pairs_view.hidden || shown_result_mode !== 'translate_markdown' || translation_pairs.length === 0) return false;
+  return findSourceDivergence(source_text.value, translation_pairs) === null;
 }
 
 const alert_box = requiredElement('#alert', HTMLDivElement);
@@ -359,32 +328,9 @@ function isAlertShown(): boolean {
   return alert_box.matches(':popover-open');
 }
 
-// silence_text: who sent nothing, worded by silenceTextOf; used only by 'no_response'.
-function alertForError(error_kind: PageErrorKind, message: string, has_partial_translation: boolean, silence_text: string): { title: string; body: string } {
-  const kept_note = has_partial_translation ? ' What arrived so far is kept.' : '';
-  if (error_kind === 'no_response') {
-    return {
-      title: "Claude didn't respond",
-      body: `${silence_text} This is usually a short API or network hiccup; trying again a moment later normally works.`,
-    };
-  }
-  if (error_kind === 'stalled') return { title: 'Claude stopped mid-translation', body: `The reply stopped arriving.${kept_note}` };
-  if (error_kind === 'claude_error' && /authenticat|log ?in|oauth/i.test(message)) {
-    return { title: 'Claude CLI is not logged in', body: 'Run `claude auth login` in a terminal, then try again.' };
-  }
-  if (error_kind === 'claude_error') return { title: 'Claude returned an error', body: `The translation could not finish.${kept_note}` };
-  if (error_kind === 'output_limit') {
-    return { title: 'The translation was cut off', body: `The text is too long for one reply.${kept_note} Translate the rest separately.` };
-  }
-  if (error_kind === 'server_unreachable') {
-    return { title: "Can't reach the translation server", body: 'Check that `bash start.sh` is still running in its terminal, then try again.' };
-  }
-  if (error_kind === 'request_rejected') return { title: 'The server rejected the request', body: 'The text could not be sent for translation.' };
-  return { title: "Couldn't run Claude", body: `The claude process failed.${kept_note}` };
-}
-
 function showErrorAlert(error_kind: PageErrorKind, message: string, has_partial_translation: boolean, silence_text: string): void {
-  showAlert({ severity: 'error', ...alertForError(error_kind, message, has_partial_translation, silence_text), detail: message, action: { label: 'Try again', run: translate } });
+  const { title, body } = alertForError(error_kind, message, has_partial_translation, silence_text);
+  showAlert({ severity: 'error', title, body, detail: message, action: { label: 'Try again', run: translate } });
 }
 
 // "Neither Sonnet 5.5 nor Haiku 5.5 sent anything back." after a fallback, else "Haiku 5.5 sent nothing back."
@@ -434,10 +380,12 @@ function describeHistoryTooltip(summary: HistorySummary): string {
   const created = new Date(summary.created_at);
   const time = created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const day = historyGroupOf(summary.created_at);
-  const day_label = day === 'Today' || day === 'Yesterday' ? day : created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  let day_label = day;
+  if (day !== 'Today' && day !== 'Yesterday') day_label = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const partial_note = summary.outcome === 'done' ? '' : ' · partial';
   const choice_label = `${modeNoteOf(summary.mode)}${choiceLabelOf({ model_id: summary.served_model_id, effort: summary.effort })}`;
-  return `${summary.source_language.toUpperCase()} → ${summary.target_language.toUpperCase()} · ${day_label} ${time} · ${choice_label}${partial_note}`;
+  const direction = `${summary.source_language.toUpperCase()} → ${summary.target_language.toUpperCase()}`;
+  return `${direction} · ${day_label} ${time} · ${choice_label}${partial_note}`;
 }
 
 function matchesHistorySearch(summary: HistorySummary, folded_query_words: string[]): boolean {
@@ -539,11 +487,11 @@ async function loadHistory(): Promise<void> {
 }
 
 function readIsSidebarOpen(): boolean {
-  try { return localStorage.getItem('is_sidebar_open') !== '0'; } catch { return true; }
+  return readStored('is_sidebar_open') !== '0';
 }
 
 function writeIsSidebarOpen(is_open: boolean): void {
-  try { localStorage.setItem('is_sidebar_open', is_open ? '1' : '0'); } catch {}
+  writeStored('is_sidebar_open', is_open ? '1' : '0');
 }
 
 // Wide screens dock it as a column (non-modal, remembered); narrow screens show it as a modal drawer.
@@ -594,7 +542,8 @@ function flushPendingDelete(entry_id: number): void {
 
 // Hides the row at once and deletes on the server only after DELETE_UNDO_MS, so Undo needs no server call.
 function deleteHistoryEntry(entry_id: number): void {
-  const visible_ids = [...history_list.querySelectorAll<HTMLButtonElement>('.history-open-button')].map((button) => Number(button.dataset.entryId));
+  const open_buttons = [...history_list.querySelectorAll<HTMLButtonElement>('.history-open-button')];
+  const visible_ids = open_buttons.map((button) => Number(button.dataset.entryId));
   const deleted_index = visible_ids.indexOf(entry_id);
   const focus_id = visible_ids[deleted_index + 1] ?? visible_ids[deleted_index - 1] ?? null;
   const had_focus = history_list.contains(document.activeElement);
@@ -722,7 +671,7 @@ function renderLanguages(): void {
   source_language_name.textContent = LANGUAGE_LABELS[source_language];
   target_language_name.textContent = LANGUAGE_LABELS[targetLanguageOf(source_language)];
   detected_hint.hidden = !is_direction_auto || source_text.value.trim() === '';
-  try { localStorage.setItem('source_language', source_language); } catch {}
+  writeStored('source_language', source_language);
 }
 
 function renderSource(): void {
@@ -766,6 +715,29 @@ function cancelTranslation(): void {
   setRunInfo(runInfoTextOf({ outcome: 'cancelled', has_output }));
 }
 
+// What the edit view shows after a run: the text that came outside pairs, when no pairs came at all.
+function plainTextAfterRun(unpaired_text: string): string {
+  return translation_pairs.length > 0 ? '' : unpaired_text;
+}
+
+function showSourceDivergenceAlert(source_divergence: SourceDivergence): void {
+  const { input_excerpt, source_excerpt } = source_divergence;
+  const left_column_text = source_excerpt === '' ? 'ends here' : `“${source_excerpt}”`;
+  showAlert({
+    severity: 'warning',
+    title: 'The left column differs from your input',
+    body: 'Claude changed or skipped some of your words in the left column. Check that spot, or translate again.',
+    detail: `Yours: “${input_excerpt}” · Left column: ${left_column_text}`,
+    action: { label: 'Translate again', run: translate },
+  });
+}
+
+// Placeholder bars while the first words are on their way: one per CHARS_PER_SKELETON_BAR source chars, 1 to 6.
+function showSkeleton(text: string): void {
+  const bar_count = Math.min(6, Math.max(1, Math.ceil(text.length / CHARS_PER_SKELETON_BAR)));
+  skeleton.innerHTML = '<span></span>'.repeat(bar_count);
+}
+
 async function translate(): Promise<void> {
   const text = source_text.value;
   if (text.trim() === '' || text.length > MAX_TEXT_CHARS || translation_settings === null) return;
@@ -776,9 +748,7 @@ async function translate(): Promise<void> {
   const request = new AbortController();
   active_request = request;
 
-  const skeleton_bar_count = Math.min(6, Math.max(1, Math.ceil(text.length / CHARS_PER_SKELETON_BAR)));
-  skeleton.innerHTML = '<span></span>'.repeat(skeleton_bar_count);
-  let unpaired_text = '';
+  showSkeleton(text);
   hideAlert();
   forgetClearedSnapshot();
   setShownHistoryId(null);
@@ -787,117 +757,114 @@ async function translate(): Promise<void> {
   setViewMode('edit');
   renderTarget('waiting');
 
-  const started_at = Date.now();
+  // Text outside pairs: the model ignored the format, so it is shown the old way.
+  let unpaired_text = '';
+  // "API busy (…), retry 1/3…" or "… is slow, switched to …" until more text arrives; '' otherwise.
   let retry_note = '';
+  const started_at = Date.now();
+
+  // The status line while the run goes on; refreshed every second and on every event that changes it.
   const renderProgress = (): void => {
     if (active_request !== request || current_target_state === 'done') return;
     const waited_seconds = Math.floor((Date.now() - started_at) / 1000);
-    const waited_note = waited_seconds < 5 ? '' : has_escape_key ? ` ${waited_seconds}s · Esc to cancel` : ` ${waited_seconds}s`;
-    const activity_label = thinking_text !== '' && thinking_duration_ms === null ? 'Thinking…' : 'Translating…';
-    setRunInfo(retry_note ? `${retry_note}${waited_note}` : `${activity_label}${waited_note}`);
+    let waited_note = '';
+    if (waited_seconds >= 5) waited_note = has_escape_key ? ` ${waited_seconds}s · Esc to cancel` : ` ${waited_seconds}s`;
+    const is_thinking = thinking_text !== '' && thinking_duration_ms === null;
+    const activity_label = is_thinking ? 'Thinking…' : 'Translating…';
+    setRunInfo(`${retry_note || activity_label}${waited_note}`);
   };
+
+  // Keeps what arrived, and returns whether anything did.
+  const endFailedRun = (): boolean => {
+    setStreamingCell(null);
+    const has_output = translation_pairs.length > 0 || unpaired_text.trim() !== '';
+    renderTarget(has_output ? 'done' : 'empty', plainTextAfterRun(unpaired_text));
+    setRunInfo(runInfoTextOf({ outcome: 'error', has_output }));
+    return has_output;
+  };
+
+  const handleStreamEvent = (stream_event: StreamEvent): void => {
+    if (isPairEvent(stream_event)) {
+      const [event_name, data] = stream_event;
+      if (event_name === 'pair_start' && data.pair_index === 0) setViewMode('pairs');
+      retry_note = '';
+      applyPairEvent(stream_event);
+      if (current_target_state !== 'streaming') renderTarget('streaming');
+      return;
+    }
+    const [event_name, data] = stream_event;
+    if (event_name === 'unpaired_delta') {
+      unpaired_text += data.text;
+      retry_note = '';
+      // Once pairs exist, text outside them is a stray note and is not shown.
+      if (translation_pairs.length === 0) renderTarget('streaming', unpaired_text);
+    } else if (event_name === 'thinking_delta') {
+      // Opens as the summary starts arriving; a click to close it while thinking is kept.
+      const is_open = thinking_text === '' || thinking_block.open;
+      setThinking(thinking_text + data.text, null, is_open);
+      renderProgress();
+    } else if (event_name === 'thinking_done') {
+      setThinking(thinking_text, data.duration_ms, false);
+      renderProgress();
+    } else if (event_name === 'retry') {
+      retry_note = `API busy (${data.error}), retry ${data.attempt}/${data.max_retries}…`;
+      renderProgress();
+    } else if (event_name === 'fallback') {
+      retry_note = `${modelLabelOf(data.from_model_id)} is slow, switched to ${modelLabelOf(data.to_model_id)}…`;
+      renderProgress();
+    } else if (event_name === 'done') {
+      setStreamingCell(null);
+      renderTarget('done', plainTextAfterRun(unpaired_text));
+      setShownHistoryId(data.history_id);
+      if (history_sidebar.open) loadHistory();
+      setRunInfo(runInfoTextOf({ outcome: 'done', has_output: true, ...data }));
+      refreshQuotaWarning();
+      if (translation_pairs.length > 0) {
+        const source_divergence = findSourceDivergence(text, translation_pairs);
+        if (source_divergence !== null) showSourceDivergenceAlert(source_divergence);
+      }
+    } else if (event_name === 'error') {
+      const has_output = endFailedRun();
+      const silence_text = silenceTextOf(request_settings.model_id, data.served_model_id, data.is_fallback);
+      showErrorAlert(data.error_kind, data.message, has_output, silence_text);
+      refreshQuotaWarning();
+      setShownHistoryId(data.history_id);
+      if (history_sidebar.open) loadHistory();
+    }
+  };
+
   renderProgress();
   const progress_timer = setInterval(renderProgress, 1000);
-
   try {
     const response = await fetch('/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        source_language, target_language: targetLanguageOf(source_language), text,
-        model_id: request_settings.model_id, effort: request_settings.effort, mode: request_settings.mode,
+        source_language,
+        target_language: targetLanguageOf(source_language),
+        text,
+        model_id: request_settings.model_id,
+        effort: request_settings.effort,
+        mode: request_settings.mode,
       }),
       signal: request.signal,
     });
     if (!response.ok) throw new Error(await response.text());
     if (response.body === null) throw new Error('The server sent an empty reply.');
-
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-    let buffer = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += value;
-      const events = buffer.split('\n\n');
-      buffer = events.pop() ?? '';
-      for (const raw_event of events) {
-        const stream_event = parseStreamEvent(raw_event);
-        const [event_name, data] = stream_event;
-        if (isPairEvent(stream_event)) {
-          if (event_name === 'pair_start' && data.pair_index === 0) setViewMode('pairs');
-          retry_note = '';
-          applyPairEvent(stream_event);
-          if (current_target_state !== 'streaming') renderTarget('streaming');
-        } else if (event_name === 'unpaired_delta') {
-          // Text outside pairs: the model ignored the format, so show it the old way; once pairs exist it is a stray note.
-          unpaired_text += data.text;
-          retry_note = '';
-          if (translation_pairs.length === 0) renderTarget('streaming', unpaired_text);
-        } else if (event_name === 'thinking_delta') {
-          // Opens as the summary starts arriving; a click to close it while thinking is kept.
-          setThinking(thinking_text + data.text, null, thinking_text === '' || thinking_block.open);
-          renderProgress();
-        } else if (event_name === 'thinking_done') {
-          setThinking(thinking_text, data.duration_ms, false);
-          renderProgress();
-        } else if (event_name === 'retry') {
-          retry_note = `API busy (${data.error}), retry ${data.attempt}/${data.max_retries}…`;
-          renderProgress();
-        } else if (event_name === 'fallback') {
-          retry_note = `${modelLabelOf(data.from_model_id)} is slow, switched to ${modelLabelOf(data.to_model_id)}…`;
-          renderProgress();
-        } else if (event_name === 'done') {
-          setStreamingCell(null);
-          renderTarget('done', translation_pairs.length > 0 ? '' : unpaired_text);
-          setShownHistoryId(data.history_id);
-          if (history_sidebar.open) loadHistory();
-          setRunInfo(runInfoTextOf({ outcome: 'done', has_output: true, ...data }));
-          refreshQuotaWarning();
-          const source_divergence = translation_pairs.length > 0
-            ? findSourceDivergence(text, translation_pairs)
-            : null;
-          if (source_divergence !== null) {
-            showAlert({
-              severity: 'warning',
-              title: 'The left column differs from your input',
-              body: 'Claude changed or skipped some of your words in the left column. Check that spot, or translate again.',
-              detail: `Yours: “${source_divergence.input_excerpt}” · Left column: ${source_divergence.source_excerpt === '' ? 'ends here' : `“${source_divergence.source_excerpt}”`}`,
-              action: { label: 'Translate again', run: translate },
-            });
-          }
-        } else if (event_name === 'error') {
-          setStreamingCell(null);
-          const has_output = translation_pairs.length > 0 || unpaired_text.trim() !== '';
-          renderTarget(has_output ? 'done' : 'empty', translation_pairs.length > 0 ? '' : unpaired_text);
-          setRunInfo(runInfoTextOf({ outcome: 'error', has_output }));
-          showErrorAlert(data.error_kind, data.message, has_output, silenceTextOf(request_settings.model_id, data.served_model_id, data.is_fallback));
-          refreshQuotaWarning();
-          setShownHistoryId(data.history_id);
-          if (history_sidebar.open) loadHistory();
-        }
-      }
-    }
+    await readStreamEvents(response.body, handleStreamEvent);
   } catch (error) {
-    if (!(error instanceof Error && error.name === 'AbortError')) {
-      setStreamingCell(null);
-      const has_output = translation_pairs.length > 0 || unpaired_text.trim() !== '';
-      renderTarget(has_output ? 'done' : 'empty', translation_pairs.length > 0 ? '' : unpaired_text);
-      setRunInfo(runInfoTextOf({ outcome: 'error', has_output }));
+    // An abort comes from Esc, Clear or a newer run, which have already updated the page.
+    const is_abort = error instanceof Error && error.name === 'AbortError';
+    if (!is_abort) {
+      const has_output = endFailedRun();
       // fetch rejects with a TypeError only when the server cannot be reached at all.
-      showErrorAlert(error instanceof TypeError ? 'server_unreachable' : 'request_rejected', errorText(error), has_output, '');
+      const error_kind = error instanceof TypeError ? 'server_unreachable' : 'request_rejected';
+      showErrorAlert(error_kind, errorText(error), has_output, '');
     }
   } finally {
     clearInterval(progress_timer);
     if (active_request === request) active_request = null;
   }
-}
-
-// One Server-Sent Event block from POST /translate, as the server wrote it (see shared/api.ts StreamEvents).
-function parseStreamEvent(raw_event: string): StreamEvent {
-  const event_name = /^event: (.*)$/m.exec(raw_event)?.[1];
-  const data_json = /^data: (.*)$/m.exec(raw_event)?.[1];
-  if (event_name === undefined || data_json === undefined) throw new Error(`Malformed server event: ${raw_event}`);
-  return [event_name, JSON.parse(data_json)] as StreamEvent;
 }
 
 function swapLanguages(): void {
@@ -1139,26 +1106,32 @@ function refreshQuotaWarning(): void {
 function renderQuotaWarning(quota_warning: QuotaWarning | null): void {
   const quota_line = requiredElement('.model-menu-quota', HTMLDivElement, model_menu);
   quota_line.hidden = quota_warning === null;
-  requiredElement('.model-menu-quota-text', HTMLSpanElement, quota_line).innerHTML = quota_warning === null ? '' : quotaWarningHtml(quota_warning);
+  const quota_text = requiredElement('.model-menu-quota-text', HTMLSpanElement, quota_line);
+  quota_text.innerHTML = quota_warning === null ? '' : quotaWarningHtml(quota_warning);
 }
 
 // A stored model, effort or mode the server no longer offers falls back to its default, so a removed one never sticks.
 function readTranslationSettings(): TranslationSettings {
+  const options = loadedOptions();
   let stored: Partial<TranslationSettings> | null = null;
-  try { stored = JSON.parse(localStorage.getItem(TRANSLATION_SETTINGS_STORAGE_KEY) ?? 'null') as Partial<TranslationSettings> | null; } catch {}
-  const has_model = loadedOptions().models.some((option) => option.model_id === stored?.model_id);
-  const has_effort = loadedOptions().efforts.some((option) => option.effort === stored?.effort);
-  const has_mode = loadedOptions().modes.some((option) => option.mode === stored?.mode);
+  try {
+    stored = JSON.parse(readStored(TRANSLATION_SETTINGS_STORAGE_KEY) ?? 'null') as Partial<TranslationSettings> | null;
+  } catch {
+    // Unreadable: the defaults apply.
+  }
+  const has_model = options.models.some((option) => option.model_id === stored?.model_id);
+  const has_effort = options.efforts.some((option) => option.effort === stored?.effort);
+  const has_mode = options.modes.some((option) => option.mode === stored?.mode);
   return {
-    model_id: has_model && stored?.model_id ? stored.model_id : loadedOptions().default_model_id,
-    effort: has_effort && stored?.effort ? stored.effort : loadedOptions().default_effort,
-    mode: has_mode && stored?.mode ? stored.mode : loadedOptions().default_mode,
+    model_id: has_model && stored?.model_id ? stored.model_id : options.default_model_id,
+    effort: has_effort && stored?.effort ? stored.effort : options.default_effort,
+    mode: has_mode && stored?.mode ? stored.mode : options.default_mode,
   };
 }
 
 function setTranslationSettings(next_settings: TranslationSettings): void {
   translation_settings = next_settings;
-  try { localStorage.setItem(TRANSLATION_SETTINGS_STORAGE_KEY, JSON.stringify(next_settings)); } catch {}
+  writeStored(TRANSLATION_SETTINGS_STORAGE_KEY, JSON.stringify(next_settings));
   renderModePicker();
   renderModelPicker();
 }
@@ -1253,31 +1226,41 @@ function effortGlyphMarkup(effort: string): string {
 }
 
 function renderModePicker(): void {
-  const mode_label = modeLabelOf(currentSettings().mode);
+  const { mode } = currentSettings();
+  const mode_label = modeLabelOf(mode);
   mode_button_label.textContent = mode_label;
   mode_button.title = `Mode: ${mode_label}`;
   mode_button.setAttribute('aria-label', `Mode: ${mode_label}`);
-  for (const row of mode_menu.querySelectorAll<HTMLElement>('.menu-option')) row.setAttribute('aria-checked', String(row.dataset.mode === currentSettings().mode));
+  for (const row of mode_menu.querySelectorAll<HTMLElement>('.menu-option')) {
+    row.setAttribute('aria-checked', String(row.dataset.mode === mode));
+  }
 }
 
 function renderModelPicker(): void {
-  const model_option = loadedOptions().models.find((option) => option.model_id === currentSettings().model_id);
-  const effort_option = effortOptionOf(currentSettings().effort);
-  if (model_option === undefined || effort_option === undefined) throw new Error(`Unknown setting ${choiceLabelOf(currentSettings())}`);
-  const short_label = model_option.short_label;
-  model_picker_label_full.textContent = choiceLabelOf(currentSettings());
-  model_picker_label_short.textContent = `${short_label} · ${effort_option.label}`;
-  model_picker_effort_glyph.innerHTML = effortGlyphMarkup(currentSettings().effort);
-  model_picker_button.title = `${choiceLabelOf(currentSettings())} (⌘/)`;
-  model_picker_button.setAttribute('aria-label', `Model and effort: ${choiceLabelOf(currentSettings())}`);
-  for (const row of model_menu.querySelectorAll<HTMLElement>('.menu-option')) row.setAttribute('aria-checked', String(row.dataset.modelId === currentSettings().model_id));
-  for (const segment of model_menu.querySelectorAll<HTMLElement>('.effort-option')) segment.setAttribute('aria-checked', String(segment.dataset.effort === currentSettings().effort));
+  const settings = currentSettings();
+  const model_option = loadedOptions().models.find((option) => option.model_id === settings.model_id);
+  const effort_option = effortOptionOf(settings.effort);
+  if (model_option === undefined || effort_option === undefined) throw new Error(`Unknown setting ${choiceLabelOf(settings)}`);
+  const choice_label = choiceLabelOf(settings);
+  model_picker_label_full.textContent = choice_label;
+  model_picker_label_short.textContent = `${model_option.short_label} · ${effort_option.label}`;
+  model_picker_effort_glyph.innerHTML = effortGlyphMarkup(settings.effort);
+  model_picker_button.title = `${choice_label} (⌘/)`;
+  model_picker_button.setAttribute('aria-label', `Model and effort: ${choice_label}`);
+  for (const row of model_menu.querySelectorAll<HTMLElement>('.menu-option')) {
+    row.setAttribute('aria-checked', String(row.dataset.modelId === settings.model_id));
+  }
+  for (const segment of model_menu.querySelectorAll<HTMLElement>('.effort-option')) {
+    segment.setAttribute('aria-checked', String(segment.dataset.effort === settings.effort));
+  }
   requiredElement('#effort-description', HTMLParagraphElement, model_menu).textContent = effort_option.description;
 }
 
 // The model menu's stops in arrow order: every model row, then the checked effort segment as one stop.
 function modelMenuStops(): HTMLElement[] {
-  return [...model_menu.querySelectorAll<HTMLElement>('.menu-option'), requiredElement('.effort-option[aria-checked="true"]', HTMLButtonElement, model_menu)];
+  const model_rows = [...model_menu.querySelectorAll<HTMLElement>('.menu-option')];
+  const checked_effort = requiredElement('.effort-option[aria-checked="true"]', HTMLButtonElement, model_menu);
+  return [...model_rows, checked_effort];
 }
 
 function stepEffort(step: number): void {
@@ -1357,7 +1340,8 @@ model_menu.addEventListener('keydown', (event) => {
     // Focus leaves before the menu closes, so the close does not send it back to the trigger.
     event.preventDefault();
     // A disabled Translate cannot take focus; the swap button is the next stop after it.
-    (event.shiftKey ? model_picker_button : translate_button.disabled ? swap_button : translate_button).focus();
+    const next_stop = translate_button.disabled ? swap_button : translate_button;
+    (event.shiftKey ? model_picker_button : next_stop).focus();
     model_menu.hidePopover();
   }
 });

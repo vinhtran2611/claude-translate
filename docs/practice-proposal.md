@@ -70,8 +70,8 @@ with a body. `GET /api/practice` lists the version, the limits and the JSON Sche
 | `prompts/grade.md` | the grading prompt |
 | `examples/example-project.json` | a valid file with every type |
 
-`src/shared/web/base.css` holds Translate's tokens, masthead, sidebar, buttons, cards and Markdown styles; translate still has its own
-inline copy (identical values) and may adopt it later. `src/shared/web/markdown.ts` and `model-picker.ts` are shared the same way. A feature imports only from itself and `src/shared/` (`test/boundaries.test.ts`).
+`src/shared/web/base.css` holds the tokens, masthead, sidebar, buttons, cards and Markdown styles both pages use; each page adds
+its own stylesheet on top (`translate.css`, `practice.css`). `src/shared/web/markdown.ts` and `model-picker.ts` are shared the same way. A feature imports only from itself and `src/shared/` (`test/boundaries.test.ts`).
 
 ## 7. Not in this version
 

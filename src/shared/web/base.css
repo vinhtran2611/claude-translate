@@ -1,7 +1,6 @@
-/* The look every page shares, copied from Claude Translate (src/features/translate/web/translate.html, which still keeps its own
-   inline copy): colour tokens (light, dark by system setting, or forced by
-   data-theme), the masthead, the History sidebar, buttons, chips and menus, the card with its header bar, the thinking
-   disclosure and the Markdown elements. The dark colours are written twice, for the system setting and for data-theme;
+/* The look every page shares: colour tokens (light, dark by system setting, or forced by data-theme), the masthead, the
+   History sidebar, buttons, chips and menus, the card with its header bar, the thinking disclosure and the Markdown
+   elements. Each page adds its own stylesheet on top (translate.css, practice.css). The dark colours are written twice, for the system setting and for data-theme;
    keep the two blocks identical (test/practice-web.test.ts checks it). Served at /shared/web/base.css. */
 
 :root {
@@ -254,7 +253,6 @@ body:has(> #history-sidebar[open]) :is(#sidebar-open-button, #masthead-new-butto
 .history-list-limit { padding: 10px; font-size: 12px; color: var(--faint); }
 .wordmark { font-family: "Newsreader", Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
 .wordmark span { color: var(--muted); }
-/* The same as shared/web/base.css, which the Practice page uses. */
 .masthead-nav { display: flex; gap: 2px; margin-left: 14px; }
 .masthead-link {
   display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px;

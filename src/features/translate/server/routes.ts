@@ -1,8 +1,8 @@
-// Translate's routes: the settings menus, POST /translate (one `claude -p` run streamed back as Server-Sent Events) and
-// the history. The page itself is still served by the entry file.
+// Translate's routes: the page at /, the settings menus, POST /translate (one `claude -p` run streamed back as
+// Server-Sent Events) and the history.
 import { watchFile } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import type {
   Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
 } from '../../../shared/api.ts';
@@ -10,8 +10,9 @@ import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
 } from '../../../shared/server/claude-runner.ts';
-import { readJsonBody, sendJson, type Feature } from '../../../shared/server/http.ts';
+import { readJsonBody, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../../../shared/server/log.ts';
+import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
@@ -34,6 +35,8 @@ const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
 
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
+// The page, at /. Its modules and stylesheet are served by the entry file, at their path under src/.
+const PAGE_PATH = join(FEATURES_DIRECTORY, 'translate', 'web', 'translate.html');
 
 let translate_request_count = 0;
 
@@ -318,7 +321,9 @@ export function createTranslateFeature({ database_path }: { database_path: strin
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
     const history_entry_match = HISTORY_ENTRY_PATH.exec(pathname);
-    if (req.method === 'GET' && pathname === '/translation-options') {
+    if (req.method === 'GET' && pathname === '/') {
+      await sendFile(res, PAGE_PATH, 'text/html; charset=utf-8');
+    } else if (req.method === 'GET' && pathname === '/translation-options') {
       sendJson(res, 200, translationOptionsResponse());
     } else if (req.method === 'POST' && pathname === '/translate') {
       await handleTranslate(req, res, history_store);

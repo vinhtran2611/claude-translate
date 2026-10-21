@@ -1,5 +1,5 @@
-/* The look every page shares, copied from Claude Translate (web/index.html, which keeps its own inline copy until translate
-   moves to features/translate/, docs/practice-proposal.md §6): colour tokens (light, dark by system setting, or forced by
+/* The look every page shares, copied from Claude Translate (src/features/translate/web/translate.html, which still keeps its own
+   inline copy): colour tokens (light, dark by system setting, or forced by
    data-theme), the masthead, the History sidebar, buttons, chips and menus, the card with its header bar, the thinking
    disclosure and the Markdown elements. The dark colours are written twice, for the system setting and for data-theme;
    keep the two blocks identical (test/practice-web.test.ts checks it). Served at /shared/web/base.css. */

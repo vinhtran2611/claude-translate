@@ -1,6 +1,6 @@
 // The app's entry file: daily backups, the Host check, the static files, the feature list and listen. Each feature's
 // routes live in src/features/<name>/server/routes.ts.
-import { mkdirSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import { dirname, extname, join, relative, sep } from 'node:path';
 import { createPracticeFeature } from './features/practice/server/routes.ts';
@@ -10,10 +10,8 @@ import { configureLogFile, log, LOG_DETAIL_MAX_LINES } from './shared/server/log
 import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY, SOURCE_DIRECTORY } from './shared/server/paths.ts';
 import { backupDaily } from './shared/server/sqlite.ts';
 
-const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
-const SHARED_WEB_DIRECTORY = join(SHARED_DIRECTORY, 'web');
-const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
-const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
+// Browsers ask for /favicon.ico on their own.
+const FAVICON_PATH = join(SHARED_DIRECTORY, 'web', 'favicon.svg');
 const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(DATA_DIRECTORY, 'history.sqlite');
 const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'practice-v2.sqlite');
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
@@ -58,15 +56,6 @@ async function sendServedFile(res: ServerResponse, path: string): Promise<void> 
   else await sendFile(res, path, CONTENT_TYPES.get(extension) as string);
 }
 
-// Every .ts file under directory, by the URL it is served at: url_prefix, then its path inside directory.
-function modulePathsUnder(directory: string, url_prefix: string): Map<string, string> {
-  const module_paths = new Map<string, string>();
-  for (const name of readdirSync(directory, { recursive: true, encoding: 'utf8' })) {
-    if (name.endsWith('.ts')) module_paths.set(`${url_prefix}${name}`, join(directory, name));
-  }
-  return module_paths;
-}
-
 function runDailyBackups(): void {
   for (const { path, name } of DAILY_BACKUPS) {
     try {
@@ -85,9 +74,6 @@ const features: Feature[] = [
   createTranslateFeature({ database_path: HISTORY_DATABASE_PATH }),
   createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH }),
 ];
-// The Translate page's modules, still in web/ outside src/, and the shared modules they import as /src/shared/web/...
-const WEB_MODULE_PATHS = modulePathsUnder(WEB_DIRECTORY, '/');
-const SHARED_WEB_MODULE_PATHS = modulePathsUnder(SHARED_WEB_DIRECTORY, '/src/shared/web/');
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 // A rebinding page can retry without end; one line per Host names it without flooding the log.
 const logged_forbidden_hosts = new Set<string>();
@@ -107,15 +93,9 @@ const server = createServer(async (req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
   try {
     const served_file = req.method === 'GET' ? servedFileOf(pathname) : null;
-    if (req.method === 'GET' && pathname === '/') {
-      await sendFile(res, INDEX_HTML_PATH, 'text/html; charset=utf-8');
-    } else if (served_file !== null) {
+    if (served_file !== null) {
       await sendServedFile(res, served_file);
-    } else if (req.method === 'GET' && WEB_MODULE_PATHS.has(pathname)) {
-      await sendModule(res, WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && SHARED_WEB_MODULE_PATHS.has(pathname)) {
-      await sendModule(res, SHARED_WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && (pathname === '/favicon.svg' || pathname === '/favicon.ico')) {
+    } else if (req.method === 'GET' && pathname === '/favicon.ico') {
       await sendFile(res, FAVICON_PATH, 'image/svg+xml');
     } else {
       let is_handled = false;

@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Pair } from '../src/shared/api.ts';
-import { detectSourceLanguage } from '../web/detect-language.ts';
-import { composePairsMarkdown } from '../web/pairs-markdown.ts';
+import { detectSourceLanguage } from '../src/features/translate/web/detect-language.ts';
+import { composePairsMarkdown } from '../src/features/translate/web/pairs-markdown.ts';
 
 function pair(pair_type: Pair['pair_type'], source_text: string, level = 0, marker = ''): Pair {
   return { pair_type, level, marker, source_text, translation_text: `${source_text} (vi)` };

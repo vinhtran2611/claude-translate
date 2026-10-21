@@ -26,7 +26,7 @@
 			"correctness": {
 				// Route handlers end with `return reject(...)`: one line to answer and stop.
 				"noVoidTypeReturn": "off",
-				// False alarm on a valid 2 x 2 grid in web/index.html.
+				// False alarm on a valid 2 x 2 grid in src/features/translate/web/translate.html.
 				"noInvalidGridAreas": "off"
 			},
 			"a11y": {

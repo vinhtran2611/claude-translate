@@ -1,5 +1,5 @@
 {
-  // Type checking only: Node runs the .ts files directly and the server strips types from web/*.ts as it serves them,
+  // Type checking only: Node runs the .ts files directly and the server strips types from the page modules as it serves them,
   // so nothing is ever compiled. erasableSyntaxOnly keeps every file runnable that way.
   "compilerOptions": {
     "target": "es2024",
@@ -16,5 +16,5 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "web/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

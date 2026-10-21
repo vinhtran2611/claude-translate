@@ -1,7 +1,7 @@
 // Tests for web/source-check.ts (npm test, or node --test test/source-check.test.ts), no packages.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSourceDivergence, type CheckedPair } from '../web/source-check.ts';
+import { findSourceDivergence, type CheckedPair } from '../src/features/translate/web/source-check.ts';
 
 const PDF_INPUT = `Long Term Goal
 Our top level goal is to work towards the creation of safe, beneficial AGI. The most ambitious and

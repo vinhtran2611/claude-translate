@@ -1,4 +1,4 @@
-// The HTTP contract between src/features/translate/server/routes.ts and web/app.ts (see README "API"). Types only: both sides import it with
+// The HTTP contract between src/features/translate/server/routes.ts and src/features/translate/web/translate.ts (see README "API"). Types only: both sides import it with
 // `import type`, so it is erased before anything runs and never reaches the browser.
 
 export type Language = 'en' | 'vi';

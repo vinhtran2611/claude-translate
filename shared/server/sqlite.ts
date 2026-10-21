@@ -1,5 +1,6 @@
-// Opening a feature's SQLite file: the same safety rules as server/history-store.ts, for any feature's database.
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+// Opening a feature's SQLite file with the same safety rules for every feature's database: migrations in one
+// transaction after a backup, daily backups, and a one-time rename of a file.
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -41,6 +42,23 @@ export function openDatabase(database_path: string, schema_version: number, migr
     database.exec(`PRAGMA foreign_keys = ${foreign_keys === 1 ? 'ON' : 'OFF'}`);
   }
   return database;
+}
+
+// Gives a database file its new name, once: only when old_path exists and new_path does not. The file is first copied
+// to backups/<old name>-before-rename.sqlite next to it, so the rename can always be undone. Returns true when it renamed.
+// Opening the file for the copy also finishes a transaction a crash left in its journal, so nothing is left behind.
+export function renameDatabaseOnce(old_path: string, new_path: string): boolean {
+  if (!existsSync(old_path) || existsSync(new_path)) return false;
+  const backup_path = join(dirname(old_path), 'backups', `${basename(old_path, extname(old_path))}-before-rename.sqlite`);
+  mkdirSync(dirname(backup_path), { recursive: true });
+  const database = new DatabaseSync(old_path);
+  try {
+    if (!existsSync(backup_path)) database.prepare('VACUUM INTO ?').run(backup_path);
+  } finally {
+    database.close();
+  }
+  renameSync(old_path, new_path);
+  return true;
 }
 
 // Runs fn in one transaction: all of its writes land, or none do. A dry run rolls them all back after fn, so fn's result

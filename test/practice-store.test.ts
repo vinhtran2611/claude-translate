@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ExerciseBody, FileExercise, ProjectFile } from '../features/practice/api.ts';
-import { keyFromName, openPracticeStore, type AttemptFilter, type PracticeStore } from '../features/practice/server/store.ts';
+import { openPracticeStore, type AttemptFilter, type PracticeStore } from '../features/practice/server/store.ts';
+import { keyFromName } from '../features/practice/server/store-schema.ts';
 
 // ---- Helpers ----
 

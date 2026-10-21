@@ -128,6 +128,31 @@ Lines 399-432 build an old database with very long `INSERT` lines.
 
 **Fix:** one statement per line; use the shared icons.
 
+## What was done
+
+Every item above is fixed, one commit per area. Some file names ended up a
+little different from the plan:
+
+- Item 2: the settings menus also moved out of `web/app.ts`, to
+  `web/settings-menus.ts` (with `web/fetch-json.ts`). `web/app.ts` went from
+  1,419 to about 1,070 lines.
+- Item 6: the JSON Schema builder went to `features/practice/server/schemas.ts`,
+  because only the server uses it. The browser loads the same files as before.
+- Item 4: the schema and the migration went to `store-schema.ts`.
+
+How "behaviour did not change" was checked, beyond `npm run check`:
+
+- Markdown: the parser's output on all 662 CommonMark examples and every
+  streaming prefix (hashed), and the HTML of 20,429 renders on a small fake
+  DOM, were the same before and after.
+- The `<pair>` stream parser: the same events on 15,000 random ways of cutting
+  sample replies into chunks.
+- The system prompts, the JSON Schemas, the import checks (5,058 cases), the
+  grading message (40 cases) and the migration test fixture: the same bytes.
+- The app was run on copies of the databases, and Translate (history, a live
+  translation, Clear and Undo, the menus) and Practice (projects, an attempt's
+  evaluation, the API and the schemas) were clicked through.
+
 ## What I will not change
 
 - The CommonMark algorithms themselves (`processEmphasis`, the delimiter stack).

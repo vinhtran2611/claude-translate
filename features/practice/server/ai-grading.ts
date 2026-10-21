@@ -4,15 +4,15 @@
 // produced so far is kept in memory, so a page that comes back mid-grading is sent that first, then the rest.
 import { readFileSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { modelLabelOf, runClaude } from '../../../shared/server/claude-runner.ts';
 import { formatCount, formatSeconds, log } from '../../../shared/server/log.ts';
+import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { AnswerByType, Attempt, ChoiceContent, ExerciseBody, FillContent, GradingSettings, GradingStreamEvents } from '../api.ts';
 import { countWords } from '../text.ts';
 import type { GradingOutcome, PracticeStore } from './store.ts';
 
-const PROMPT_PATH = join(dirname(dirname(fileURLToPath(import.meta.url))), 'prompts', 'grade.md');
+const PROMPT_PATH = join(FEATURES_DIRECTORY, 'practice', 'prompts', 'grade.md');
 const LETTERS = 'ABCDEF';
 
 let grading_request_count = 0;

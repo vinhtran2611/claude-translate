@@ -4,10 +4,9 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { APP_DIRECTORY } from '../shared/server/paths.ts';
 
-const APP_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
 const FAKE_CLAUDE_DIRECTORY = join(APP_DIRECTORY, 'test', 'fake-claude');
 
 export interface TestServer {

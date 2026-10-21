@@ -1,13 +1,9 @@
 // Runs one `claude -p` request for any feature: the safe flags, the stream-json reading, first-token fallback,
 // stall timeout, API retries and quota logging. What the reply text means is the caller's business.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Effort, EffortOption, ErrorKind, ModelOption } from '../api.ts';
 import { formatCount, formatSeconds, formatWeekdayTime, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from './log.ts';
-
-// The project root: this file is shared/server/claude-runner.ts.
-const APP_DIRECTORY = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+import { APP_DIRECTORY } from './paths.ts';
 
 // fallback_model_id: the model a first run hands over to when this one sends no token within SWITCH_TO_FALLBACK_AFTER_MS;
 // null: the run waits LAST_MODEL_FIRST_TOKEN_TIMEOUT_MS, then fails.

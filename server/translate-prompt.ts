@@ -1,11 +1,9 @@
 // The translation modes and the system prompt each one runs with, built from the files in prompts/.
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { Mode, ModeOption } from '../shared/api.ts';
+import { APP_DIRECTORY } from '../shared/server/paths.ts';
 
-// The project root: this file is server/translate-prompt.ts.
-const APP_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
 const PROMPTS_DIRECTORY = join(APP_DIRECTORY, 'prompts');
 // The system prompt, in order: these shared parts, then the mode's source part.
 const SHARED_PROMPT_PATHS = ['core.md', 'style-vi.md', 'style-en.md'].map((name) => join(PROMPTS_DIRECTORY, name));

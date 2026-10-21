@@ -1,7 +1,6 @@
 import { mkdirSync, readdirSync, watchFile } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type {
   Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
 } from '../shared/api.ts';
@@ -11,20 +10,19 @@ import {
 } from '../shared/server/claude-runner.ts';
 import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
 import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../shared/server/log.ts';
+import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from '../shared/server/paths.ts';
 import { backupDaily } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
 
-// The project root: this file is server/server.ts.
-const APP_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
 const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
-const SHARED_WEB_DIRECTORY = join(APP_DIRECTORY, 'shared', 'web');
+const SHARED_WEB_DIRECTORY = join(SHARED_DIRECTORY, 'web');
 const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
 const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
-const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'history.sqlite');
-const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice-v2.sqlite');
+const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(DATA_DIRECTORY, 'history.sqlite');
+const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'practice-v2.sqlite');
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
 const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(HISTORY_DATABASE_PATH), 'server.log');
 const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');

@@ -1,11 +1,11 @@
 // Practice's routes: the page at /practice and the API under /api/practice (docs/practice-api-design.md §3).
 import { readdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
+import { DOCS_DIRECTORY, FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
@@ -20,10 +20,8 @@ import {
 import { exerciseSchema, importSchema } from './schemas.ts';
 import { openPracticeStore, type AttemptFilter, type PracticeStore } from './store.ts';
 
-// features/practice/: this file is features/practice/server/routes.ts.
-const FEATURE_DIRECTORY = dirname(dirname(fileURLToPath(import.meta.url)));
+const FEATURE_DIRECTORY = join(FEATURES_DIRECTORY, 'practice');
 const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
-const DOCS_DIRECTORY = join(dirname(dirname(FEATURE_DIRECTORY)), 'docs');
 // What the browser may fetch. Modules are served with their types stripped. Every .ts and .css under web/ is listed (so a
 // new file needs no entry here), and so are the modules the server shares; URLs mirror the folders under features/practice/,
 // so a relative import resolves the same for tsc and the browser.

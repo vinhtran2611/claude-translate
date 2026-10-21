@@ -1,9 +1,8 @@
 // Practice's routes: the page at /practice and the API under /api/practice (docs/practice-api-design.md §3).
-import { readdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
-import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
+import { readRequestJson, sendError, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
 import { DOCS_DIRECTORY, FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
@@ -22,21 +21,9 @@ import { openPracticeStore, type AttemptFilter, type PracticeStore } from './sto
 
 const FEATURE_DIRECTORY = join(FEATURES_DIRECTORY, 'practice');
 const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
-// What the browser may fetch. Modules are served with their types stripped. Every .ts and .css under web/ is listed (so a
-// new file needs no entry here), and so are the modules the server shares; URLs mirror the folders under features/practice/,
-// so a relative import resolves the same for tsc and the browser.
-// URL -> the module's path on disk.
-const MODULES = new Map<string, string>();
+// The files at a URL of their own. The page's modules and stylesheet are served by the entry file, at their path under src/.
 // URL -> the file's path on disk and its Content-Type.
 const FILES = new Map<string, { path: string; content_type: string }>();
-for (const name of readdirSync(WEB_DIRECTORY, { recursive: true, encoding: 'utf8' })) {
-  const url = `/practice/web/${name}`;
-  if (name.endsWith('.ts')) MODULES.set(url, join(WEB_DIRECTORY, name));
-  if (name.endsWith('.css')) FILES.set(url, { path: join(WEB_DIRECTORY, name), content_type: 'text/css; charset=utf-8' });
-}
-for (const name of ['import-check.ts', 'text.ts']) {
-  MODULES.set(`/practice/${name}`, join(FEATURE_DIRECTORY, name));
-}
 FILES.set('/practice', {
   path: join(WEB_DIRECTORY, 'practice.html'),
   content_type: 'text/html; charset=utf-8',
@@ -467,11 +454,6 @@ export function createPracticeFeature({ database_path }: { database_path: string
     const file = FILES.get(pathname);
     if (req.method === 'GET' && file !== undefined) {
       await sendFile(res, file.path, file.content_type);
-      return true;
-    }
-    const module_path = MODULES.get(pathname);
-    if (req.method === 'GET' && module_path !== undefined) {
-      await sendModule(res, module_path);
       return true;
     }
     return handleApi(req, res, pathname);

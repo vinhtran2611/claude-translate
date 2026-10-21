@@ -82,7 +82,7 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<title>Practice · Claude Translate<\/title>/);
 
-  const css = await fetch(`${server.base_url}/practice/web/practice.css`);
+  const css = await fetch(`${server.base_url}/features/practice/web/practice.css`);
   assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
   assert.equal((await fetch(`${server.base_url}/shared/web/ui.ts`)).status, 200);
   // A module in a folder under shared/web/ is served too: markdown.ts imports its parts from markdown/.
@@ -94,13 +94,16 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   assert.equal(JSON.parse(await example.text()).format, 3);
   assert.equal((await fetch(`${server.base_url}/practice/format-guide.md`)).status, 200);
 
-  assert.equal((await fetch(`${server.base_url}/practice/web/../../src/server.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/practice/server/store.ts`)).status, 404);
+  // Server code, prompts and the entry file stay on the server.
+  assert.equal((await fetch(`${server.base_url}/features/practice/web/../../../server.ts`)).status, 404);
+  assert.equal((await fetch(`${server.base_url}/features/practice/server/store.ts`)).status, 404);
+  assert.equal((await fetch(`${server.base_url}/features/practice/prompts/grade.md`)).status, 404);
+  assert.equal((await fetch(`${server.base_url}/shared/server/paths.ts`)).status, 404);
 });
 
 test('every module the page loads, however deep, is served as JavaScript without types', async () => {
   const seen = new Set<string>();
-  const pending = [`${server.base_url}/practice/web/practice.ts`];
+  const pending = [`${server.base_url}/features/practice/web/practice.ts`];
   while (pending.length > 0) {
     const url = pending.pop() as string;
     if (seen.has(url)) continue;
@@ -112,7 +115,14 @@ test('every module the page loads, however deep, is served as JavaScript without
     assert.doesNotMatch(source, /import type|^\s*(export )?(enum|namespace) /m, url);
     for (const [, import_path] of source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g)) pending.push(new URL(import_path, url).href);
   }
-  for (const name of ['practice/web/exercise.ts', 'practice/web/templates/index.ts', 'practice/import-check.ts', 'practice/text.ts', 'shared/web/ui.ts']) {
+  const expected_modules = [
+    'features/practice/web/exercise.ts',
+    'features/practice/web/templates/index.ts',
+    'features/practice/import-check.ts',
+    'features/practice/text.ts',
+    'shared/web/ui.ts',
+  ];
+  for (const name of expected_modules) {
     assert.ok(seen.has(`${server.base_url}/${name}`), name);
   }
 });

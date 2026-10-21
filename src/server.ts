@@ -1,13 +1,13 @@
 // The app's entry file: daily backups, the Host check, the static files, the feature list and listen. Each feature's
 // routes live in src/features/<name>/server/routes.ts.
-import { mkdirSync, readdirSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { dirname, join } from 'node:path';
+import { mkdirSync, readdirSync, statSync } from 'node:fs';
+import { createServer, type ServerResponse } from 'node:http';
+import { dirname, extname, join, relative, sep } from 'node:path';
 import { createPracticeFeature } from './features/practice/server/routes.ts';
 import { createTranslateFeature } from './features/translate/server/routes.ts';
 import { sendError, sendFile, sendModule, type Feature } from './shared/server/http.ts';
 import { configureLogFile, log, LOG_DETAIL_MAX_LINES } from './shared/server/log.ts';
-import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY } from './shared/server/paths.ts';
+import { APP_DIRECTORY, DATA_DIRECTORY, SHARED_DIRECTORY, SOURCE_DIRECTORY } from './shared/server/paths.ts';
 import { backupDaily } from './shared/server/sqlite.ts';
 
 const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
@@ -24,6 +24,39 @@ const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');
 const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice-v2' }];
 const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const PORT = Number(process.env.PORT ?? 8787);
+// What a served file is sent as, by its extension. A .ts file is sent as JavaScript with its types stripped, so the
+// browser runs the same file tsc checks. A file with any other extension is not served.
+const CONTENT_TYPES = new Map([
+  ['.css', 'text/css; charset=utf-8'],
+  ['.html', 'text/html; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.md', 'text/plain; charset=utf-8'],
+  ['.svg', 'image/svg+xml'],
+]);
+// Folders whose files stay on the server: its code and the prompts.
+const PRIVATE_FOLDERS = new Set(['server', 'prompts']);
+
+// The file under src/ that a URL names, when the browser may fetch it; null otherwise. A file's URL is its path under
+// src/, so a page module's relative import resolves the same for tsc and the browser.
+function servedFileOf(pathname: string): string | null {
+  const path = join(SOURCE_DIRECTORY, pathname);
+  if (!path.startsWith(`${SOURCE_DIRECTORY}${sep}`)) return null;
+  const folders = relative(SOURCE_DIRECTORY, path).split(sep).slice(0, -1);
+  // A file right in src/ is the entry file.
+  if (folders.length === 0) return null;
+  if (folders.some((folder) => PRIVATE_FOLDERS.has(folder))) return null;
+  const extension = extname(path);
+  if (extension !== '.ts' && !CONTENT_TYPES.has(extension)) return null;
+  const is_file = statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+  if (!is_file) return null;
+  return path;
+}
+
+async function sendServedFile(res: ServerResponse, path: string): Promise<void> {
+  const extension = extname(path);
+  if (extension === '.ts') await sendModule(res, path);
+  else await sendFile(res, path, CONTENT_TYPES.get(extension) as string);
+}
 
 // Every .ts file under directory, by the URL it is served at: url_prefix, then its path inside directory.
 function modulePathsUnder(directory: string, url_prefix: string): Map<string, string> {
@@ -52,18 +85,9 @@ const features: Feature[] = [
   createTranslateFeature({ database_path: HISTORY_DATABASE_PATH }),
   createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH }),
 ];
-// URLs mirror the folders, so a page module's relative import of shared/web/ui.ts resolves the same for tsc and the browser.
-const SHARED_WEB_FILES = new Map([
-  ['/shared/web/base.css', { path: join(SHARED_WEB_DIRECTORY, 'base.css'), content_type: 'text/css; charset=utf-8' }],
-]);
-// The page's modules, served as JavaScript with their types stripped, so the browser runs the same files tsc checks.
+// The Translate page's modules, still in web/ outside src/, and the shared modules they import as /src/shared/web/...
 const WEB_MODULE_PATHS = modulePathsUnder(WEB_DIRECTORY, '/');
-// Practice's modules import shared code as /shared/web/..., the Translate page's (still in web/) as /src/shared/web/...;
-// both URLs are served until every file is served at its path under src/.
-const SHARED_WEB_MODULE_PATHS = new Map([
-  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/shared/web/'),
-  ...modulePathsUnder(SHARED_WEB_DIRECTORY, '/src/shared/web/'),
-]);
+const SHARED_WEB_MODULE_PATHS = modulePathsUnder(SHARED_WEB_DIRECTORY, '/src/shared/web/');
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 // A rebinding page can retry without end; one line per Host names it without flooding the log.
 const logged_forbidden_hosts = new Set<string>();
@@ -82,15 +106,15 @@ const server = createServer(async (req, res) => {
   }
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
   try {
+    const served_file = req.method === 'GET' ? servedFileOf(pathname) : null;
     if (req.method === 'GET' && pathname === '/') {
       await sendFile(res, INDEX_HTML_PATH, 'text/html; charset=utf-8');
+    } else if (served_file !== null) {
+      await sendServedFile(res, served_file);
     } else if (req.method === 'GET' && WEB_MODULE_PATHS.has(pathname)) {
       await sendModule(res, WEB_MODULE_PATHS.get(pathname) as string);
     } else if (req.method === 'GET' && SHARED_WEB_MODULE_PATHS.has(pathname)) {
       await sendModule(res, SHARED_WEB_MODULE_PATHS.get(pathname) as string);
-    } else if (req.method === 'GET' && SHARED_WEB_FILES.has(pathname)) {
-      const { path, content_type } = SHARED_WEB_FILES.get(pathname) as { path: string; content_type: string };
-      await sendFile(res, path, content_type);
     } else if (req.method === 'GET' && (pathname === '/favicon.svg' || pathname === '/favicon.ico')) {
       await sendFile(res, FAVICON_PATH, 'image/svg+xml');
     } else {

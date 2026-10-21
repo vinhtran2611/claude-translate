@@ -114,8 +114,10 @@ as it is.
 1. `start.sh` checks requirements, then runs `node src/server.ts`.
 2. `src/server.ts` serves `web/index.html` on `127.0.0.1` only; `src/features/translate/server/routes.ts` handles
    `POST /translate`.
-   Every `.ts` file under `web/` and `src/shared/web/` (for example `web/app.ts` and `/shared/web/markdown.ts`) is served as
-   JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
+   A file under `src/` is served at its path under `src/` (`src/shared/web/markdown.ts` at `/shared/web/markdown.ts`),
+   except the entry file and anything in a `server/` or `prompts/` folder. Every `.ts` file, these and the ones in `web/`
+   (for example `web/app.ts`), is served as JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there
+   is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
    they stream (`src/features/translate/server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
 

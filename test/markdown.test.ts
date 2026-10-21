@@ -52,47 +52,90 @@ test('CommonMark 0.31.2 inline examples: every single-paragraph example passes o
   const failures: string[] = [];
   for (const example of readJson<SpecExample[]>('./vendor/commonmark-spec-0.31.2.json')) {
     if (!INLINE_SECTIONS.has(example.section)) continue;
+    // Link definitions go to the parser's options; the rest must be one paragraph with no block syntax.
     const link_definitions = new Map<string, LinkDefinition>();
     const paragraphs: string[] = [];
     for (const block of example.markdown.replace(/\n$/, '').split(/\n\n+/)) {
       const definition = definitionOf(block);
-      if (definition?.kind === 'link_definition') { if (!link_definitions.has(normalizeLabel(definition.label))) link_definitions.set(normalizeLabel(definition.label), definition); }
-      else paragraphs.push(block);
+      if (definition?.kind !== 'link_definition') {
+        paragraphs.push(block);
+        continue;
+      }
+      const label = normalizeLabel(definition.label);
+      if (!link_definitions.has(label)) link_definitions.set(label, definition);
     }
-    const is_single_paragraph = paragraphs.length === 1 && !/^( {4}|\t|[#>]|[-*+] |\d+[.)] |```|~~~|<\w)/m.test(paragraphs[0]) && !/^(=+|-+)\s*$/m.test(paragraphs[0]);
-    if (!is_single_paragraph) continue;
+    if (paragraphs.length !== 1) continue;
+    const paragraph = paragraphs[0];
+    const has_block_syntax = /^( {4}|\t|[#>]|[-*+] |\d+[.)] |```|~~~|<\w)/m.test(paragraph) || /^(=+|-+)\s*$/m.test(paragraph);
+    if (has_block_syntax) continue;
     counts.eligible++;
-    const actual = `<p>${htmlOf(parseInline(paragraphs[0].replace(/^ +/gm, '').replace(/ +$/, ''), { link_definitions }))}</p>\n`;
-    const expected_with_breaks = example.html.replace(/<p>([\s\S]*?)<\/p>/g, (_: string, inner: string) => `<p>${inner.replace(/(?<!<br \/>)\n/g, '<br />\n')}</p>`);
-    if (actual === example.html) counts.pass++;
-    else if (actual === expected_with_breaks) counts.soft_break++;
-    else if (/<[a-zA-Z!?/]/.test(example.markdown) && /</.test(actual) && actual.replace(/<br \/>\n/g, '\n').replace(/<[^>]+>/g, '') !== '') counts.raw_html_as_text++;
-    else if (GFM_AUTOLINK_EXAMPLES.has(example.example)) counts.gfm_autolink++;
-    else failures.push(`#${example.example} ${JSON.stringify(example.markdown)} expected ${JSON.stringify(example.html)} got ${JSON.stringify(actual)}`);
+
+    const inline_text = paragraph.replace(/^ +/gm, '').replace(/ +$/, '');
+    const actual = `<p>${htmlOf(parseInline(inline_text, { link_definitions }))}</p>\n`;
+    // The renderer shows a soft break as a line break, on purpose.
+    const expected_with_breaks = example.html.replace(/<p>([\s\S]*?)<\/p>/g, (_: string, inner: string) => {
+      return `<p>${inner.replace(/(?<!<br \/>)\n/g, '<br />\n')}</p>`;
+    });
+    // Raw HTML is shown as text, on purpose: the output still has text, just no tags from the input.
+    const visible_text = actual.replace(/<br \/>\n/g, '\n').replace(/<[^>]+>/g, '');
+    const is_raw_html_as_text = /<[a-zA-Z!?/]/.test(example.markdown) && /</.test(actual) && visible_text !== '';
+    if (actual === example.html) {
+      counts.pass++;
+    } else if (actual === expected_with_breaks) {
+      counts.soft_break++;
+    } else if (is_raw_html_as_text) {
+      counts.raw_html_as_text++;
+    } else if (GFM_AUTOLINK_EXAMPLES.has(example.example)) {
+      counts.gfm_autolink++;
+    } else {
+      const expected = JSON.stringify(example.html);
+      failures.push(`#${example.example} ${JSON.stringify(example.markdown)} expected ${expected} got ${JSON.stringify(actual)}`);
+    }
   }
   console.log('commonmark inline', JSON.stringify(counts));
   assert.deepEqual(failures, []);
 });
 
-// The table block a 'table' cell parsed to; fails the test when it parsed to anything else.
-function tableBlockOf(blocks: Block[]): Extract<Block, { kind: 'table' }> {
-  const block = blocks[0];
+// The blocks of a finished 'table' cell.
+function tableCellBlocks(text: string): Block[] {
+  return parseCellBlocks('table', '', 0, text, { is_streaming: false, link_definitions: new Map() });
+}
+
+// The table block a 'table' cell parses to; fails the test when it parses to anything else.
+function tableOf(text: string): Extract<Block, { kind: 'table' }> {
+  const block = tableCellBlocks(text)[0];
   assert.ok(block.kind === 'table', `expected a table, got ${block.kind}`);
   return block;
 }
 
-test('GFM tables, strikethrough and autolink literals', () => {
-  const table = tableBlockOf(parseCellBlocks('table', '', 0, '| abc | defghi |\n:-: | -----------:\nbar | baz', { is_streaming: false, link_definitions: new Map() }));
+test('a GFM table reads its column alignments from the delimiter row', () => {
+  const table = tableOf('| abc | defghi |\n:-: | -----------:\nbar | baz');
   assert.deepEqual(table.alignments, ['center', 'right']);
   assert.equal(htmlOf(table.body_rows[0][1]), 'baz');
-  const escaped_pipe = tableBlockOf(parseCellBlocks('table', '', 0, '| f\\|oo |\n| ------ |\n| b `\\|` az |', { is_streaming: false, link_definitions: new Map() }));
-  assert.equal(htmlOf(escaped_pipe.header_cells[0]), 'f|oo');
-  assert.equal(htmlOf(escaped_pipe.body_rows[0][0]), 'b <code>|</code> az');
-  assert.equal(parseCellBlocks('table', '', 0, '| abc | def |\n| --- |\n| bar |', { is_streaming: false, link_definitions: new Map() })[0].kind, 'paragraph');
-  const tab_separated = tableBlockOf(parseCellBlocks('table', '', 0, 'Domain\tExample\nVision\tViT', { is_streaming: false, link_definitions: new Map() }));
-  assert.deepEqual(tab_separated.header_cells.map(htmlOf), ['Domain', 'Example']);
+});
+
+test('an escaped pipe stays inside its table cell', () => {
+  const table = tableOf('| f\\|oo |\n| ------ |\n| b `\\|` az |');
+  assert.equal(htmlOf(table.header_cells[0]), 'f|oo');
+  assert.equal(htmlOf(table.body_rows[0][0]), 'b <code>|</code> az');
+});
+
+test('a delimiter row with the wrong number of cells is not a table', () => {
+  assert.equal(tableCellBlocks('| abc | def |\n| --- |\n| bar |')[0].kind, 'paragraph');
+});
+
+test('tab-separated rows, as pasted from a document, are a table', () => {
+  const table = tableOf('Domain\tExample\nVision\tViT');
+  assert.deepEqual(table.header_cells.map(htmlOf), ['Domain', 'Example']);
+});
+
+test('only "~~" strikes through; a single "~" stays text', () => {
   assert.equal(htmlOf(parseInline('~~Hi~~ Hello, ~about~ 5')), '<del>Hi</del> Hello, ~about~ 5');
-  assert.equal(htmlOf(parseInline('Visit www.commonmark.org/a.b.')), 'Visit <a href="http://www.commonmark.org/a.b">www.commonmark.org/a.b</a>.');
+});
+
+test('GFM autolink literals: a www link drops its trailing dot; an address ending in "-" is no address', () => {
+  const link_html = 'Visit <a href="http://www.commonmark.org/a.b">www.commonmark.org/a.b</a>.';
+  assert.equal(htmlOf(parseInline('Visit www.commonmark.org/a.b.')), link_html);
   assert.equal(htmlOf(parseInline('a.b-c_d@a.b-')), 'a.b-c_d@a.b-');
 });
 
@@ -121,13 +164,32 @@ test('document index: GitHub slugs, footnote order, entry 28 table of contents',
   assert.ok(altman.anchor_ids.has('md-fn-1') && altman.anchor_ids.has('md-fnref-1'));
 });
 
-const blockText = (block: Block): string => block.kind === 'paragraph' || block.kind === 'heading' ? plainTextOf(block.children)
-  : block.kind === 'list_item' ? `${block.marker.text} ${block.blocks.map(blockText).join(' ')}`
-  : block.kind === 'quote' ? block.blocks.map(blockText).join(' ')
-  : block.kind === 'list' ? block.items.map((item) => item.map(blockText).join(' ')).join(' ')
-  : block.kind === 'table' ? [block.header_cells, ...block.body_rows].map((row) => row.map(plainTextOf).join(' ')).join(' ')
-  : block.kind === 'footnote_definition' ? `${block.label} ${plainTextOf(block.children)}`
-  : block.kind === 'code_block' ? block.text : block.kind === 'link_definition' ? `${block.label} ${block.destination}` : '';
+// The text a reader sees in a block.
+function blockText(block: Block): string {
+  switch (block.kind) {
+    case 'paragraph':
+    case 'heading':
+      return plainTextOf(block.children);
+    case 'list_item':
+      return `${block.marker.text} ${block.blocks.map(blockText).join(' ')}`;
+    case 'quote':
+      return block.blocks.map(blockText).join(' ');
+    case 'list':
+      return block.items.map((item) => item.map(blockText).join(' ')).join(' ');
+    case 'table': {
+      const rows = [block.header_cells, ...block.body_rows];
+      return rows.map((row) => row.map(plainTextOf).join(' ')).join(' ');
+    }
+    case 'footnote_definition':
+      return `${block.label} ${plainTextOf(block.children)}`;
+    case 'code_block':
+      return block.text;
+    case 'link_definition':
+      return `${block.label} ${block.destination}`;
+    default:
+      return '';
+  }
+}
 const visibleOf = (blocks: Block[]): string => blocks.map(blockText).join(' ').replace(/\s+/g, ' ').trim();
 
 // Every prefix of every cell, with the index the app holds live (the pairs completed before this one); a frame is

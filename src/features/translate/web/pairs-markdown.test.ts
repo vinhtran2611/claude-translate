@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import type { TranslatedBlock } from '../../../shared/api-types.ts';
 import { composePairsMarkdown } from './pairs-markdown.ts';
 
-function pair(pair_type: TranslatedBlock['blockType'], source_text: string, level = 0, marker = ''): TranslatedBlock {
-  return { blockType: pair_type, level, marker, sourceText: source_text, translatedText: `${source_text} (vi)` };
+function pair(pairType: TranslatedBlock['blockType'], sourceText: string, level = 0, marker = ''): TranslatedBlock {
+  return { blockType: pairType, level, marker, sourceText, translatedText: `${sourceText} (vi)` };
 }
 
 test('headings, list items and paragraphs are rebuilt as Markdown', () => {

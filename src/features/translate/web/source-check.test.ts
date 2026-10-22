@@ -14,7 +14,7 @@ Data ingest:
 - raw/ directory
 - wiki`;
 
-const paragraphs = (...source_texts: string[]): CheckedBlock[] => source_texts.map((sourceText) => ({ blockType: 'paragraph', sourceText }));
+const paragraphs = (...sourceTexts: string[]): CheckedBlock[] => sourceTexts.map((sourceText) => ({ blockType: 'paragraph', sourceText }));
 
 const PDF_REFORMATTED = paragraphs(
   'Long Term Goal',
@@ -31,18 +31,18 @@ test('reformatting that only joins lines, rejoins hyphenated words and drops bul
 test('a dropped word is reported where it went missing', () => {
   const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, sourceText: pair.sourceText.replace('most ambitious', 'ambitious') }));
   assert.deepEqual(findSourceDivergence(PDF_INPUT, sources), {
-    input_excerpt: 'most ambitious and successful version of',
-    source_excerpt: 'ambitious and successful version of this',
+    inputExcerpt: 'most ambitious and successful version of',
+    sourceExcerpt: 'ambitious and successful version of this',
   });
 });
 
 test('a fixed typo counts as a change', () => {
   const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, sourceText: pair.sourceText.replace('Al assistant', 'AI assistant') }));
-  assert.equal(findSourceDivergence(PDF_INPUT, sources)?.source_excerpt, 'AI assistant, fine tuned via RL,');
+  assert.equal(findSourceDivergence(PDF_INPUT, sources)?.sourceExcerpt, 'AI assistant, fine tuned via RL,');
 });
 
 test('a source that stops early reports an empty source excerpt', () => {
-  assert.deepEqual(findSourceDivergence('one two three', paragraphs('one two')), { input_excerpt: 'three', source_excerpt: '' });
+  assert.deepEqual(findSourceDivergence('one two three', paragraphs('one two')), { inputExcerpt: 'three', sourceExcerpt: '' });
 });
 
 test('markers, heading marks, fences and checkboxes the source leaves out are not words', () => {
@@ -68,7 +68,7 @@ test('page furniture moved out of the sentence it interrupted still matches', ()
 
 test('page furniture that was dropped or changed is still reported', () => {
   const dropped: CheckedBlock[] = [{ blockType: 'paragraph', sourceText: "a colossal waste of researcher's time." }, { blockType: 'paragraph', sourceText: 'Next paragraph.' }];
-  assert.equal(findSourceDivergence(PAGE_BREAK_INPUT, dropped)?.input_excerpt, "2/3/22, 9:31 PM The Bitter Lesson");
+  assert.equal(findSourceDivergence(PAGE_BREAK_INPUT, dropped)?.inputExcerpt, "2/3/22, 9:31 PM The Bitter Lesson");
   const changed: CheckedBlock[] = [
     { blockType: 'paragraph', sourceText: "a colossal waste of researcher's time." },
     { blockType: 'other', sourceText: '2/3/22, 9:31 PM The Bitter Lesson' },

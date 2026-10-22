@@ -28,20 +28,20 @@ function blockMarkdownOf(pair: TranslatedBlock, side: PairSide): string {
   }
   if (pair.blockType === 'code' && pair.marker) {
     // The closing fence is the opening one without its language: "```ts" closes with "```".
-    const closing_fence = pair.marker.match(/^(`+|~+)/)?.[0] ?? '```';
-    return `${pair.marker}\n${text}\n${closing_fence}`;
+    const closingFence = pair.marker.match(/^(`+|~+)/)?.[0] ?? '```';
+    return `${pair.marker}\n${text}\n${closingFence}`;
   }
   return text;
 }
 
 export function composePairsMarkdown(pairs: TranslatedBlock[], side: PairSide): string {
   let markdown = '';
-  pairs.forEach((pair, pair_index) => {
-    if (pair_index > 0) {
+  pairs.forEach((pair, pairIndex) => {
+    if (pairIndex > 0) {
       // Items of one list sit on consecutive lines; every other block is a paragraph of its own.
-      const previous_pair = pairs[pair_index - 1];
-      const is_same_list = previous_pair.blockType === 'list_item' && pair.blockType === 'list_item';
-      markdown += is_same_list ? '\n' : '\n\n';
+      const previousPair = pairs[pairIndex - 1];
+      const isSameList = previousPair.blockType === 'list_item' && pair.blockType === 'list_item';
+      markdown += isSameList ? '\n' : '\n\n';
     }
     markdown += blockMarkdownOf(pair, side);
   });

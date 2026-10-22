@@ -7,13 +7,13 @@ export interface AlertAction {
   run: () => void;
 }
 
-const alert_box = requiredElement('#alert', HTMLDivElement);
-const alert_title = requiredElement('#alert-title', HTMLDivElement);
-const alert_body = requiredElement('#alert-body', HTMLDivElement);
-const alert_detail = requiredElement('#alert-detail', HTMLDivElement);
-const alert_action_button = requiredElement('#alert-action-button', HTMLButtonElement);
+const alertBox = requiredElement('#alert', HTMLDivElement);
+const alertTitle = requiredElement('#alert-title', HTMLDivElement);
+const alertBody = requiredElement('#alert-body', HTMLDivElement);
+const alertDetail = requiredElement('#alert-detail', HTMLDivElement);
+const alertActionButton = requiredElement('#alert-action-button', HTMLButtonElement);
 // What the alert's button does while this alert is shown; written only by showAlert.
-let alert_action: AlertAction | null = null;
+let alertAction: AlertAction | null = null;
 
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -23,30 +23,30 @@ export function errorText(error: unknown): string {
 export function showAlert({ severity, title, body = '', detail = '', action = null }: {
   severity: 'error' | 'warning' | 'info'; title: string; body?: string; detail?: string; action?: AlertAction | null;
 }): void {
-  alert_box.className = `alert is-${severity}`;
-  alert_title.textContent = title;
-  alert_body.textContent = body;
-  alert_body.hidden = body === '';
-  alert_detail.textContent = detail;
-  alert_action = action;
-  alert_action_button.hidden = action === null;
-  alert_action_button.textContent = action?.label ?? '';
+  alertBox.className = `alert is-${severity}`;
+  alertTitle.textContent = title;
+  alertBody.textContent = body;
+  alertBody.hidden = body === '';
+  alertDetail.textContent = detail;
+  alertAction = action;
+  alertActionButton.hidden = action === null;
+  alertActionButton.textContent = action?.label ?? '';
   // Hiding first re-inserts it at the top of the top layer, above a drawer opened since it was last shown.
-  if (alert_box.matches(':popover-open')) alert_box.hidePopover();
-  alert_box.showPopover();
+  if (alertBox.matches(':popover-open')) alertBox.hidePopover();
+  alertBox.showPopover();
 }
 
 export function hideAlert(): void {
-  if (alert_box.matches(':popover-open')) alert_box.hidePopover();
-  alert_action = null;
+  if (alertBox.matches(':popover-open')) alertBox.hidePopover();
+  alertAction = null;
 }
 
 export function isAlertShown(): boolean {
-  return alert_box.matches(':popover-open');
+  return alertBox.matches(':popover-open');
 }
 
-alert_action_button.addEventListener('click', () => {
-  const action = alert_action;
+alertActionButton.addEventListener('click', () => {
+  const action = alertAction;
   hideAlert();
   action?.run();
 });

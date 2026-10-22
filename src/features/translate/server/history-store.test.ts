@@ -8,13 +8,13 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openHistoryStore, type NewTranslation } from './history-store.ts';
 
-function scratchPath(): { directory: string; database_path: string } {
+function scratchPath(): { directory: string; databasePath: string } {
   const directory = mkdtempSync(join(tmpdir(), 'translate-store-'));
-  return { directory, database_path: join(directory, 'translate.sqlite') };
+  return { directory, databasePath: join(directory, 'translate.sqlite') };
 }
 
-function readRows(database_path: string, sql: string): Record<string, unknown>[] {
-  const database = new DatabaseSync(database_path, { readOnly: true });
+function readRows(databasePath: string, sql: string): Record<string, unknown>[] {
+  const database = new DatabaseSync(databasePath, { readOnly: true });
   const rows = database.prepare(sql).all().map((row) => ({ ...row }));
   database.close();
   return rows;
@@ -26,7 +26,7 @@ const REQUEST: NewTranslation = {
 };
 
 test('a run is saved as it starts, then finished once with its output', () => {
-  const store = openHistoryStore(scratchPath().database_path);
+  const store = openHistoryStore(scratchPath().databasePath);
   const id = store.startTranslation(REQUEST);
   const running = store.readTranslation(id)!;
   assert.equal(running.run.status, 'running');
@@ -59,17 +59,17 @@ test('a run is saved as it starts, then finished once with its output', () => {
 });
 
 test('a server restart fails the runs it interrupted', () => {
-  const { database_path } = scratchPath();
-  const store = openHistoryStore(database_path);
+  const { databasePath } = scratchPath();
+  const store = openHistoryStore(databasePath);
   const id = store.startTranslation(REQUEST);
-  assert.equal(openHistoryStore(database_path).failInterruptedTranslations(), 1);
+  assert.equal(openHistoryStore(databasePath).failInterruptedTranslations(), 1);
   const run = store.readTranslation(id)!.run;
   assert.equal(run.status, 'failed');
   assert.equal(run.errorCode, 'interrupted');
 });
 
 test('the table refuses the same language on both sides', () => {
-  const store = openHistoryStore(scratchPath().database_path);
+  const store = openHistoryStore(scratchPath().databasePath);
   assert.throws(() => store.startTranslation({ ...REQUEST, targetLanguage: 'en' }), /CHECK constraint failed/);
 });
 
@@ -84,8 +84,8 @@ const SCHEMA_4 = `
   PRAGMA user_version = 4;`;
 
 function schema4File() {
-  const { directory, database_path } = scratchPath();
-  const database = new DatabaseSync(database_path);
+  const { directory, databasePath } = scratchPath();
+  const database = new DatabaseSync(databasePath);
   database.exec(SCHEMA_4);
   const insert = database.prepare(`
     INSERT INTO translations (created_at, source_language, target_language, input_text, pairs_json, unpaired_text, outcome, served_model_id,
@@ -103,14 +103,14 @@ function schema4File() {
   insert.run('2026-10-18T13:00:00.000Z', 'en', 'vi', 'Gone', '[]', 'x', 'done', 'claude-sonnet-5-5', 300, '', null, 'claude-sonnet-5-5', 'low', 'translate');
   database.exec('DELETE FROM translations WHERE id = 4');
   database.close();
-  return { directory, database_path };
+  return { directory, databasePath };
 }
 
 test('the schema 4 migration backs the file up, then maps every row as the spec says', () => {
-  const { directory, database_path } = schema4File();
-  const store = openHistoryStore(database_path);
+  const { directory, databasePath } = schema4File();
+  const store = openHistoryStore(databasePath);
   assert.deepEqual(readRows(join(directory, 'backups', 'translate-before-schema-5.sqlite'), 'PRAGMA user_version'), [{ user_version: 4 }]);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 5 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 5 }]);
 
   assert.deepEqual(store.readTranslation(1), {
     id: 1, sourceLanguage: 'en', targetLanguage: 'vi', sourceFormat: 'markdown', sourceText: '- One\n\nTwo',
@@ -138,15 +138,15 @@ test('the schema 4 migration backs the file up, then maps every row as the spec 
 });
 
 test('after the schema 4 migration an id is never given twice', () => {
-  const { database_path } = schema4File();
-  const store = openHistoryStore(database_path);
+  const { databasePath } = schema4File();
+  const store = openHistoryStore(databasePath);
   assert.equal(store.startTranslation(REQUEST), 5);
   assert.equal(store.listTranslations().length, 4);
 });
 
 test('a schema 1 file still goes through the old steps to schema 4, then to 5', () => {
-  const { database_path } = scratchPath();
-  const database = new DatabaseSync(database_path);
+  const { databasePath } = scratchPath();
+  const database = new DatabaseSync(databasePath);
   database.exec(`
     CREATE TABLE translations (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, source_language TEXT NOT NULL,
       target_language TEXT NOT NULL, input_text TEXT NOT NULL, pairs_json TEXT NOT NULL, unpaired_text TEXT NOT NULL, outcome TEXT NOT NULL,
@@ -155,7 +155,7 @@ test('a schema 1 file still goes through the old steps to schema 4, then to 5', 
     VALUES ('2026-01-01T00:00:00.000Z', 'en', 'vi', 'Hi', '[]', 'Chào', 'done', 'claude-sonnet-5-5', 100);
     PRAGMA user_version = 1;`);
   database.close();
-  const translation = openHistoryStore(database_path).readTranslation(1)!;
+  const translation = openHistoryStore(databasePath).readTranslation(1)!;
   assert.equal(translation.run.effort, 'low');
   assert.equal(translation.sourceFormat, 'plain_text');
   assert.equal(translation.textOutsideBlocks, 'Chào');

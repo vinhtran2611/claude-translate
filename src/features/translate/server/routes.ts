@@ -20,7 +20,7 @@ import { DEFAULT_SOURCE_FORMAT, isSourceFormat, PROMPT_PATHS, SOURCE_FORMAT_OPTI
 
 // What a translate process is started with; all three are fixed for its lifetime.
 interface TranslateSettings {
-  model_id: string;
+  modelId: string;
   effort: Effort;
   sourceFormat: SourceFormat;
 }
@@ -40,83 +40,83 @@ const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // The page, at /. Its modules and stylesheet are served by the entry file, at their path under src/.
 const PAGE_PATH = join(FEATURES_DIRECTORY, 'translate', 'web', 'translate.html');
 
-let translate_request_count = 0;
+let translateRequestCount = 0;
 
-function spawnTranslateProcess({ model_id, effort, sourceFormat }: TranslateSettings): ClaudeProcess {
-  return spawnClaudeProcess({ modelId: model_id, effort, systemPrompt: systemPromptOf(sourceFormat) });
+function spawnTranslateProcess({ modelId, effort, sourceFormat }: TranslateSettings): ClaudeProcess {
+  return spawnClaudeProcess({ modelId, effort, systemPrompt: systemPromptOf(sourceFormat) });
 }
 
 // A fact the request never reached (null, or no tokens) is left out. 10, 6 and 6 fit 'Sonnet 5.5', 'medium' and
 // '144.5s', so model, effort and duration line up across closing lines.
 function formatRequestSummary({
-  outcome, model_label, effort, duration_ms, failure_text, first_text_ms, thinking_duration_ms, block_count,
-  outside_char_count, output_tokens, history_id,
+  outcome, modelLabel, effort, durationMs, failureText, firstTextMs, thinkingDurationMs, blockCount,
+  outsideCharCount, outputTokens, historyId,
 }: {
-  outcome: Outcome; model_label: string; effort: Effort; duration_ms: number; failure_text: string; first_text_ms: number | null;
-  thinking_duration_ms: number | null; block_count: number; outside_char_count: number; output_tokens: number | null;
-  history_id: number | null;
+  outcome: Outcome; modelLabel: string; effort: Effort; durationMs: number; failureText: string; firstTextMs: number | null;
+  thinkingDurationMs: number | null; blockCount: number; outsideCharCount: number; outputTokens: number | null;
+  historyId: number | null;
 }): string {
-  const fields = [model_label.padEnd(10), effort.padEnd(6), formatSeconds(duration_ms).padStart(6)];
-  if (failure_text !== '') fields.push(failure_text);
-  if (first_text_ms !== null) fields.push(`first text ${formatSeconds(first_text_ms)}`);
-  if (thinking_duration_ms !== null) fields.push(`thought ${formatSeconds(thinking_duration_ms)}`);
-  if (block_count > 0 || outcome === 'done') fields.push(`${formatCount(block_count)} ${block_count === 1 ? 'block' : 'blocks'}`);
-  if (outside_char_count > 0) fields.push(`${formatCount(outside_char_count)} chars outside blocks`);
-  if (output_tokens !== null && output_tokens > 0) fields.push(`${formatCount(output_tokens)} tokens`);
-  if (history_id !== null) fields.push(`history ${history_id}`);
+  const fields = [modelLabel.padEnd(10), effort.padEnd(6), formatSeconds(durationMs).padStart(6)];
+  if (failureText !== '') fields.push(failureText);
+  if (firstTextMs !== null) fields.push(`first text ${formatSeconds(firstTextMs)}`);
+  if (thinkingDurationMs !== null) fields.push(`thought ${formatSeconds(thinkingDurationMs)}`);
+  if (blockCount > 0 || outcome === 'done') fields.push(`${formatCount(blockCount)} ${blockCount === 1 ? 'block' : 'blocks'}`);
+  if (outsideCharCount > 0) fields.push(`${formatCount(outsideCharCount)} chars outside blocks`);
+  if (outputTokens !== null && outputTokens > 0) fields.push(`${formatCount(outputTokens)} tokens`);
+  if (historyId !== null) fields.push(`history ${historyId}`);
   return fields.join('  ');
 }
 
-function sendEvent(res: ServerResponse, ...[event_name, data]: StreamEvent): void {
+function sendEvent(res: ServerResponse, ...[eventName, data]: StreamEvent): void {
   if (res.destroyed || res.writableEnded) return;
-  res.write(`event: ${event_name}\ndata: ${JSON.stringify(data)}\n\n`);
+  res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 // One started-up process always waits for the next request, hiding ~1.5s of startup (measured: first text 2.2s
 // cold vs 1.0s warm). Each process translates once, so no context carries over.
-let spare_process: ClaudeProcess | null = null;
-// The settings spare_process was started with: the last request's. Written only by spawnSpareProcess.
-let spare_settings: TranslateSettings = { model_id: DEFAULT_MODEL_ID, effort: DEFAULT_EFFORT, sourceFormat: DEFAULT_SOURCE_FORMAT };
+let spareProcess: ClaudeProcess | null = null;
+// The settings spareProcess was started with: the last request's. Written only by spawnSpareProcess.
+let spareSettings: TranslateSettings = { modelId: DEFAULT_MODEL_ID, effort: DEFAULT_EFFORT, sourceFormat: DEFAULT_SOURCE_FORMAT };
 // Set when a waiting spare dies, cleared by any result: a CLI that cannot start warns once, not once per request.
-let is_spare_failing = false;
+let isSpareFailing = false;
 
 function spawnSpareProcess(settings: TranslateSettings): void {
-  const claude_process = spawnTranslateProcess(settings);
-  let start_error_message: string | null = null;
-  let stderr_text = '';
-  claude_process.stderr.on('data', (chunk) => { stderr_text += chunk; });
-  claude_process.on('error', (error) => { start_error_message = error.message; });
+  const claudeProcess = spawnTranslateProcess(settings);
+  let startErrorMessage: string | null = null;
+  let stderrText = '';
+  claudeProcess.stderr.on('data', (chunk) => { stderrText += chunk; });
+  claudeProcess.on('error', (error) => { startErrorMessage = error.message; });
   // 'close', not 'exit': it also follows a spawn error, and it fires only after stderr has been read.
-  claude_process.on('close', (exit_code, signal) => {
-    if (spare_process !== claude_process) return;
-    spare_process = null;
-    if (is_spare_failing) return;
-    is_spare_failing = true;
-    const exit_text = start_error_message ?? (signal ? `killed by ${signal}` : `exit code ${exit_code}`);
-    log('warn', null, 'spare', `failed before use: ${exit_text}`, lastLines(stderr_text, LOG_DETAIL_MAX_LINES));
+  claudeProcess.on('close', (exitCode, signal) => {
+    if (spareProcess !== claudeProcess) return;
+    spareProcess = null;
+    if (isSpareFailing) return;
+    isSpareFailing = true;
+    const exitText = startErrorMessage ?? (signal ? `killed by ${signal}` : `exit code ${exitCode}`);
+    log('warn', null, 'spare', `failed before use: ${exitText}`, lastLines(stderrText, LOG_DETAIL_MAX_LINES));
   });
-  spare_process = claude_process;
-  spare_settings = settings;
+  spareProcess = claudeProcess;
+  spareSettings = settings;
 }
 
 // The model, effort and source format (its system prompt) are fixed at spawn, so a spare started for other settings is replaced,
 // not used: only the first translation after a change starts cold.
-function takeClaudeProcess(settings: TranslateSettings): { claude_process: ClaudeProcess; is_cold_start: boolean } {
-  const is_spare_usable = spare_process !== null && spare_process.exitCode === null && spare_process.signalCode === null &&
-    spare_settings.model_id === settings.model_id && spare_settings.effort === settings.effort && spare_settings.sourceFormat === settings.sourceFormat;
-  const claude_process = is_spare_usable && spare_process !== null ? spare_process : spawnTranslateProcess(settings);
-  if (!is_spare_usable) spare_process?.kill();
+function takeClaudeProcess(settings: TranslateSettings): { claudeProcess: ClaudeProcess; isColdStart: boolean } {
+  const isSpareUsable = spareProcess !== null && spareProcess.exitCode === null && spareProcess.signalCode === null &&
+    spareSettings.modelId === settings.modelId && spareSettings.effort === settings.effort && spareSettings.sourceFormat === settings.sourceFormat;
+  const claudeProcess = isSpareUsable && spareProcess !== null ? spareProcess : spawnTranslateProcess(settings);
+  if (!isSpareUsable) spareProcess?.kill();
   spawnSpareProcess(settings);
-  return { claude_process, is_cold_start: !is_spare_usable };
+  return { claudeProcess, isColdStart: !isSpareUsable };
 }
 
 // The spare's prompt was read at its spawn, so without this a prompt edit lands one translation late.
 function watchPromptFiles(): void {
-  for (const prompt_path of PROMPT_PATHS) {
-    watchFile(prompt_path, { interval: 1000 }, () => {
-      spare_process?.kill();
-      spawnSpareProcess(spare_settings);
-      log('info', null, 'prompt', `${basename(prompt_path)} changed; spare restarted`);
+  for (const promptPath of PROMPT_PATHS) {
+    watchFile(promptPath, { interval: 1000 }, () => {
+      spareProcess?.kill();
+      spawnSpareProcess(spareSettings);
+      log('info', null, 'prompt', `${basename(promptPath)} changed; spare restarted`);
     });
   }
 }
@@ -128,10 +128,10 @@ function rejectBadRequest(res: ServerResponse, reason: string): void {
 
 // Why the body is not a translate request, or null when it is one.
 function translateRequestProblem(body: Partial<TranslateRequest>): string | null {
-  const is_valid_direction =
+  const isValidDirection =
     (body.sourceLanguage === 'en' && body.targetLanguage === 'vi') ||
     (body.sourceLanguage === 'vi' && body.targetLanguage === 'en');
-  if (!is_valid_direction) return 'Direction must be en->vi or vi->en';
+  if (!isValidDirection) return 'Direction must be en->vi or vi->en';
   if (typeof body.sourceText !== 'string' || body.sourceText.trim() === '' || body.sourceText.length > MAX_TEXT_CHARS) {
     return `sourceText must be a non-empty string of at most ${MAX_TEXT_CHARS} chars`;
   }
@@ -147,14 +147,14 @@ function translateRequestProblem(body: Partial<TranslateRequest>): string | null
 }
 
 // The closing log line is a warning when the model ignored the block format, an error when the run failed.
-function closingLogLevel(outcome: Outcome, block_count: number, outside_char_count: number): LogLevel {
+function closingLogLevel(outcome: Outcome, blockCount: number, outsideCharCount: number): LogLevel {
   if (outcome === 'error') return 'error';
-  const is_block_format_broken = outcome === 'done' && (block_count === 0 || outside_char_count > 0);
-  if (is_block_format_broken) return 'warn';
+  const isBlockFormatBroken = outcome === 'done' && (blockCount === 0 || outsideCharCount > 0);
+  if (isBlockFormatBroken) return 'warn';
   return 'info';
 }
 
-async function handleTranslate(req: IncomingMessage, res: ServerResponse, history_store: HistoryStore): Promise<void> {
+async function handleTranslate(req: IncomingMessage, res: ServerResponse, historyStore: HistoryStore): Promise<void> {
   let body: Partial<TranslateRequest>;
   try {
     body = (await readJsonBody(req)) as Partial<TranslateRequest>;
@@ -167,7 +167,7 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     rejectBadRequest(res, problem);
     return;
   }
-  const { sourceLanguage: source_language, targetLanguage: target_language, sourceText: text, modelId: requested_model_id, effort, sourceFormat } = body as TranslateRequest;
+  const { sourceLanguage, targetLanguage, sourceText: text, modelId: requestedModelId, effort, sourceFormat } = body as TranslateRequest;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -175,138 +175,138 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     Connection: 'keep-alive',
   });
 
-  const request_number = ++translate_request_count;
-  const started_at = Date.now();
-  const direction_line = `Translate from ${LANGUAGE_NAMES[source_language]} into ${LANGUAGE_NAMES[target_language]}.`;
-  const first_token_allowance_ms = Math.round((text.length / CHARS_PER_TOKEN[source_language]) * FIRST_TOKEN_MS_PER_INPUT_TOKEN);
-  // null until runClaude returns; its served_model_id is the requested model, or its fallback.
+  const requestNumber = ++translateRequestCount;
+  const startedAt = Date.now();
+  const directionLine = `Translate from ${LANGUAGE_NAMES[sourceLanguage]} into ${LANGUAGE_NAMES[targetLanguage]}.`;
+  const firstTokenAllowanceMs = Math.round((text.length / CHARS_PER_TOKEN[sourceLanguage]) * FIRST_TOKEN_MS_PER_INPUT_TOKEN);
+  // null until runClaude returns; its servedModelId is the requested model, or its fallback.
   let run: Run | null = null;
-  const servedModelId = (): string => run?.servedModelId() ?? requested_model_id;
+  const currentServedModelId = (): string => run?.servedModelId() ?? requestedModelId;
   // What the model has produced so far, in the shape history stores; written only by sendOutputEvents.
-  // thinking_duration_ms stays null unless a thinking block closed.
-  const translation_output: { blocks: TranslatedBlock[]; text_outside_blocks: string; thinking_text: string; thinking_duration_ms: number | null } =
-    { blocks: [], text_outside_blocks: '', thinking_text: '', thinking_duration_ms: null };
+  // thinkingDurationMs stays null unless a thinking block closed.
+  const translationOutput: { blocks: TranslatedBlock[]; textOutsideBlocks: string; thinkingText: string; thinkingDurationMs: number | null } =
+    { blocks: [], textOutsideBlocks: '', thinkingText: '', thinkingDurationMs: null };
   // null while running; the outcome once the request ended. Written only by finishTranslation.
-  let finished_outcome: Outcome | null = null;
+  let finishedOutcome: Outcome | null = null;
   // The run is saved as it starts (the spec's run rules), so a failure or a cancel is kept too. null when the save
   // failed; the page then has no entry to mark as open.
-  let history_id: number | null = null;
+  let historyId: number | null = null;
   try {
-    history_id = history_store.startTranslation({
-      sourceLanguage: source_language,
-      targetLanguage: target_language,
+    historyId = historyStore.startTranslation({
+      sourceLanguage,
+      targetLanguage,
       sourceFormat,
       sourceText: text,
-      requestedModelId: requested_model_id,
+      requestedModelId,
       effort,
-      startedAt: new Date(started_at).toISOString(),
+      startedAt: new Date(startedAt).toISOString(),
     });
-  } catch (save_error) {
-    log('error', request_number, 'history', `save failed: ${(save_error as Error).message}`);
+  } catch (saveError) {
+    log('error', requestNumber, 'history', `save failed: ${(saveError as Error).message}`);
   }
   // null until the run gets that far.
-  let first_text_ms: number | null = null;
-  let output_tokens: number | null = null;
-  const pair_parser = createPairStreamParser();
-  const sendOutputEvents = (output_events: StreamEvent[]): void => {
-    for (const output_event of output_events) {
-      const [event_name, data] = output_event;
-      if (event_name === 'block_start') {
+  let firstTextMs: number | null = null;
+  let outputTokens: number | null = null;
+  const pairParser = createPairStreamParser();
+  const sendOutputEvents = (outputEvents: StreamEvent[]): void => {
+    for (const outputEvent of outputEvents) {
+      const [eventName, data] = outputEvent;
+      if (eventName === 'block_start') {
         const { blockType, level, marker } = data;
-        translation_output.blocks[data.blockIndex] = { blockType, level, marker, sourceText: '', translatedText: '' };
-      } else if (event_name === 'source_delta') {
-        translation_output.blocks[data.blockIndex].sourceText += data.text;
-      } else if (event_name === 'translation_delta') {
-        translation_output.blocks[data.blockIndex].translatedText += data.text;
-      } else if (event_name === 'outside_text_delta') {
-        translation_output.text_outside_blocks += data.text;
-      } else if (event_name === 'thinking_delta') {
-        translation_output.thinking_text += data.text;
-      } else if (event_name === 'thinking_done') {
-        translation_output.thinking_duration_ms = data.durationMs;
+        translationOutput.blocks[data.blockIndex] = { blockType, level, marker, sourceText: '', translatedText: '' };
+      } else if (eventName === 'source_delta') {
+        translationOutput.blocks[data.blockIndex].sourceText += data.text;
+      } else if (eventName === 'translation_delta') {
+        translationOutput.blocks[data.blockIndex].translatedText += data.text;
+      } else if (eventName === 'outside_text_delta') {
+        translationOutput.textOutsideBlocks += data.text;
+      } else if (eventName === 'thinking_delta') {
+        translationOutput.thinkingText += data.text;
+      } else if (eventName === 'thinking_done') {
+        translationOutput.thinkingDurationMs = data.durationMs;
       }
-      sendEvent(res, ...output_event);
+      sendEvent(res, ...outputEvent);
     }
   };
 
   // The one place a translate request ends: saves how it ended with what the model produced, logs the closing line,
   // then sends the closing event. When outcome is 'error', error = { errorCode, message } goes to the page and the
-  // saved run, and failure_text (one line) and failure_detail_lines (e.g. a stderr tail) go to the log only.
+  // saved run, and failureText (one line) and failureDetailLines (e.g. a stderr tail) go to the log only.
   function finishTranslation(
-    outcome: Outcome, error: { errorCode: CliErrorCode; message: string } | null = null, failure_text = '', failure_detail_lines: string[] = [],
+    outcome: Outcome, error: { errorCode: CliErrorCode; message: string } | null = null, failureText = '', failureDetailLines: string[] = [],
   ): void {
-    if (finished_outcome !== null) return;
-    finished_outcome = outcome;
-    const served_model_id = servedModelId();
-    const duration_ms = Date.now() - started_at;
-    const block_count = translation_output.blocks.length;
-    const outside_char_count = translation_output.text_outside_blocks.length;
-    let text_outside_blocks = translation_output.text_outside_blocks;
-    if (text_outside_blocks.trim() === '') text_outside_blocks = '';
-    if (history_id !== null) {
+    if (finishedOutcome !== null) return;
+    finishedOutcome = outcome;
+    const servedModelId = currentServedModelId();
+    const durationMs = Date.now() - startedAt;
+    const blockCount = translationOutput.blocks.length;
+    const outsideCharCount = translationOutput.textOutsideBlocks.length;
+    let textOutsideBlocks = translationOutput.textOutsideBlocks;
+    if (textOutsideBlocks.trim() === '') textOutsideBlocks = '';
+    if (historyId !== null) {
       try {
-        history_store.finishTranslation(history_id, {
+        historyStore.finishTranslation(historyId, {
           status: RUN_STATUS_OF_OUTCOME[outcome],
-          blocks: translation_output.blocks,
-          textOutsideBlocks: text_outside_blocks,
-          servedModelId: served_model_id,
-          thinkingText: translation_output.thinking_text,
-          thinkingMs: translation_output.thinking_duration_ms,
+          blocks: translationOutput.blocks,
+          textOutsideBlocks,
+          servedModelId,
+          thinkingText: translationOutput.thinkingText,
+          thinkingMs: translationOutput.thinkingDurationMs,
           errorCode: error?.errorCode ?? null,
           errorMessage: error?.message ?? null,
         });
-      } catch (save_error) {
-        log('error', request_number, 'history', `save failed: ${(save_error as Error).message}`);
+      } catch (saveError) {
+        log('error', requestNumber, 'history', `save failed: ${(saveError as Error).message}`);
       }
     }
     const summary = formatRequestSummary({
       outcome,
-      model_label: modelLabelOf(served_model_id),
+      modelLabel: modelLabelOf(servedModelId),
       effort,
-      duration_ms,
-      failure_text: error === null ? '' : `${error.errorCode}: ${failure_text}`,
-      first_text_ms,
-      thinking_duration_ms: translation_output.thinking_duration_ms,
-      block_count,
-      outside_char_count,
-      output_tokens,
-      history_id,
+      durationMs,
+      failureText: error === null ? '' : `${error.errorCode}: ${failureText}`,
+      firstTextMs,
+      thinkingDurationMs: translationOutput.thinkingDurationMs,
+      blockCount,
+      outsideCharCount,
+      outputTokens,
+      historyId,
     });
-    const log_level = closingLogLevel(outcome, block_count, outside_char_count);
-    log(log_level, request_number, outcome, summary, failure_detail_lines);
+    const logLevel = closingLogLevel(outcome, blockCount, outsideCharCount);
+    log(logLevel, requestNumber, outcome, summary, failureDetailLines);
     if (outcome === 'cancelled') return;
-    const is_fallback = served_model_id !== requested_model_id;
-    if (outcome === 'done') sendEvent(res, 'done', { durationMs: duration_ms, servedModelId: served_model_id, effort, isFallback: is_fallback, translationId: history_id });
-    else if (error !== null) sendEvent(res, 'error', { ...error, servedModelId: served_model_id, effort, isFallback: is_fallback, translationId: history_id });
+    const isFallback = servedModelId !== requestedModelId;
+    if (outcome === 'done') sendEvent(res, 'done', { durationMs, servedModelId, effort, isFallback, translationId: historyId });
+    else if (error !== null) sendEvent(res, 'error', { ...error, servedModelId, effort, isFallback, translationId: historyId });
     res.end();
   }
 
-  const { claude_process, is_cold_start } = takeClaudeProcess({ model_id: requested_model_id, effort, sourceFormat });
-  const cold_start_note = is_cold_start ? '  cold start' : '';
-  const request_line = `${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${sourceFormat}`;
-  log('info', request_number, 'start', `${source_language}->${target_language}  ${request_line}${cold_start_note}`);
+  const { claudeProcess, isColdStart } = takeClaudeProcess({ modelId: requestedModelId, effort, sourceFormat });
+  const coldStartNote = isColdStart ? '  cold start' : '';
+  const requestLine = `${formatCount(text.length)} chars  ${modelLabelOf(requestedModelId)} ${effort}  ${sourceFormat}`;
+  log('info', requestNumber, 'start', `${sourceLanguage}->${targetLanguage}  ${requestLine}${coldStartNote}`);
   run = runClaude({
-    requestNumber: request_number,
-    settings: { modelId: requested_model_id, effort, systemPrompt: systemPromptOf(sourceFormat) },
-    userMessage: `${direction_line}\n\n<input_text>\n${text}\n</input_text>`,
-    firstTokenAllowanceMs: first_token_allowance_ms,
-    claudeProcess: claude_process,
+    requestNumber,
+    settings: { modelId: requestedModelId, effort, systemPrompt: systemPromptOf(sourceFormat) },
+    userMessage: `${directionLine}\n\n<input_text>\n${text}\n</input_text>`,
+    firstTokenAllowanceMs,
+    claudeProcess,
     handlers: {
-      onThinkingDelta: (thinking_text) => sendOutputEvents([['thinking_delta', { text: thinking_text }]]),
-      onThinkingDone: (duration_ms) => sendOutputEvents([['thinking_done', { durationMs: duration_ms }]]),
-      onText: (reply_text) => {
-        if (first_text_ms === null) first_text_ms = Date.now() - started_at;
-        sendOutputEvents(pair_parser.push(reply_text));
+      onThinkingDelta: (thinkingText) => sendOutputEvents([['thinking_delta', { text: thinkingText }]]),
+      onThinkingDone: (durationMs) => sendOutputEvents([['thinking_done', { durationMs }]]),
+      onText: (replyText) => {
+        if (firstTextMs === null) firstTextMs = Date.now() - startedAt;
+        sendOutputEvents(pairParser.push(replyText));
       },
       onRetry: (retry) => sendEvent(res, 'retry', retry),
       onFallback: (fallback) => sendEvent(res, 'fallback', fallback),
-      onResultMessage: (result_output_tokens) => {
-        is_spare_failing = false;
-        sendOutputEvents(pair_parser.finish());
-        output_tokens = result_output_tokens;
+      onResultMessage: (resultOutputTokens) => {
+        isSpareFailing = false;
+        sendOutputEvents(pairParser.finish());
+        outputTokens = resultOutputTokens;
       },
       onDone: () => finishTranslation('done'),
-      onError: (error, failure_text, failure_detail_lines) => finishTranslation('error', error, failure_text, failure_detail_lines),
+      onError: (error, failureText, failureDetailLines) => finishTranslation('error', error, failureText, failureDetailLines),
     },
   });
 
@@ -321,9 +321,9 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
 // rejection, else null (also before the first reply since the server started).
 function translationOptionsResponse(): TranslationOptions {
   const { status, rateLimitType, utilization, resetsAt } = lastRateLimitInfo() ?? {};
-  const is_quota_warning = status === 'allowed_warning' || status === 'rejected';
-  let quota_warning: TranslationOptions['quotaWarning'] = null;
-  if (is_quota_warning) quota_warning = { status, rateLimitType, utilization, resetsAt };
+  const isQuotaWarning = status === 'allowed_warning' || status === 'rejected';
+  let quotaWarning: TranslationOptions['quotaWarning'] = null;
+  if (isQuotaWarning) quotaWarning = { status, rateLimitType, utilization, resetsAt };
   return {
     models: MODEL_OPTIONS.map(({ modelId, label, shortLabel, description }) => ({ modelId, label, shortLabel, description })),
     efforts: EFFORT_OPTIONS,
@@ -331,34 +331,34 @@ function translationOptionsResponse(): TranslationOptions {
     defaultModelId: DEFAULT_MODEL_ID,
     defaultEffort: DEFAULT_EFFORT,
     defaultSourceFormat: DEFAULT_SOURCE_FORMAT,
-    quotaWarning: quota_warning,
+    quotaWarning,
   };
 }
 
-export function createTranslateFeature({ database_path }: { database_path: string }): Feature {
+export function createTranslateFeature({ databasePath }: { databasePath: string }): Feature {
   // Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
-  const history_store = openHistoryStore(database_path);
-  const interrupted_count = history_store.failInterruptedTranslations();
-  if (interrupted_count > 0) log('warn', null, 'history', `${interrupted_count} translation(s) were interrupted by a restart`);
+  const historyStore = openHistoryStore(databasePath);
+  const interruptedCount = historyStore.failInterruptedTranslations();
+  if (interruptedCount > 0) log('warn', null, 'history', `${interruptedCount} translation(s) were interrupted by a restart`);
   watchPromptFiles();
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    const history_entry_match = HISTORY_ENTRY_PATH.exec(pathname);
+    const historyEntryMatch = HISTORY_ENTRY_PATH.exec(pathname);
     if (req.method === 'GET' && pathname === '/') {
       await sendFile(res, PAGE_PATH, 'text/html; charset=utf-8');
     } else if (req.method === 'GET' && pathname === '/translation-options') {
       sendJson(res, 200, translationOptionsResponse());
     } else if (req.method === 'POST' && pathname === '/translate') {
-      await handleTranslate(req, res, history_store);
+      await handleTranslate(req, res, historyStore);
     } else if (req.method === 'GET' && pathname === '/history') {
-      sendJson(res, 200, history_store.listTranslations());
-    } else if (req.method === 'GET' && history_entry_match) {
-      const translation = history_store.readTranslation(Number(history_entry_match[1]));
+      sendJson(res, 200, historyStore.listTranslations());
+    } else if (req.method === 'GET' && historyEntryMatch) {
+      const translation = historyStore.readTranslation(Number(historyEntryMatch[1]));
       if (translation) sendJson(res, 200, translation);
       else res.writeHead(404).end('No such history entry');
-    } else if (req.method === 'DELETE' && history_entry_match) {
-      const is_deleted = history_store.deleteTranslation(Number(history_entry_match[1]));
-      res.writeHead(is_deleted ? 204 : 404).end();
+    } else if (req.method === 'DELETE' && historyEntryMatch) {
+      const isDeleted = historyStore.deleteTranslation(Number(historyEntryMatch[1]));
+      res.writeHead(isDeleted ? 204 : 404).end();
     } else {
       return false;
     }
@@ -367,7 +367,7 @@ export function createTranslateFeature({ database_path }: { database_path: strin
 
   // Once the server listens, a spare process starts for the default settings.
   function start(): void {
-    spawnSpareProcess(spare_settings);
+    spawnSpareProcess(spareSettings);
   }
 
   return { name: 'translate', handle, start };

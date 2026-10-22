@@ -21,12 +21,12 @@ interface SidebarHandlers {
   focusSourceText: () => void;
 }
 
-const history_sidebar = requiredElement('#history-sidebar', HTMLDialogElement);
-const sidebar_open_button = requiredElement('#sidebar-open-button', HTMLButtonElement);
-const history_search = requiredElement('#history-search', HTMLInputElement);
-const history_list = requiredElement('#history-list', HTMLOListElement);
-const history_status = requiredElement('#history-status', HTMLParagraphElement);
-const wide_screen_query = matchMedia('(min-width: 1280px)');
+const historySidebar = requiredElement('#history-sidebar', HTMLDialogElement);
+const sidebarOpenButton = requiredElement('#sidebar-open-button', HTMLButtonElement);
+const historySearch = requiredElement('#history-search', HTMLInputElement);
+const historyList = requiredElement('#history-list', HTMLOListElement);
+const historyStatus = requiredElement('#history-status', HTMLParagraphElement);
+const wideScreenQuery = matchMedia('(min-width: 1280px)');
 const HISTORY_LIST_LIMIT = 200;
 // Long enough to reach Undo after a misclick, short enough that the row does not linger.
 const DELETE_UNDO_MS = 5000;
@@ -34,29 +34,29 @@ const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 let handlers: SidebarHandlers | null = null;
 // Summaries from the last GET /history, newest first; written only by loadHistory.
-let history_summaries: TranslationSummary[] = [];
+let historySummaries: TranslationSummary[] = [];
 // The entry on screen, marked in the list; null when the workspace holds anything else. Written only by setShownHistoryId.
-let shown_history_id: number | null = null;
+let shownEntryId: number | null = null;
 // Deletes waiting out their Undo window: entry id -> timer. The row stays hidden while its id is here.
-const pending_deletes = new Map<number, ReturnType<typeof setTimeout>>();
+const pendingDeletes = new Map<number, ReturnType<typeof setTimeout>>();
 
 export function shownHistoryId(): number | null {
-  return shown_history_id;
+  return shownEntryId;
 }
 
-export function setShownHistoryId(history_id: number | null): void {
-  shown_history_id = history_id;
-  for (const open_button of history_list.querySelectorAll<HTMLButtonElement>('.history-open-button')) {
-    const is_current = Number(open_button.dataset.entryId) === history_id;
-    if (is_current) open_button.setAttribute('aria-current', 'true');
-    else open_button.removeAttribute('aria-current');
+export function setShownHistoryId(historyId: number | null): void {
+  shownEntryId = historyId;
+  for (const openButton of historyList.querySelectorAll<HTMLButtonElement>('.history-open-button')) {
+    const isCurrent = Number(openButton.dataset.entryId) === historyId;
+    if (isCurrent) openButton.setAttribute('aria-current', 'true');
+    else openButton.removeAttribute('aria-current');
   }
 }
 
-// The first non-blank line of input_preview, without the Markdown that would otherwise show as raw marks.
-export function historyTitleOf(input_preview: string): string {
-  const first_line = input_preview.split('\n').find((line) => line.trim() !== '') ?? '';
-  return plainTextOf(parseInline(first_line.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s+|\d+[.)]\s+)/, '')))
+// The first non-blank line of inputPreview, without the Markdown that would otherwise show as raw marks.
+export function historyTitleOf(inputPreview: string): string {
+  const firstLine = inputPreview.split('\n').find((line) => line.trim() !== '') ?? '';
+  return plainTextOf(parseInline(firstLine.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s+|\d+[.)]\s+)/, '')))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -65,103 +65,103 @@ function describeHistoryTooltip(summary: TranslationSummary): string {
   const created = new Date(summary.createdAt);
   const time = created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const day = historyGroupOf(summary.createdAt);
-  let day_label = day;
-  if (day !== 'Today' && day !== 'Yesterday') day_label = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const partial_note = summary.run.status === 'succeeded' ? '' : ' · partial';
+  let dayLabel = day;
+  if (day !== 'Today' && day !== 'Yesterday') dayLabel = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const partialNote = summary.run.status === 'succeeded' ? '' : ' · partial';
   const choice = { modelId: servedModelOf(summary.run), effort: summary.run.effort ?? '' };
-  const choice_label = `${sourceFormatNoteOf(summary.sourceFormat)}${choiceLabelOf(choice)}`;
+  const choiceLabel = `${sourceFormatNoteOf(summary.sourceFormat)}${choiceLabelOf(choice)}`;
   const direction = `${summary.sourceLanguage.toUpperCase()} → ${summary.targetLanguage.toUpperCase()}`;
-  return `${direction} · ${day_label} ${time} · ${choice_label}${partial_note}`;
+  return `${direction} · ${dayLabel} ${time} · ${choiceLabel}${partialNote}`;
 }
 
-function matchesHistorySearch(summary: TranslationSummary, folded_query_words: string[]): boolean {
+function matchesHistorySearch(summary: TranslationSummary, foldedQueryWords: string[]): boolean {
   const haystack = foldForSearch(`${summary.sourcePreview} ${summary.outputPreview}`);
-  return folded_query_words.every((word) => haystack.includes(word));
+  return foldedQueryWords.every((word) => haystack.includes(word));
 }
 
 // '' hides it. Used for the empty state, no search matches, and load or delete errors.
 function showHistoryStatus(text: string): void {
-  history_status.textContent = text;
-  history_status.hidden = text === '';
+  historyStatus.textContent = text;
+  historyStatus.hidden = text === '';
 }
 
 function createHistoryItem(summary: TranslationSummary): HTMLLIElement {
   const item = document.createElement('li');
   item.className = 'history-item';
-  const open_button = document.createElement('button');
-  open_button.className = 'history-open-button';
-  open_button.dataset.entryId = String(summary.id);
-  open_button.tabIndex = -1;
+  const openButton = document.createElement('button');
+  openButton.className = 'history-open-button';
+  openButton.dataset.entryId = String(summary.id);
+  openButton.tabIndex = -1;
   const title = historyTitleOf(summary.sourcePreview);
-  const is_complete = summary.run.status === 'succeeded';
-  open_button.title = describeHistoryTooltip(summary);
-  open_button.setAttribute('aria-label', is_complete ? title : `${title} (partial)`);
-  if (summary.id === shown_history_id) open_button.setAttribute('aria-current', 'true');
-  const title_element = document.createElement('span');
-  title_element.className = 'history-item-title';
-  title_element.textContent = title;
-  open_button.append(title_element);
-  if (!is_complete) {
-    const partial_mark = document.createElement('span');
-    partial_mark.className = 'history-partial-mark';
-    partial_mark.setAttribute('aria-hidden', 'true');
-    open_button.append(partial_mark);
+  const isComplete = summary.run.status === 'succeeded';
+  openButton.title = describeHistoryTooltip(summary);
+  openButton.setAttribute('aria-label', isComplete ? title : `${title} (partial)`);
+  if (summary.id === shownEntryId) openButton.setAttribute('aria-current', 'true');
+  const titleElement = document.createElement('span');
+  titleElement.className = 'history-item-title';
+  titleElement.textContent = title;
+  openButton.append(titleElement);
+  if (!isComplete) {
+    const partialMark = document.createElement('span');
+    partialMark.className = 'history-partial-mark';
+    partialMark.setAttribute('aria-hidden', 'true');
+    openButton.append(partialMark);
   }
-  open_button.addEventListener('click', () => openHistoryEntry(summary.id));
+  openButton.addEventListener('click', () => openHistoryEntry(summary.id));
 
-  const delete_button = document.createElement('button');
-  delete_button.className = 'history-delete-button';
-  delete_button.tabIndex = -1;
-  delete_button.title = 'Delete (⌫)';
-  delete_button.setAttribute('aria-label', 'Delete');
-  delete_button.innerHTML = TRASH_ICON;
-  delete_button.addEventListener('click', () => deleteHistoryEntry(summary.id));
+  const deleteButton = document.createElement('button');
+  deleteButton.className = 'history-delete-button';
+  deleteButton.tabIndex = -1;
+  deleteButton.title = 'Delete (⌫)';
+  deleteButton.setAttribute('aria-label', 'Delete');
+  deleteButton.innerHTML = TRASH_ICON;
+  deleteButton.addEventListener('click', () => deleteHistoryEntry(summary.id));
 
-  item.append(open_button, delete_button);
+  item.append(openButton, deleteButton);
   return item;
 }
 
 // The one renderer of the list: grouped, filtered by the search field, minus rows waiting to be deleted.
 // Exactly one row is in the Tab order (roving tabindex): the open entry if listed, else the first.
 function renderHistoryList(): void {
-  const folded_query_words = foldForSearch(history_search.value).split(/\s+/).filter(Boolean);
-  const visible_summaries = history_summaries.filter((summary) =>
-    !pending_deletes.has(summary.id) && matchesHistorySearch(summary, folded_query_words));
-  const list_children: HTMLLIElement[] = [];
-  let previous_group = null;
-  for (const summary of visible_summaries) {
+  const foldedQueryWords = foldForSearch(historySearch.value).split(/\s+/).filter(Boolean);
+  const visibleSummaries = historySummaries.filter((summary) =>
+    !pendingDeletes.has(summary.id) && matchesHistorySearch(summary, foldedQueryWords));
+  const listChildren: HTMLLIElement[] = [];
+  let previousGroup = null;
+  for (const summary of visibleSummaries) {
     const group = historyGroupOf(summary.createdAt);
-    if (group !== previous_group) {
-      const group_label = document.createElement('li');
-      group_label.className = 'history-group-label';
-      group_label.textContent = group;
-      list_children.push(group_label);
-      previous_group = group;
+    if (group !== previousGroup) {
+      const groupLabel = document.createElement('li');
+      groupLabel.className = 'history-group-label';
+      groupLabel.textContent = group;
+      listChildren.push(groupLabel);
+      previousGroup = group;
     }
-    list_children.push(createHistoryItem(summary));
+    listChildren.push(createHistoryItem(summary));
   }
-  if (history_summaries.length >= HISTORY_LIST_LIMIT && folded_query_words.length === 0) {
-    const limit_note = document.createElement('li');
-    limit_note.className = 'history-list-limit';
-    limit_note.textContent = `Showing the latest ${HISTORY_LIST_LIMIT}`;
-    list_children.push(limit_note);
+  if (historySummaries.length >= HISTORY_LIST_LIMIT && foldedQueryWords.length === 0) {
+    const limitNote = document.createElement('li');
+    limitNote.className = 'history-list-limit';
+    limitNote.textContent = `Showing the latest ${HISTORY_LIST_LIMIT}`;
+    listChildren.push(limitNote);
   }
-  history_list.replaceChildren(...list_children);
-  if (history_summaries.length === pending_deletes.size) showHistoryStatus('Your translations will appear here.');
-  else if (visible_summaries.length === 0) showHistoryStatus(`No matches for “${history_search.value.trim()}”`);
+  historyList.replaceChildren(...listChildren);
+  if (historySummaries.length === pendingDeletes.size) showHistoryStatus('Your translations will appear here.');
+  else if (visibleSummaries.length === 0) showHistoryStatus(`No matches for “${historySearch.value.trim()}”`);
   else showHistoryStatus('');
-  const current_button = history_list.querySelector<HTMLButtonElement>('.history-open-button[aria-current="true"]');
-  const tab_stop = current_button ?? history_list.querySelector<HTMLButtonElement>('.history-open-button');
-  if (tab_stop) tab_stop.tabIndex = 0;
-  current_button?.scrollIntoView({ block: 'nearest' });
+  const currentButton = historyList.querySelector<HTMLButtonElement>('.history-open-button[aria-current="true"]');
+  const tabStop = currentButton ?? historyList.querySelector<HTMLButtonElement>('.history-open-button');
+  if (tabStop) tabStop.tabIndex = 0;
+  currentButton?.scrollIntoView({ block: 'nearest' });
 }
 
 export async function loadHistory(): Promise<void> {
   try {
-    history_summaries = await fetchJson<TranslationSummary[]>('/history');
+    historySummaries = await fetchJson<TranslationSummary[]>('/history');
     renderHistoryList();
   } catch (error) {
-    history_list.replaceChildren();
+    historyList.replaceChildren();
     showHistoryStatus(`Could not load history: ${errorText(error)}`);
   }
 }
@@ -170,59 +170,59 @@ function readIsSidebarOpen(): boolean {
   return readStored('is_sidebar_open') !== '0';
 }
 
-function writeIsSidebarOpen(is_open: boolean): void {
-  writeStored('is_sidebar_open', is_open ? '1' : '0');
+function writeIsSidebarOpen(isOpen: boolean): void {
+  writeStored('is_sidebar_open', isOpen ? '1' : '0');
 }
 
 // Whether the page starts with the sidebar docked: a wide screen, and it was not closed last time.
 export function isDockedOnStart(): boolean {
-  return wide_screen_query.matches && readIsSidebarOpen();
+  return wideScreenQuery.matches && readIsSidebarOpen();
 }
 
 // Wide screens dock it as a column (non-modal, remembered); narrow screens show it as a modal drawer.
 export function openSidebar(): void {
-  if (wide_screen_query.matches) {
+  if (wideScreenQuery.matches) {
     // A docked sidebar is not modal: typing should continue where it was. focus() is a no-op on the
     // open button (hidden once the sidebar is open), so a click keeps the dialog's own focus.
-    const previous_focus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    history_sidebar.show();
-    previous_focus?.focus();
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    historySidebar.show();
+    previousFocus?.focus();
     writeIsSidebarOpen(true);
   } else {
-    history_sidebar.showModal();
+    historySidebar.showModal();
   }
-  sidebar_open_button.setAttribute('aria-expanded', 'true');
+  sidebarOpenButton.setAttribute('aria-expanded', 'true');
   loadHistory();
 }
 
 export function closeSidebar(): void {
-  history_sidebar.close();
-  if (wide_screen_query.matches) writeIsSidebarOpen(false);
+  historySidebar.close();
+  if (wideScreenQuery.matches) writeIsSidebarOpen(false);
 }
 
 export function toggleSidebar(): void {
-  if (history_sidebar.open) closeSidebar();
+  if (historySidebar.open) closeSidebar();
   else openSidebar();
 }
 
 export function isSidebarOpen(): boolean {
-  return history_sidebar.open;
+  return historySidebar.open;
 }
 
 export function isSidebarModal(): boolean {
-  return history_sidebar.matches(':modal');
+  return historySidebar.matches(':modal');
 }
 
 // ⌘K: opens the sidebar if needed and puts the cursor in its search field, its text selected.
 export function focusHistorySearch(): void {
-  if (!history_sidebar.open) openSidebar();
-  history_search.focus();
-  history_search.select();
+  if (!historySidebar.open) openSidebar();
+  historySearch.focus();
+  historySearch.select();
 }
 
-async function openHistoryEntry(entry_id: number): Promise<void> {
+async function openHistoryEntry(entryId: number): Promise<void> {
   try {
-    handlers?.showEntry(await fetchJson<Translation>(`/history/${entry_id}`));
+    handlers?.showEntry(await fetchJson<Translation>(`/history/${entryId}`));
     if (isSidebarModal()) closeSidebar();
   } catch (error) {
     showHistoryStatus(`Could not open it: ${errorText(error)}`);
@@ -230,95 +230,95 @@ async function openHistoryEntry(entry_id: number): Promise<void> {
   }
 }
 
-function flushPendingDelete(entry_id: number): void {
-  clearTimeout(pending_deletes.get(entry_id));
-  pending_deletes.delete(entry_id);
-  fetch(`/history/${entry_id}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+function flushPendingDelete(entryId: number): void {
+  clearTimeout(pendingDeletes.get(entryId));
+  pendingDeletes.delete(entryId);
+  fetch(`/history/${entryId}`, { method: 'DELETE', keepalive: true }).catch(() => {});
 }
 
 // Hides the row at once and deletes on the server only after DELETE_UNDO_MS, so Undo needs no server call.
-function deleteHistoryEntry(entry_id: number): void {
-  const open_buttons = [...history_list.querySelectorAll<HTMLButtonElement>('.history-open-button')];
-  const visible_ids = open_buttons.map((button) => Number(button.dataset.entryId));
-  const deleted_index = visible_ids.indexOf(entry_id);
-  const focus_id = visible_ids[deleted_index + 1] ?? visible_ids[deleted_index - 1] ?? null;
-  const had_focus = history_list.contains(document.activeElement);
-  pending_deletes.set(entry_id, setTimeout(() => {
-    pending_deletes.delete(entry_id);
-    fetchJson<null>(`/history/${entry_id}`, { method: 'DELETE' })
-      .then(() => { history_summaries = history_summaries.filter((summary) => summary.id !== entry_id); })
+function deleteHistoryEntry(entryId: number): void {
+  const openButtons = [...historyList.querySelectorAll<HTMLButtonElement>('.history-open-button')];
+  const visibleIds = openButtons.map((button) => Number(button.dataset.entryId));
+  const deletedIndex = visibleIds.indexOf(entryId);
+  const focusId = visibleIds[deletedIndex + 1] ?? visibleIds[deletedIndex - 1] ?? null;
+  const hadFocus = historyList.contains(document.activeElement);
+  pendingDeletes.set(entryId, setTimeout(() => {
+    pendingDeletes.delete(entryId);
+    fetchJson<null>(`/history/${entryId}`, { method: 'DELETE' })
+      .then(() => { historySummaries = historySummaries.filter((summary) => summary.id !== entryId); })
       .catch((error: unknown) => showHistoryStatus(`Could not delete: ${errorText(error)}`));
   }, DELETE_UNDO_MS));
-  if (entry_id === shown_history_id) setShownHistoryId(null);
+  if (entryId === shownEntryId) setShownHistoryId(null);
   renderHistoryList();
-  if (had_focus && focus_id !== null) history_list.querySelector<HTMLButtonElement>(`[data-entry-id="${focus_id}"]`)?.focus();
+  if (hadFocus && focusId !== null) historyList.querySelector<HTMLButtonElement>(`[data-entry-id="${focusId}"]`)?.focus();
   showAlert({
     severity: 'info',
     title: 'Translation deleted',
     action: {
       label: 'Undo',
       run: () => {
-        clearTimeout(pending_deletes.get(entry_id));
-        pending_deletes.delete(entry_id);
+        clearTimeout(pendingDeletes.get(entryId));
+        pendingDeletes.delete(entryId);
         renderHistoryList();
-        if (history_sidebar.open) history_list.querySelector<HTMLButtonElement>(`[data-entry-id="${entry_id}"]`)?.focus();
+        if (historySidebar.open) historyList.querySelector<HTMLButtonElement>(`[data-entry-id="${entryId}"]`)?.focus();
       },
     },
   });
 }
 
 // Wires the sidebar's own buttons and keys. The page passes what opening an entry and leaving the search do.
-export function initHistorySidebar(page_handlers: SidebarHandlers): void {
-  handlers = page_handlers;
-  sidebar_open_button.addEventListener('click', () => {
+export function initHistorySidebar(pageHandlers: SidebarHandlers): void {
+  handlers = pageHandlers;
+  sidebarOpenButton.addEventListener('click', () => {
     openSidebar();
-    history_search.focus();
+    historySearch.focus();
   });
   requiredElement('#sidebar-close-button', HTMLButtonElement).addEventListener('click', closeSidebar);
   // Only a modal drawer has a backdrop; a click on the dialog itself (not the content) is a click on it.
-  history_sidebar.addEventListener('click', (event) => {
-    if (event.target === history_sidebar && isSidebarModal()) closeSidebar();
+  historySidebar.addEventListener('click', (event) => {
+    if (event.target === historySidebar && isSidebarModal()) closeSidebar();
   });
-  history_sidebar.addEventListener('close', () => sidebar_open_button.setAttribute('aria-expanded', 'false'));
-  wide_screen_query.addEventListener('change', () => {
-    history_sidebar.close();
-    if (wide_screen_query.matches && readIsSidebarOpen()) openSidebar();
+  historySidebar.addEventListener('close', () => sidebarOpenButton.setAttribute('aria-expanded', 'false'));
+  wideScreenQuery.addEventListener('change', () => {
+    historySidebar.close();
+    if (wideScreenQuery.matches && readIsSidebarOpen()) openSidebar();
   });
-  history_search.addEventListener('input', renderHistoryList);
-  history_search.addEventListener('keydown', (event) => {
+  historySearch.addEventListener('input', renderHistoryList);
+  historySearch.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      history_list.querySelector<HTMLButtonElement>('.history-open-button')?.focus();
+      historyList.querySelector<HTMLButtonElement>('.history-open-button')?.focus();
     } else if (event.key === 'Escape') {
       // stopPropagation keeps this Esc from also cancelling a running translation in the page handler.
       event.stopPropagation();
-      if (history_search.value !== '') {
+      if (historySearch.value !== '') {
         event.preventDefault();
-        history_search.value = '';
+        historySearch.value = '';
         renderHistoryList();
       } else if (!isSidebarModal()) {
         handlers?.focusSourceText();
       }
     }
   });
-  history_list.addEventListener('keydown', (event) => {
-    const open_buttons = [...history_list.querySelectorAll<HTMLButtonElement>('.history-open-button')];
-    const focused_index = open_buttons.findIndex((button) => button === document.activeElement);
-    if (focused_index === -1) return;
-    const target_index = arrowTargetOf(event.key, focused_index, open_buttons.length);
-    if (target_index !== undefined) {
+  historyList.addEventListener('keydown', (event) => {
+    const openButtons = [...historyList.querySelectorAll<HTMLButtonElement>('.history-open-button')];
+    const focusedIndex = openButtons.findIndex((button) => button === document.activeElement);
+    if (focusedIndex === -1) return;
+    const targetIndex = arrowTargetOf(event.key, focusedIndex, openButtons.length);
+    if (targetIndex !== undefined) {
       event.preventDefault();
-      const target_button = open_buttons[Math.max(0, Math.min(open_buttons.length - 1, target_index))];
-      open_buttons.forEach((button) => { button.tabIndex = button === target_button ? 0 : -1; });
-      target_button.focus();
-      target_button.scrollIntoView({ block: 'nearest' });
+      const targetButton = openButtons[Math.max(0, Math.min(openButtons.length - 1, targetIndex))];
+      openButtons.forEach((button) => { button.tabIndex = button === targetButton ? 0 : -1; });
+      targetButton.focus();
+      targetButton.scrollIntoView({ block: 'nearest' });
     } else if (event.key === 'Backspace' || event.key === 'Delete') {
       event.preventDefault();
-      deleteHistoryEntry(Number(open_buttons[focused_index].dataset.entryId));
+      deleteHistoryEntry(Number(openButtons[focusedIndex].dataset.entryId));
     }
   });
   // A delete still inside its Undo window would be lost on reload; keepalive lets it finish as the page goes.
   window.addEventListener('pagehide', () => {
-    for (const entry_id of [...pending_deletes.keys()]) flushPendingDelete(entry_id);
+    for (const entryId of [...pendingDeletes.keys()]) flushPendingDelete(entryId);
   });
 }

@@ -107,11 +107,11 @@ function migrateFrom4(database: DatabaseSync): void {
   for (const row of rows) {
     const pairs = JSON.parse(row.pairs_json) as Schema4Pair[];
     const status = RUN_STATUS_OF_OUTCOME[row.outcome];
-    let error_code: RunErrorCode | null = null;
-    let error_message: string | null = null;
+    let errorCode: RunErrorCode | null = null;
+    let errorMessage: string | null = null;
     if (status === 'failed') {
-      error_code = 'claude_error';
-      error_message = UNKNOWN_ERROR;
+      errorCode = 'claude_error';
+      errorMessage = UNKNOWN_ERROR;
     }
     const run: ModelRun = {
       status,
@@ -120,8 +120,8 @@ function migrateFrom4(database: DatabaseSync): void {
       effort: row.effort,
       thinkingText: thinkingTextOf(row.thinking_text),
       thinkingMs: row.thinking_duration_ms,
-      errorCode: error_code,
-      errorMessage: error_message,
+      errorCode,
+      errorMessage,
       startedAt: row.created_at,
       finishedAt: new Date(Date.parse(row.created_at) + row.duration_ms).toISOString(),
     };
@@ -147,15 +147,15 @@ function migrateFrom4(database: DatabaseSync): void {
 
 // Brings any older file to schema 5: first to schema 4 with the old steps, then to the new table.
 // openDatabase calls it at every open; a file already at SCHEMA_VERSION needs nothing.
-function migrate(database: DatabaseSync, file_schema_version: number): void {
-  if (file_schema_version === SCHEMA_VERSION) return;
-  if (file_schema_version === 0) {
+function migrate(database: DatabaseSync, fileSchemaVersion: number): void {
+  if (fileSchemaVersion === SCHEMA_VERSION) return;
+  if (fileSchemaVersion === 0) {
     for (const statement of CREATE_TABLES) database.exec(statement);
     return;
   }
-  if (file_schema_version === 1) for (const statement of ADD_THINKING_COLUMNS) database.exec(statement);
-  if (file_schema_version <= 2) for (const statement of ADD_CHOICE_COLUMNS) database.exec(statement);
-  if (file_schema_version <= 3) for (const statement of ADD_MODE_COLUMN) database.exec(statement);
+  if (fileSchemaVersion === 1) for (const statement of ADD_THINKING_COLUMNS) database.exec(statement);
+  if (fileSchemaVersion <= 2) for (const statement of ADD_CHOICE_COLUMNS) database.exec(statement);
+  if (fileSchemaVersion <= 3) for (const statement of ADD_MODE_COLUMN) database.exec(statement);
   migrateFrom4(database);
 }
 
@@ -216,24 +216,24 @@ interface SummaryRow extends Omit<TranslationRow, 'source_text' | 'blocks_json' 
 
 // Throws when the file was written by a newer version of this code, rather than risk damaging it. An older file is
 // migrated after a backup (shared/server/sqlite.ts).
-export function openHistoryStore(database_path: string): HistoryStore {
-  const database = openDatabase(database_path, SCHEMA_VERSION, migrate);
+export function openHistoryStore(databasePath: string): HistoryStore {
+  const database = openDatabase(databasePath, SCHEMA_VERSION, migrate);
 
-  const insert_translation = database.prepare(`
+  const insertTranslation = database.prepare(`
     INSERT INTO translations (source_language, target_language, source_format, source_text, blocks_json, text_outside_blocks,
                               ${RUN_INSERT_COLUMNS}, created_at, updated_at)
     VALUES ($source_language, $target_language, $source_format, $source_text, '[]', NULL, ${RUN_INSERT_VALUES}, $run_started_at, $run_started_at)`);
-  const finish_translation = database.prepare(`
+  const finishTranslationRow = database.prepare(`
     UPDATE translations SET blocks_json = $blocks_json, text_outside_blocks = $text_outside_blocks, ${RUN_FINISH_SET},
                             updated_at = $run_finished_at
     WHERE id = $id AND run_status = 'running'`);
-  const fail_interrupted = database.prepare(`
+  const failInterrupted = database.prepare(`
     UPDATE translations
     SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, updated_at = $now
     WHERE run_status = 'running'`);
   // The output preview is worked out from the stored blocks (the first with a translation), so it can never disagree with
   // them; the text outside blocks stands in when the reply had none.
-  const select_summaries = database.prepare(`
+  const selectSummaries = database.prepare(`
     SELECT id, source_language, target_language, source_format, run_status, run_requested_model_id, run_served_model_id, run_effort,
            run_thinking_ms, run_error_code, run_error_message, run_started_at, run_finished_at, created_at, updated_at,
            substr(source_text, 1, ${PREVIEW_CHARS.source}) AS source_preview,
@@ -242,8 +242,8 @@ export function openHistoryStore(database_path: string): HistoryStore {
               WHERE block.value ->> '$.translatedText' <> '' ORDER BY block.key LIMIT 1),
              text_outside_blocks), 1, ${PREVIEW_CHARS.output}) AS output_preview
     FROM translations ORDER BY created_at DESC, id DESC LIMIT ${HISTORY_LIST_LIMIT}`);
-  const select_translation = database.prepare('SELECT * FROM translations WHERE id = $id');
-  const delete_translation = database.prepare('DELETE FROM translations WHERE id = $id');
+  const selectTranslation = database.prepare('SELECT * FROM translations WHERE id = $id');
+  const deleteTranslationRow = database.prepare('DELETE FROM translations WHERE id = $id');
 
   function startTranslation(translation: NewTranslation): number {
     const run: ModelRun = {
@@ -258,7 +258,7 @@ export function openHistoryStore(database_path: string): HistoryStore {
       startedAt: translation.startedAt,
       finishedAt: null,
     };
-    const inserted = insert_translation.run({
+    const inserted = insertTranslation.run({
       source_language: translation.sourceLanguage,
       target_language: translation.targetLanguage,
       source_format: translation.sourceFormat,
@@ -269,7 +269,7 @@ export function openHistoryStore(database_path: string): HistoryStore {
   }
 
   function finishTranslation(id: number, outcome: TranslationOutcome): void {
-    finish_translation.run({
+    finishTranslationRow.run({
       id,
       blocks_json: JSON.stringify(outcome.blocks),
       text_outside_blocks: emptyAsNull(outcome.textOutsideBlocks),
@@ -284,14 +284,14 @@ export function openHistoryStore(database_path: string): HistoryStore {
   }
 
   function failInterruptedTranslations(): number {
-    const result = fail_interrupted.run({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() });
+    const result = failInterrupted.run({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() });
     return Number(result.changes);
   }
 
   // Newest first, at most HISTORY_LIST_LIMIT. The list leaves out the thinking text (null here), which only an open
   // entry shows.
   function listTranslations(): TranslationSummary[] {
-    const rows = select_summaries.all() as unknown as SummaryRow[];
+    const rows = selectSummaries.all() as unknown as SummaryRow[];
     return rows.map((row) => ({
       id: row.id,
       sourceLanguage: row.source_language,
@@ -306,7 +306,7 @@ export function openHistoryStore(database_path: string): HistoryStore {
   }
 
   function readTranslation(id: number): Translation | null {
-    const row = select_translation.get({ id }) as TranslationRow | undefined;
+    const row = selectTranslation.get({ id }) as TranslationRow | undefined;
     if (row === undefined) return null;
     return {
       id: row.id,
@@ -324,7 +324,7 @@ export function openHistoryStore(database_path: string): HistoryStore {
 
   // false when no translation had this id.
   function deleteTranslation(id: number): boolean {
-    return delete_translation.run({ id }).changes > 0;
+    return deleteTranslationRow.run({ id }).changes > 0;
   }
 
   return { startTranslation, finishTranslation, failInterruptedTranslations, listTranslations, readTranslation, deleteTranslation };

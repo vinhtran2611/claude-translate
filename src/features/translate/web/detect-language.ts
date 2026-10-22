@@ -22,9 +22,9 @@ function wordsOf(text: string): string[] {
 // The share of accented words alone cannot separate code-mixed Vietnamese ("anh check giúp em latency p99", 0.29)
 // from English naming a person or dish ("Thanks Nguyễn Văn An for the review", 0.29); function words break the tie.
 export function detectSourceLanguage(text: string): Language {
-  const unquoted_words = wordsOf(text.replace(QUOTED_OR_CODE, ' '));
-  const words = unquoted_words.length > 0 ? unquoted_words : wordsOf(text);
-  const vietnamese_word_count = words.filter((word) => VIETNAMESE_LETTER.test(word)).length;
-  const english_function_word_count = words.filter((word) => ENGLISH_FUNCTION_WORDS.has(word)).length;
-  return vietnamese_word_count > english_function_word_count ? 'vi' : 'en';
+  const unquotedWords = wordsOf(text.replace(QUOTED_OR_CODE, ' '));
+  const words = unquotedWords.length > 0 ? unquotedWords : wordsOf(text);
+  const vietnameseWordCount = words.filter((word) => VIETNAMESE_LETTER.test(word)).length;
+  const englishFunctionWordCount = words.filter((word) => ENGLISH_FUNCTION_WORDS.has(word)).length;
+  return vietnameseWordCount > englishFunctionWordCount ? 'vi' : 'en';
 }

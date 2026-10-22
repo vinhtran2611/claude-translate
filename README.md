@@ -137,7 +137,7 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 
 A unit test sits next to its file: `store.ts` and `store.test.ts`. The server never serves `*.test.ts` files.
 | `scripts/` | `start.sh`, which `npm start` runs |
-| `docs/` | design docs |
+| `docs/` | design docs and reports; [docs/README.md](docs/README.md) says which is which |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`), so there is no build step.
 A feature imports only from itself and `src/shared/` (checked by `test/boundaries.test.ts`).

@@ -111,7 +111,7 @@ as it is.
 
 ## How it works
 
-1. `start.sh` checks requirements, then runs `node src/server.ts`.
+1. `npm start` runs `scripts/start.sh`, which checks requirements, then runs `node src/server.ts`.
 2. `src/server.ts` listens on `127.0.0.1` only. `src/features/translate/server/routes.ts` serves the page
    (`src/features/translate/web/translate.html`) at `/` and handles `POST /translate`.
    A file under `src/` is served at its path under `src/` (`src/shared/web/markdown.ts` at `/shared/web/markdown.ts`),
@@ -235,7 +235,7 @@ website cannot read your history through DNS rebinding.
 
 ### Server log
 
-The server writes its log to the terminal running `start.sh` and appends the same lines, without
+The server writes its log to the terminal running `npm start` and appends the same lines, without
 colour, to `data/server.log` (next to the history database; `SERVER_LOG_PATH` overrides it), so the log
 outlives the terminal tab: `tail -f data/server.log` follows it. Each translation prints a `start` line and exactly one
 closing line (`done`, `error` or `cancelled`); `fallback`, `retry` and `quota` lines appear in between
@@ -254,7 +254,7 @@ only when they happen. Times are local.
 
 Columns: time, level (blank, `WARN` or `ERROR`), request number, event, message.
 `grep -E 'WARN|ERROR'` keeps only the problems. Colour (WARN yellow, ERROR red) is used on a terminal
-only; `NO_COLOR=1 bash start.sh` turns it off.
+only; `NO_COLOR=1 npm start` turns it off.
 
 | Event | Level | Meaning |
 |---|---|---|

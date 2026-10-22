@@ -13,11 +13,11 @@ except the model calls; your history and answers stay in a local SQLite file.
 ```bash
 git clone https://github.com/vinhtran2611/claude-translate.git
 cd claude-translate
-bash start.sh
+npm start
 ```
 
 This starts the server and opens http://localhost:8787. Press `Ctrl-C` to stop it.
-Another port: `PORT=8788 bash start.sh`.
+Another port: `PORT=8788 npm start`. (`npm start` runs `scripts/start.sh`.)
 
 ### What you need
 
@@ -27,7 +27,7 @@ Another port: `PORT=8788 bash start.sh`.
 | Claude Code CLI | `claude --version` | [code.claude.com/docs](https://code.claude.com/docs) |
 | The CLI logged in with a Claude subscription | `claude auth status` shows `"authMethod": "claude.ai"` | `claude auth login` |
 
-`start.sh` checks all three and tells you what to fix. There is nothing to install and no build step:
+`scripts/start.sh` checks all three and tells you what to fix. There is nothing to install and no build step:
 Node runs the TypeScript files directly.
 
 ## Translate
@@ -136,6 +136,7 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 | `test/` | `boundaries.test.ts`; `integration/` (tests through the real server with a fake `claude`); `helpers/`; `fixtures/` |
 
 A unit test sits next to its file: `store.ts` and `store.test.ts`. The server never serves `*.test.ts` files.
+| `scripts/` | `start.sh`, which `npm start` runs |
 | `docs/` | design docs |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`), so there is no build step.
@@ -146,6 +147,6 @@ A feature imports only from itself and `src/shared/` (checked by `test/boundarie
 | Problem | Fix |
 |---|---|
 | `claude CLI is not logged in` | Run `claude auth login`. |
-| `port 8787 is used by ...` | Stop the other program, or run `PORT=8788 bash start.sh`. |
+| `port 8787 is used by ...` | Stop the other program, or run `PORT=8788 npm start`. |
 | `... sent nothing within ...` or `... stopped streaming ...` | Look in `data/server.log` for `retry` or `quota` lines, then try again. |
 | The page shows strange English labels | Chrome's page translation is on. Turn it off for this site. |

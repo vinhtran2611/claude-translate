@@ -2,7 +2,8 @@
 # Starts Claude Translate and opens it in the browser. Ctrl-C stops it.
 set -euo pipefail
 
-APP_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The repo root: this script is scripts/start.sh.
+APP_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-8787}"
 APP_URL="http://localhost:${PORT}"
 
@@ -39,7 +40,7 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     exit 0
   fi
   port_owner="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR == 2 { print $1 " (pid " $2 ")" }')"
-  fail "port ${PORT} is used by ${port_owner}. Pick another port: PORT=8788 bash $0"
+  fail "port ${PORT} is used by ${port_owner}. Pick another port: PORT=8788 npm start"
 fi
 
 (

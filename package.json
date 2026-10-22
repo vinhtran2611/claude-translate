@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "bash start.sh",
+    "start": "bash scripts/start.sh",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\" \"test/**/*.test.ts\"",

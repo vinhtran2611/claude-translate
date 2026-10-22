@@ -23,7 +23,7 @@ export function alertForError(error_kind: PageErrorKind, message: string, has_pa
     case 'output_limit':
       return { title: 'The translation was cut off', body: `The text is too long for one reply.${kept_note} Translate the rest separately.` };
     case 'server_unreachable':
-      return { title: "Can't reach the translation server", body: 'Check that `bash start.sh` is still running in its terminal, then try again.' };
+      return { title: "Can't reach the translation server", body: 'Check that `npm start` is still running in its terminal, then try again.' };
     case 'request_rejected':
       return { title: 'The server rejected the request', body: 'The text could not be sent for translation.' };
     default:

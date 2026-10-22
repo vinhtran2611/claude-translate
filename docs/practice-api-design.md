@@ -444,7 +444,7 @@ have only a few format-2 files, and the generator prompt is one edit.
 {
   "api": "practice",
   "version": 3,
-  "docs": "/practice/format-guide.md",
+  "docs": "/features/practice/static/import-format.md",
   "schemas": { "exercise": "/api/practice/schemas/exercise.json", "import": "/api/practice/schemas/import.json" },
   "types": ["rewrite", "write", "choice", "fill", "flashcard"],
   "limits": {

@@ -1,5 +1,5 @@
 // The Practice contract: the import file format and the HTTP API between src/features/practice/server and
-// src/features/practice/web (docs/practice-import-format.md). Types only, erased before anything runs.
+// src/features/practice/web (static/import-format.md). Types only, erased before anything runs.
 import type { Effort, EffortOption, ModelOption } from '../../shared/api-types.ts';
 
 // ---- The import file: one file is one project ----
@@ -114,7 +114,7 @@ export interface ExerciseInput<Type extends ExerciseType = ExerciseType> {
   content: ContentByType[Type];
 }
 
-// The import file, format 3 (docs/practice-import-format.md): one file is one project, named by its key.
+// The import file, format 3 (static/import-format.md): one file is one project, named by its key.
 export interface ImportFile {
   format: 3;
   project: { key: string; name: string; description?: string };

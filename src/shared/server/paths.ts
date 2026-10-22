@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 export const APP_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 // Runtime data (databases, backups, the server log). Ignored by git.
 export const DATA_DIRECTORY = join(APP_DIRECTORY, 'data');
-export const DOCS_DIRECTORY = join(APP_DIRECTORY, 'docs');
 // All app code.
 export const SOURCE_DIRECTORY = join(APP_DIRECTORY, 'src');
 export const FEATURES_DIRECTORY = join(SOURCE_DIRECTORY, 'features');

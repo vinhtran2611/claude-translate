@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { startTestServer, type TestServer } from './server-harness.ts';
 
 const GRADE_PROMPT = readFileSync(new URL('../src/features/practice/prompts/grade.md', import.meta.url), 'utf8');
-const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/examples/example-project.json', import.meta.url), 'utf8'));
+const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/static/example-project.json', import.meta.url), 'utf8'));
 
 let server: TestServer;
 before(async () => { server = await startTestServer(); });
@@ -89,10 +89,10 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   assert.equal((await fetch(`${server.base_url}/shared/web/markdown/inline.ts`)).status, 200);
   assert.equal((await fetch(`${server.base_url}/shared/web/base.css`)).status, 200);
 
-  const example = await fetch(`${server.base_url}/practice/example-project.json`);
+  const example = await fetch(`${server.base_url}/features/practice/static/example-project.json`);
   assert.equal(example.headers.get('content-type'), 'application/json; charset=utf-8');
   assert.equal(JSON.parse(await example.text()).format, 3);
-  assert.equal((await fetch(`${server.base_url}/practice/format-guide.md`)).status, 200);
+  assert.equal((await fetch(`${server.base_url}/features/practice/static/import-format.md`)).status, 200);
 
   // Server code, prompts and the entry file stay on the server.
   assert.equal((await fetch(`${server.base_url}/features/practice/web/../../../server.ts`)).status, 404);

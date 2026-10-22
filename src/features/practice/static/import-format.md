@@ -2,9 +2,9 @@
 
 One file is one project: a group of exercises (one day, a topic). The file names its project by **key**, so importing a fixed
 file again updates that project in place. The format is strict: an unknown field is a problem, and one problem means nothing
-is imported. A ready example with every type: `src/features/practice/examples/example-project.json` (also **Download an example
+is imported. A ready example with every type: `src/features/practice/static/example-project.json` (also **Download an example
 file** on the Import page). The machine-readable version of this page is the JSON Schema at
-`/api/practice/schemas/import.json`; the whole API is in [practice-api-design.md](practice-api-design.md).
+`/api/practice/schemas/import.json`; the whole API is in [docs/practice-api-design.md](../../../../docs/practice-api-design.md).
 
 ```json
 { "format": 3,

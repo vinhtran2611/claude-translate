@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import { DOCS_DIRECTORY, FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
+import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api-types.ts';
 import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
@@ -21,20 +21,13 @@ import { openPracticeStore, type AttemptFilter, type PracticeStore } from './sto
 
 const FEATURE_DIRECTORY = join(FEATURES_DIRECTORY, 'practice');
 const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
-// The files at a URL of their own. The page's modules and stylesheet are served by the entry file, at their path under src/.
+// The files at a URL of their own. The page's modules and stylesheet, the example file and the format guide (static/)
+// are served by the entry file, at their path under src/.
 // URL -> the file's path on disk and its Content-Type.
 const FILES = new Map<string, { path: string; content_type: string }>();
 FILES.set('/practice', {
   path: join(WEB_DIRECTORY, 'practice.html'),
   content_type: 'text/html; charset=utf-8',
-});
-FILES.set('/practice/example-project.json', {
-  path: join(FEATURE_DIRECTORY, 'examples', 'example-project.json'),
-  content_type: 'application/json; charset=utf-8',
-});
-FILES.set('/practice/format-guide.md', {
-  path: join(DOCS_DIRECTORY, 'practice-import-format.md'),
-  content_type: 'text/plain; charset=utf-8',
 });
 // The import body is the file itself.
 const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
@@ -48,7 +41,7 @@ const ATTEMPT_STATUSES: AttemptStatus[] = ['grading', 'graded', 'failed'];
 const API_INDEX: Omit<ApiIndex, 'endpoints'> = {
   api: 'practice',
   version: 3,
-  docs: '/practice/format-guide.md',
+  docs: '/features/practice/static/import-format.md',
   schemas: { exercise: '/api/practice/schemas/exercise.json', import: '/api/practice/schemas/import.json' },
   types: EXERCISE_TYPES,
   limits: {

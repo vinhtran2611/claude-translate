@@ -58,7 +58,7 @@ How it works inside (the `claude` command, streaming, timeouts, the API, the log
 
 Open http://localhost:8787/practice, or **Practice** at the top of the page.
 
-1. **Get exercises.** Ask Claude for a JSON file in the [import format](docs/practice-import-format.md). One file is one
+1. **Get exercises.** Ask Claude for a JSON file in the [import format](src/features/practice/static/import-format.md). One file is one
    project, for example one day of study. There are five exercise types:
 
    | Type | For | Graded by |
@@ -69,7 +69,7 @@ Open http://localhost:8787/practice, or **Practice** at the top of the page.
    | `fill` | fill in the blanks | Claude |
    | `flashcard` | vocabulary and rules | you: *Didn't know*, *Almost*, *Knew it* |
 
-   [src/features/practice/examples/example-project.json](src/features/practice/examples/example-project.json) has one of each.
+   [src/features/practice/static/example-project.json](src/features/practice/static/example-project.json) has one of each.
 2. **Import it.** On the Projects page, choose **New project** and drop the file. The page lists any problems and imports
    nothing until the file is right. Importing the same file again updates the exercises in place.
 3. **Practise.** Write your answer and press **Submit**. Claude's feedback streams in under your answer, and keeps going

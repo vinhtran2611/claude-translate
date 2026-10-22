@@ -149,8 +149,8 @@ export async function showImport(page: Page): Promise<void> {
     if (event.dataTransfer?.files[0]) void loadFile(event.dataTransfer.files[0]);
   });
 
-  const guide = Object.assign(link('/practice/format-guide.md', '', 'File format guide'), { target: '_blank', rel: 'noopener' });
-  const example = Object.assign(link('/practice/example-project.json', '', 'Download an example file'), { download: 'example-project.json' });
+  const guide = Object.assign(link('/features/practice/static/import-format.md', '', 'File format guide'), { target: '_blank', rel: 'noopener' });
+  const example = Object.assign(link('/features/practice/static/example-project.json', '', 'Download an example file'), { download: 'example-project.json' });
   const hint = h('p', 'drop-hint', 'Drop a .json file here, or ', paste_toggle, '. Importing a file again updates its project.');
   const file_pane = h('div', 'pane', h('div', 'pane-body',
     h('p', 'field-label', 'Exercises file'), zone, picker, hint, paste_label, paste, result, h('div', 'links', guide, example)));

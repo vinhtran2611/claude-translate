@@ -1,7 +1,7 @@
 # Practice: design
 
 Practice is a page of the app (`/practice`) for IELTS Writing, grammar and vocabulary practice. You make exercises with Claude as
-JSON files (format: [practice-import-format.md](practice-import-format.md)), import each file as a **project**, do the exercises,
+JSON files (format: [import-format.md](../src/features/practice/static/import-format.md)), import each file as a **project**, do the exercises,
 and read an evaluation of every answer. It lives in `src/features/practice/`; common code is in `src/shared/`.
 
 ## 1. Screens
@@ -50,7 +50,7 @@ A flashcard is rated by you (Didn't know, Almost, Knew it); the back is shown in
 ## 4. Data
 
 `data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, schema version 2. See
-[practice-import-format.md](practice-import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
+[import-format.md](../src/features/practice/static/import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
 The old `data/practice.sqlite` is not read; re-import your files.
 
 ## 5. HTTP API (`/api/practice`)
@@ -68,7 +68,7 @@ with a body. `GET /api/practice` lists the version, the limits and the JSON Sche
 | `server/` | `routes.ts`, `store.ts` (the only code that touches the database), `answers.ts` (answer check, flashcard), `ai-grading.ts` |
 | `web/` | `practice.ts` (router: one abort signal per navigation, so a late answer never draws over a newer page), `side.ts`, `exercise.ts`, project and import views, `drafts.ts`, `templates/` |
 | `prompts/grade.md` | the grading prompt |
-| `examples/example-project.json` | a valid file with every type |
+| `static/example-project.json`, `static/import-format.md` | a valid file with every type, and the file format guide |
 
 `src/shared/web/base.css` holds the tokens, masthead, sidebar, buttons, cards and Markdown styles both pages use; each page adds
 its own stylesheet on top (`translate.css`, `practice.css`). `src/shared/web/markdown.ts` and `model-picker.ts` are shared the same way. A feature imports only from itself and `src/shared/` (`test/boundaries.test.ts`).

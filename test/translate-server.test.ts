@@ -1,8 +1,8 @@
-// Characterization tests for POST /translate through the real server and a fake claude (test/fake-claude/claude).
+// Characterization tests for POST /translate through the real server and a fake claude (test/helpers/fake-claude/claude).
 // They pin what the page sees, so moving the claude runner into shared/ cannot change it unnoticed.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer, translate, type TestServer } from './server-harness.ts';
+import { startTestServer, translate, type TestServer } from './helpers/server-harness.ts';
 
 let server: TestServer;
 before(async () => { server = await startTestServer(); });

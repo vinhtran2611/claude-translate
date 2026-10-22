@@ -1,13 +1,13 @@
-// Starts the real server on a free port with test/fake-claude first on PATH and scratch data files, for tests that
-// go through HTTP. Not a test file itself: npm test runs test/*.test.ts only.
+// Starts the real server on a free port with test/helpers/fake-claude first on PATH and scratch data files, for tests
+// that go through HTTP. Not a test file itself: npm test runs *.test.ts files only.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { APP_DIRECTORY } from '../src/shared/server/paths.ts';
+import { APP_DIRECTORY } from '../../src/shared/server/paths.ts';
 
-const FAKE_CLAUDE_DIRECTORY = join(APP_DIRECTORY, 'test', 'fake-claude');
+const FAKE_CLAUDE_DIRECTORY = join(APP_DIRECTORY, 'test', 'helpers', 'fake-claude');
 
 export interface TestServer {
   base_url: string;

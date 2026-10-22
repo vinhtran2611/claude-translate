@@ -1,5 +1,5 @@
 // Tests for src/shared/web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
-// Spec data and fixtures are read from vendor/ and fixtures/ next to this file.
+// Spec data and saved translations are read from fixtures/commonmark/ and fixtures/translations/ next to this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -15,7 +15,7 @@ interface SpecExample {
 
 const here = (path: string): URL => new URL(path, import.meta.url);
 const readJson = <Data>(path: string): Data => JSON.parse(readFileSync(here(path), 'utf8')) as Data;
-const ENTITIES = readJson<Record<string, { characters: string } | undefined>>('./vendor/html-entities.json');
+const ENTITIES = readJson<Record<string, { characters: string } | undefined>>('./fixtures/commonmark/html-entities.json');
 // The renderer decodes named references through a textarea, as the browser does; node gets the WHATWG table instead.
 // Set before markdown.ts is imported below, the way the page has a document before it loads the module.
 globalThis.document = {
@@ -50,7 +50,7 @@ const GFM_AUTOLINK_EXAMPLES = new Set([608, 611, 612]);
 test('CommonMark 0.31.2 inline examples: every single-paragraph example passes or is a named deviation', () => {
   const counts = { eligible: 0, pass: 0, soft_break: 0, raw_html_as_text: 0, gfm_autolink: 0 };
   const failures: string[] = [];
-  for (const example of readJson<SpecExample[]>('./vendor/commonmark-spec-0.31.2.json')) {
+  for (const example of readJson<SpecExample[]>('./fixtures/commonmark/commonmark-spec-0.31.2.json')) {
     if (!INLINE_SECTIONS.has(example.section)) continue;
     // Link definitions go to the parser's options; the rest must be one paragraph with no block syntax.
     const link_definitions = new Map<string, LinkDefinition>();

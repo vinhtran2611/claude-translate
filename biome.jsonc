@@ -4,8 +4,8 @@
 	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
 	"files": {
-		// Third-party test data, copied as it is.
-		"includes": ["**", "!test/vendor", "!package-lock.json"]
+		// The CommonMark spec data, copied as it is.
+		"includes": ["**", "!test/fixtures/commonmark", "!package-lock.json"]
 	},
 	"formatter": { "enabled": false },
 	"assist": { "enabled": false },

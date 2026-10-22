@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { startTestServer, type TestServer } from './server-harness.ts';
+import { startTestServer, type TestServer } from './helpers/server-harness.ts';
 
 const GRADE_PROMPT = readFileSync(new URL('../src/features/practice/prompts/grade.md', import.meta.url), 'utf8');
 const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/static/example-project.json', import.meta.url), 'utf8'));
@@ -71,7 +71,7 @@ function argOf(name: string): string {
   return args[args.indexOf(name) + 1];
 }
 
-// The fake claude (test/fake-claude/claude) answers with the text after FAKE:reply= in the message, or a canned reply.
+// The fake claude (test/helpers/fake-claude/claude) answers with the text after FAKE:reply= in the message, or a canned reply.
 const FEEDBACK = '## What is good - A clear idea. **Fix:** "for reduce" -> "to reduce".';
 const CANNED_REPLY = '<pair type="paragraph">\n<source>\nHello\n</source>\n<translation>\nXin chào\n</translation>\n</pair>';
 

@@ -1,13 +1,13 @@
-// The practice database (src/features/practice/server/store.ts) on a scratch file.
+// The practice database (store.ts) on a scratch file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { ExerciseBody, FileExercise, ProjectFile } from '../src/features/practice/api-types.ts';
-import { openPracticeStore, type AttemptFilter, type PracticeStore } from '../src/features/practice/server/store.ts';
-import { keyFromName } from '../src/features/practice/server/store-schema.ts';
+import type { ExerciseBody, FileExercise, ProjectFile } from '../api-types.ts';
+import { openPracticeStore, type AttemptFilter, type PracticeStore } from './store.ts';
+import { keyFromName } from './store-schema.ts';
 
 // ---- Helpers ----
 

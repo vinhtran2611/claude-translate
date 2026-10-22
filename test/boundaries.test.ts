@@ -1,5 +1,6 @@
-// The modular-monolith rule (docs/practice-proposal.md §6): code in src/features/<name>/ imports only from its own
-// feature and from src/shared/, never from another feature or from the legacy server/ and web/ folders.
+// The modular-monolith rule (docs/practice-proposal.md §6), checked over all of src/, tests included: code in
+// src/features/<name>/ imports only from its own feature and from src/shared/; src/shared/ imports only itself; and
+// nothing in src/ imports from outside src/ (test/ helpers included).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -38,6 +39,19 @@ test('shared/ imports nothing from features/, server/ or web/', () => {
       // The import's target, relative to src/.
       const target = relative(SOURCE_DIRECTORY, resolve(dirname(file_path), import_path));
       if (!target.startsWith('shared/')) violations.push(`${relative(APP_DIRECTORY, file_path)} imports ${target}`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test('nothing in src/ imports from outside src/', () => {
+  const violations: string[] = [];
+  for (const file_path of typeScriptFiles(SOURCE_DIRECTORY)) {
+    for (const [, import_path] of readFileSync(file_path, 'utf8').matchAll(IMPORT_PATH)) {
+      if (!import_path.startsWith('.')) continue;
+      // The import's target, relative to src/; one outside src/ starts with "..".
+      const target = relative(SOURCE_DIRECTORY, resolve(dirname(file_path), import_path));
+      if (target.startsWith('..')) violations.push(`${relative(APP_DIRECTORY, file_path)} imports ${target}`);
     }
   }
   assert.deepEqual(violations, []);

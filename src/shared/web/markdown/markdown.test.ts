@@ -1,10 +1,10 @@
-// Tests for src/shared/web/markdown.ts (npm test, or node --test test/markdown.test.ts), no packages.
-// Spec data and saved translations are read from fixtures/commonmark/ and fixtures/translations/ next to this file.
+// Tests for src/shared/web/markdown.ts (npm test, or node --test src/shared/web/markdown/markdown.test.ts), no packages.
+// Spec data and saved translations are read from test/fixtures/commonmark/ and test/fixtures/translations/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Pair } from '../src/shared/api-types.ts';
-import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../src/shared/web/markdown.ts';
+import type { Pair } from '../../api-types.ts';
+import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../markdown.ts';
 
 interface SpecExample {
   markdown: string;
@@ -13,7 +13,9 @@ interface SpecExample {
   section: string;
 }
 
-const here = (path: string): URL => new URL(path, import.meta.url);
+// The repo's test/ folder: the fixture paths below are relative to it.
+const TEST_DIRECTORY_URL = new URL('../../../../test/', import.meta.url);
+const here = (path: string): URL => new URL(path, TEST_DIRECTORY_URL);
 const readJson = <Data>(path: string): Data => JSON.parse(readFileSync(here(path), 'utf8')) as Data;
 const ENTITIES = readJson<Record<string, { characters: string } | undefined>>('./fixtures/commonmark/html-entities.json');
 // The renderer decodes named references through a textarea, as the browser does; node gets the WHATWG table instead.
@@ -24,7 +26,7 @@ globalThis.document = {
     return { set innerHTML(html: string) { value = ENTITIES[html]?.characters ?? html; }, get value() { return value; } };
   },
 } as unknown as Document;
-const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../src/shared/web/markdown.ts');
+const { parseInline, parseCellBlocks, parseDocumentBlocks, documentIndexOf, linkTargetOf, normalizeLabel, definitionOf, plainTextOf } = await import('../markdown.ts');
 
 const escapeHtml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const encodeHref = (url: string | null): string => encodeURI(url ?? '').replace(/%25([0-9a-fA-F]{2})/g, '%$1');

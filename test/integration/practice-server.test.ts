@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { startTestServer, type TestServer } from './helpers/server-harness.ts';
+import { startTestServer, type TestServer } from '../helpers/server-harness.ts';
 
-const GRADE_PROMPT = readFileSync(new URL('../src/features/practice/prompts/grade.md', import.meta.url), 'utf8');
-const EXAMPLE = JSON.parse(readFileSync(new URL('../src/features/practice/static/example-project.json', import.meta.url), 'utf8'));
+const GRADE_PROMPT = readFileSync(new URL('../../src/features/practice/prompts/grade.md', import.meta.url), 'utf8');
+const EXAMPLE = JSON.parse(readFileSync(new URL('../../src/features/practice/static/example-project.json', import.meta.url), 'utf8'));
 
 let server: TestServer;
 before(async () => { server = await startTestServer(); });
@@ -99,6 +99,7 @@ test('the page, its modules and its stylesheet are served; the shared helpers to
   assert.equal((await fetch(`${server.base_url}/features/practice/server/store.ts`)).status, 404);
   assert.equal((await fetch(`${server.base_url}/features/practice/prompts/grade.md`)).status, 404);
   assert.equal((await fetch(`${server.base_url}/shared/server/paths.ts`)).status, 404);
+  assert.equal((await fetch(`${server.base_url}/features/practice/web/format.test.ts`)).status, 404);
 });
 
 test('every module the page loads, however deep, is served as JavaScript without types', async () => {

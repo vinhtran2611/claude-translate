@@ -1,7 +1,7 @@
 // Practice's key-addressed API (docs/practice-api-design.md §3) through the real server, with a fake claude.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer, type TestServer } from './helpers/server-harness.ts';
+import { startTestServer, type TestServer } from '../helpers/server-harness.ts';
 
 let server: TestServer;
 before(async () => { server = await startTestServer(); });

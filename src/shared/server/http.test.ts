@@ -1,7 +1,7 @@
-// The shared HTTP helpers (src/shared/server/http.ts) that need no server.
+// The shared HTTP helpers (http.ts) that need no server.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jsonProblemOf } from '../src/shared/server/http.ts';
+import { jsonProblemOf } from './http.ts';
 
 test('a JSON mistake is named by line and column', () => {
   assert.equal(jsonProblemOf('{\n  "answer": oops\n}'), 'Not valid JSON (line 2, column 13).');

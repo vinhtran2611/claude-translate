@@ -31,7 +31,7 @@ const CONTENT_TYPES = new Map([
   ['.md', 'text/plain; charset=utf-8'],
   ['.svg', 'image/svg+xml'],
 ]);
-// Folders whose files stay on the server: its code and the prompts.
+// Folders whose files stay on the server: its code and the prompts. *.test.ts files stay on the server too.
 const PRIVATE_FOLDERS = new Set(['server', 'prompts']);
 
 // The file under src/ that a URL names, when the browser may fetch it; null otherwise. A file's URL is its path under
@@ -43,6 +43,8 @@ function servedFileOf(pathname: string): string | null {
   // A file right in src/ is the entry file.
   if (folders.length === 0) return null;
   if (folders.some((folder) => PRIVATE_FOLDERS.has(folder))) return null;
+  // Tests sit next to the code they test, but only Node runs them.
+  if (path.endsWith('.test.ts')) return null;
   const extension = extname(path);
   if (extension !== '.ts' && !CONTENT_TYPES.has(extension)) return null;
   const is_file = statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;

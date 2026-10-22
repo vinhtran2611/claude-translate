@@ -131,9 +131,11 @@ GitHub Actions runs the lint, the type check and the tests on every push.
 |---|---|
 | `src/server.ts` | the HTTP server: startup, static files and the list of features |
 | `src/features/translate/` | the Translate feature: `server/` (its routes, history store, reply parser, prompt builder), `web/` (the page), `prompts/` (the translation prompt and glossary) |
-| `src/features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
+| `src/features/practice/` | the Practice feature: `server/`, `web/`, `prompts/` (the grading prompt), `static/` (the example file and the format guide), the import checker |
 | `src/shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, repo paths, the pages' `fetchJson`, the Markdown renderer, the model picker |
-| `test/` | tests; the server tests run against a fake `claude` |
+| `test/` | `boundaries.test.ts`; `integration/` (tests through the real server with a fake `claude`); `helpers/`; `fixtures/` |
+
+A unit test sits next to its file: `store.ts` and `store.test.ts`. The server never serves `*.test.ts` files.
 | `docs/` | design docs |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`), so there is no build step.

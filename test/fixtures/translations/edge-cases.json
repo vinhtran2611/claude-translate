@@ -1,5 +1,5 @@
 {
-  "description": "Made up. The three cases the streaming renderer cannot show without a flash; see test/markdown.test.ts.",
+  "description": "Made up. The three cases the streaming renderer cannot show without a flash; see src/shared/web/markdown/markdown.test.ts.",
   "pairs": [
     { "pair_type": "heading", "level": 1, "marker": "#", "source_text": "Edge cases", "translation_text": "Trường hợp biên" },
     { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "**Source:**text", "translation_text": "**Nguồn:**văn bản" },

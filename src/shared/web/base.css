@@ -1,7 +1,7 @@
 /* The look every page shares: colour tokens (light, dark by system setting, or forced by data-theme), the masthead, the
    History sidebar, buttons, chips and menus, the card with its header bar, the thinking disclosure and the Markdown
    elements. Each page adds its own stylesheet on top (translate.css, practice.css). The dark colours are written twice, for the system setting and for data-theme;
-   keep the two blocks identical (test/practice-web.test.ts checks it). Served at /shared/web/base.css. */
+   keep the two blocks identical (base-css.test.ts checks it). Served at /shared/web/base.css. */
 
 :root {
   --page: #f4f1ea;

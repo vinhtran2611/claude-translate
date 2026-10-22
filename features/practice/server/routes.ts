@@ -6,13 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, sendModule, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { AnswerByType, ApiIndex, Attempt, AttemptStatus, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
+import type { RunStatus } from '../../../shared/api.ts';
+import { RUN_STATUSES } from '../../../shared/server/model-run.ts';
+import type { ApiIndex, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api.ts';
 import {
-  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, KEY_PATTERN, keyProblems, MAX_EXERCISES, MAX_FILE_CHARS,
-  type Problem,
+  checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, IMPORT_FORMATS, KEY_PATTERN, keyProblems, MAX_EXERCISES,
+  MAX_FILE_CHARS, type Problem,
 } from '../import-check.ts';
 import { createGrader } from './ai-grading.ts';
-import { checkAnswer, graderOf, rateFlashcard } from './answers.ts';
+import { checkAnswer, isGradedByAi } from './answers.ts';
 import {
   choiceParam, DRY_RUN, isWholeNumber, keyTaken, MAX_EXERCISE_BODY_BYTES, notFound, readKeyBody, readObjectBody, sendProblems,
   unknownParameterProblems, wholeNumberParam,
@@ -36,7 +38,7 @@ for (const name of readdirSync(WEB_DIRECTORY, { recursive: true, encoding: 'utf8
   if (name.endsWith('.ts')) MODULES.set(url, join(WEB_DIRECTORY, name));
   if (name.endsWith('.css')) FILES.set(url, { path: join(WEB_DIRECTORY, name), content_type: 'text/css; charset=utf-8' });
 }
-for (const name of ['import-check.ts', 'text.ts']) {
+for (const name of ['import-check.ts', 'format-3.ts', 'text.ts']) {
   MODULES.set(`/practice/${name}`, join(FEATURE_DIRECTORY, name));
 }
 FILES.set('/practice', {
@@ -57,18 +59,22 @@ const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
 const ATTEMPTS_PAGE_DEFAULT = 50;
 const ATTEMPTS_PAGE_MAX = 200;
-const ATTEMPT_STATUSES: AttemptStatus[] = ['grading', 'graded', 'failed'];
 
 // The index without its list of endpoints, which is made from the routes.
 const API_INDEX: Omit<ApiIndex, 'endpoints'> = {
   api: 'practice',
-  version: 3,
+  version: 4,
   docs: '/practice/format-guide.md',
   schemas: { exercise: '/api/practice/schemas/exercise.json', import: '/api/practice/schemas/import.json' },
   types: EXERCISE_TYPES,
+  importFormats: IMPORT_FORMATS,
   limits: {
-    import_body_bytes: MAX_IMPORT_BODY_BYTES, exercises_per_import: MAX_EXERCISES, exercise_body_bytes: MAX_EXERCISE_BODY_BYTES,
-    attempt_body_bytes: MAX_ATTEMPT_BODY_BYTES, key_pattern: KEY_PATTERN.source, attempts_page_max: ATTEMPTS_PAGE_MAX,
+    importBodyBytes: MAX_IMPORT_BODY_BYTES,
+    exercisesPerImport: MAX_EXERCISES,
+    exerciseBodyBytes: MAX_EXERCISE_BODY_BYTES,
+    attemptBodyBytes: MAX_ATTEMPT_BODY_BYTES,
+    keyPattern: KEY_PATTERN.source,
+    attemptsPageMax: ATTEMPTS_PAGE_MAX,
   },
 };
 const SCHEMAS = new Map([['exercise', exerciseSchema()], ['import', importSchema()]]);
@@ -120,21 +126,23 @@ export function createPracticeFeature({ database_path }: { database_path: string
   const grader = createGrader(store);
   const grading_options: GradingOptions = {
     models: MODEL_OPTIONS.map(({ model_id, label, short_label, description }) => ({ model_id, label, short_label, description })),
-    efforts: EFFORT_OPTIONS, default_model_id: DEFAULT_MODEL_ID, default_effort: DEFAULT_EFFORT,
+    efforts: EFFORT_OPTIONS,
+    defaultModelId: DEFAULT_MODEL_ID,
+    defaultEffort: DEFAULT_EFFORT,
   };
 
   // The grading settings a body names, each the default when left out, as problems when one is not offered. Checked here
   // because the CLI does not: an unknown --effort only prints a warning and runs at its default.
-  function settingsOf({ model_id = DEFAULT_MODEL_ID, effort = DEFAULT_EFFORT }: RegradeRequest, problems: Problem[]): GradingSettings {
-    if (modelOptionOf(model_id) === undefined) {
+  function settingsOf({ modelId = DEFAULT_MODEL_ID, effort = DEFAULT_EFFORT }: RegradeRequest, problems: Problem[]): GradingSettings {
+    if (modelOptionOf(modelId) === undefined) {
       const models = MODEL_OPTIONS.map((option) => option.model_id).join(', ');
-      problems.push({ path: '/model_id', code: 'not_allowed', message: `model_id must be one of ${models}.` });
+      problems.push({ path: '/modelId', code: 'not_allowed', message: `modelId must be one of ${models}.` });
     }
     if (!isEffort(effort)) {
       const efforts = EFFORT_OPTIONS.map((option) => option.effort).join(', ');
       problems.push({ path: '/effort', code: 'not_allowed', message: `effort must be one of ${efforts}.` });
     }
-    return { model_id, effort };
+    return { modelId, effort };
   }
 
   // ---- projects ----
@@ -278,8 +286,17 @@ export function createPracticeFeature({ database_path }: { database_path: string
     sendJson(res, 200, { items: ordered });
   }
 
-  function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
-    if (!store.deleteExercise(project_key, key)) return notFound(res, `exercise "${key}" in project "${project_key}"`);
+  // An exercise with attempts is deleted only on purpose, with them (rule 8).
+  function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): void {
+    const problems: Problem[] = [];
+    const is_with_attempts = choiceParam(query, 'with_attempts', ['false', 'true'] as const, problems) === 'true';
+    if (problems.length > 0) return sendProblems(res, problems);
+    const outcome = store.deleteExercise(project_key, key, is_with_attempts);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
+    if (outcome === 'has_attempts') {
+      const message = `Exercise "${key}" has attempts. To delete them too, add ?with_attempts=true.`;
+      return sendError(res, 409, 'has_attempts', message);
+    }
     log('info', null, 'practice', `exercise ${project_key}/${key} deleted`);
     res.writeHead(204).end();
   }
@@ -296,35 +313,35 @@ export function createPracticeFeature({ database_path }: { database_path: string
     const { created, updated, unchanged } = result.exercises;
     if (!is_dry_run) {
       const counts = `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged`;
-      log('info', null, 'import', `project ${file.key} ${result.project_change}  ${counts}`);
+      log('info', null, 'import', `project ${file.key} ${result.projectChange}  ${counts}`);
     }
     sendJson(res, 200, result);
   }
 
   // ---- attempts ----
 
-  // Saves an answer. A flashcard is graded at once by your rating; every other answer is saved first, then graded in the
-  // background.
+  // Saves an answer. A flashcard's rating is its result; every other answer is saved with a running grading, which then
+  // goes on in the background.
   async function createAttempt(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): Promise<void> {
-    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['answer', 'writing_ms', 'model_id', 'effort', 'exercise_version']);
+    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['answer', 'timeSpentMs', 'modelId', 'effort', 'exerciseVersion']);
     if (body === null) return;
     const exercise = store.readExercise(project_key, key);
     if (exercise === null) return notFound(res, `exercise "${key}" in project "${project_key}"`);
 
     const problems: Problem[] = [];
-    const { answer, problem } = checkAnswer(exercise, body.answer);
+    const { answer, problem } = checkAnswer(exercise.content, body.answer);
     if (answer === null) {
       const code = body.answer === undefined ? 'required' : 'wrong_type';
       problems.push({ path: '/answer', code, message: `${problem}.` });
     }
     const settings = settingsOf(body as RegradeRequest, problems);
-    const writing_ms = body.writing_ms ?? null;
-    if (writing_ms !== null && !isWholeNumber(writing_ms)) {
-      problems.push({ path: '/writing_ms', code: 'wrong_type', message: 'writing_ms must be a whole number of milliseconds, or null.' });
+    const time_spent_ms = body.timeSpentMs ?? null;
+    if (time_spent_ms !== null && !isWholeNumber(time_spent_ms)) {
+      problems.push({ path: '/timeSpentMs', code: 'wrong_type', message: 'timeSpentMs must be a whole number of milliseconds, or null.' });
     }
-    const shown_version = body.exercise_version;
+    const shown_version = body.exerciseVersion;
     if (shown_version !== undefined && !isWholeNumber(shown_version)) {
-      problems.push({ path: '/exercise_version', code: 'wrong_type', message: 'exercise_version must be a whole number.' });
+      problems.push({ path: '/exerciseVersion', code: 'wrong_type', message: 'exerciseVersion must be a whole number.' });
     }
     if (answer === null || problems.length > 0) return sendProblems(res, problems);
 
@@ -334,11 +351,11 @@ export function createPracticeFeature({ database_path }: { database_path: string
       return sendError(res, 409, 'exercise_changed', message);
     }
 
-    const grader_kind = graderOf(exercise.type);
-    const outcome = grader_kind === 'ai' ? null : rateFlashcard(answer as AnswerByType['flashcard']);
-    const attempt = store.createAttempt({ exercise_id: exercise.id, answer, writing_ms: writing_ms as number | null, grader: grader_kind, outcome });
-    sendJson(res, 201, attempt);
-    if (grader_kind === 'ai') grader.start(attempt, settings);
+    let grading: GradingSettings | null = null;
+    if (isGradedByAi(exercise.content.type)) grading = settings;
+    const started = store.createAttempt({ exerciseId: exercise.id, answer, timeSpentMs: time_spent_ms as number | null, grading });
+    sendJson(res, 201, started.attempt);
+    if (started.gradingId !== null) grader.start(started.attempt, started.gradingId, settings);
   }
 
   function listAttempts(_req: IncomingMessage, res: ServerResponse, _params: string[], query: URLSearchParams): void {
@@ -349,9 +366,10 @@ export function createPracticeFeature({ database_path }: { database_path: string
       problems.push({ path: '?exercise', code: 'required', message: 'exercise needs project: an exercise key is unique only inside its project.' });
     }
 
+    // The status of the attempt's latest grading; a flashcard attempt has none, so it never matches.
     const status = query.get('status');
-    if (status !== null && !ATTEMPT_STATUSES.includes(status as AttemptStatus)) {
-      problems.push({ path: '?status', code: 'not_allowed', message: `status must be one of: ${ATTEMPT_STATUSES.join(', ')}.` });
+    if (status !== null && !RUN_STATUSES.includes(status as RunStatus)) {
+      problems.push({ path: '?status', code: 'not_allowed', message: `status must be one of: ${RUN_STATUSES.join(', ')}.` });
     }
 
     // A date ("2026-10-19", midnight UTC) or a full time.
@@ -369,7 +387,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
     const filter: AttemptFilter = {
       project,
       exercise,
-      status: status as AttemptStatus | null,
+      status: status as RunStatus | null,
       since: since === null ? null : new Date(since).toISOString(),
       before,
       limit: limit ?? ATTEMPTS_PAGE_DEFAULT,
@@ -384,19 +402,21 @@ export function createPracticeFeature({ database_path }: { database_path: string
     res.writeHead(204).end();
   }
 
-  // A failed attempt is graded again with the same answer and the exercise as it was then, with the settings now chosen.
+  // A new grading of the attempt, with the same answer and the exercise as it was then, and the settings now chosen. Allowed
+  // at any time, one at a time (rule 7); every earlier grading is kept.
   async function regrade(req: IncomingMessage, res: ServerResponse, [id]: string[]): Promise<void> {
     const attempt_id = Number(id);
-    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['model_id', 'effort']);
+    const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['modelId', 'effort']);
     if (body === null) return;
     const problems: Problem[] = [];
     const settings = settingsOf(body as RegradeRequest, problems);
     if (problems.length > 0) return sendProblems(res, problems);
-    if (store.readAttempt(attempt_id) === null) return notFound(res, 'attempt');
-    if (!store.restartGrading(attempt_id)) return sendError(res, 409, 'not_failed', 'Only a failed attempt can be graded again.');
-    const attempt = store.readAttempt(attempt_id) as Attempt;
-    sendJson(res, 202, attempt);
-    grader.start(attempt, settings);
+    const outcome = store.regrade(attempt_id, settings);
+    if (outcome === 'not_found') return notFound(res, 'attempt');
+    if (outcome === 'not_graded_by_ai') return sendError(res, 409, 'not_graded_by_ai', 'A flashcard is not graded: its rating is its result.');
+    if (outcome === 'grading') return sendError(res, 409, 'grading_in_progress', 'The attempt is being graded; grade it again once that has ended.');
+    sendJson(res, 202, outcome.attempt);
+    grader.start(outcome.attempt, outcome.gradingId as number, settings);
   }
 
   // 200 with body, or 404 "No such {what}" when body is null.
@@ -437,22 +457,22 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('PUT', '/projects/{p}', 'Create or replace a project: { name, description?, archived? }.', putProject, ['dry_run']),
     route('DELETE', '/projects/{p}', 'Delete a project; with attempts only with ?with_attempts=true.', deleteProject, ['with_attempts']),
     route('POST', '/projects/{p}/rename', 'Give a project a new key: { key }. Attempts stay linked.', renameProject, ['dry_run']),
-    route('GET', '/projects/{p}/export', 'The project as an import file (format 3).', exportProject),
-    route('POST', '/import', 'Import a format 3 file: upsert the project and its exercises by key.', importFile, ['dry_run']),
+    route('GET', '/projects/{p}/export', 'The project as an import file (format 4).', exportProject),
+    route('POST', '/import', 'Import a format 4 (or 3) file: upsert the project and its exercises by key.', importFile, ['dry_run']),
 
     route('GET', '/projects/{p}/exercises', 'List a project\'s exercises in order.', listExercises, ['type', 'tag']),
     route('PUT', '/projects/{p}/order', 'Set the order: { keys }; the keys not listed follow in their order.', putOrder, ['dry_run']),
     route('GET', '/projects/{p}/exercises/{e}', 'Read one exercise with its content.', readExercise),
     route('PUT', '/projects/{p}/exercises/{e}', 'Create or replace an exercise.', putExercise, ['dry_run']),
-    route('DELETE', '/projects/{p}/exercises/{e}', 'Delete an exercise; its attempts stay.', deleteExercise),
+    route('DELETE', '/projects/{p}/exercises/{e}', 'Delete an exercise; with attempts only with ?with_attempts=true.', deleteExercise, ['with_attempts']),
     route('POST', '/projects/{p}/exercises/{e}/rename', 'Give an exercise a new key: { key }. Attempts follow it.', renameExercise, ['dry_run']),
     route('POST', '/projects/{p}/exercises/{e}/move', 'Move an exercise to another project: { project }. Attempts follow it.', moveExercise, ['dry_run']),
 
     route('POST', '/projects/{p}/exercises/{e}/attempts', 'Answer an exercise; AI grading starts in the background.', createAttempt),
-    route('GET', '/attempts', 'List attempts, newest first.', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),
-    route('GET', '/attempts/{id}', 'Read one attempt.', (_req, res, [id]) => found(res, store.readAttempt(Number(id)), 'attempt')),
+    route('GET', '/attempts', 'List attempts, newest first; status is the latest grading\'s.', listAttempts, ['project', 'exercise', 'status', 'since', 'before', 'limit']),
+    route('GET', '/attempts/{id}', 'Read one attempt with its gradings.', (_req, res, [id]) => found(res, store.readAttempt(Number(id)), 'attempt')),
     route('DELETE', '/attempts/{id}', 'Delete an attempt (not while it is graded).', deleteAttempt),
-    route('POST', '/attempts/{id}/regrade', 'Grade a failed attempt again: { model_id?, effort? }.', regrade),
+    route('POST', '/attempts/{id}/regrade', 'Grade an attempt again, as a new grading: { modelId?, effort? }.', regrade),
     route('GET', '/attempts/{id}/stream', 'Follow a grading as server-sent events.', watchAttempt),
   ];
   const api_index: ApiIndex = {

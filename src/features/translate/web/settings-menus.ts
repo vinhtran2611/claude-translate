@@ -1,15 +1,15 @@
-// The two settings menus under the text box: Mode, and Model with Effort. They hold what the next translation runs
-// with, remember it in localStorage, and show the latest quota warning.
+// The two settings menus under the text box: Mode (the source format), and Model with Effort. They hold what the next
+// translation runs with, remember it in localStorage, and show the latest quota warning.
 import type { Effort, EffortOption } from '../../../shared/api-types.ts';
-import type { Mode, QuotaWarning, TranslationOptions } from '../api-types.ts';
+import type { QuotaWarning, SourceFormat, TranslationOptions } from '../api-types.ts';
 import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 
 // What the next translation runs with.
 export interface TranslationSettings {
-  model_id: string;
+  modelId: string;
   effort: Effort;
-  mode: Mode;
+  sourceFormat: SourceFormat;
 }
 
 const TRANSLATION_SETTINGS_STORAGE_KEY = 'translation_settings';
@@ -31,7 +31,7 @@ const swap_button = requiredElement('#swap-button', HTMLButtonElement);
 // GET /translation-options: the models, efforts and modes the server accepts, and its latest quota warning.
 // Written only by loadTranslationOptions.
 let translation_options: TranslationOptions | null = null;
-// { model_id, effort, mode } the next translation runs with. Written only by setTranslationSettings.
+// { modelId, effort, sourceFormat } the next translation runs with. Written only by setTranslationSettings.
 let translation_settings: TranslationSettings | null = null;
 
 // null until the options have loaded.
@@ -78,12 +78,12 @@ function offeredValueOf<Value extends string>(offered: Value[], value: string | 
   return found;
 }
 
-function modeOfRow(row: HTMLElement): Mode {
-  return offeredValueOf(loadedOptions().modes.map((option) => option.mode), row.dataset.mode);
+function sourceFormatOfRow(row: HTMLElement): SourceFormat {
+  return offeredValueOf(loadedOptions().sourceFormats.map((option) => option.sourceFormat), row.dataset.mode);
 }
 
 function modelIdOfRow(row: HTMLElement): string {
-  return offeredValueOf(loadedOptions().models.map((option) => option.model_id), row.dataset.modelId);
+  return offeredValueOf(loadedOptions().models.map((option) => option.modelId), row.dataset.modelId);
 }
 
 function effortOfSegment(segment: HTMLElement): Effort {
@@ -106,7 +106,7 @@ export async function loadTranslationOptions(): Promise<void> {
   translation_options = await fetchJson<TranslationOptions>('/translation-options');
   renderModeMenu();
   renderModelMenu();
-  renderQuotaWarning(loadedOptions().quota_warning);
+  renderQuotaWarning(loadedOptions().quotaWarning);
   setTranslationSettings(readTranslationSettings());
 }
 
@@ -114,7 +114,7 @@ export async function loadTranslationOptions(): Promise<void> {
 // open menu is kept; if the fetch fails the line keeps its last state.
 export function refreshQuotaWarning(): void {
   fetchJson<TranslationOptions>('/translation-options')
-    .then((options) => renderQuotaWarning(options.quota_warning))
+    .then((options) => renderQuotaWarning(options.quotaWarning))
     .catch(() => {});
 }
 
@@ -134,13 +134,13 @@ function readTranslationSettings(): TranslationSettings {
   } catch {
     // Unreadable: the defaults apply.
   }
-  const has_model = options.models.some((option) => option.model_id === stored?.model_id);
+  const has_model = options.models.some((option) => option.modelId === stored?.modelId);
   const has_effort = options.efforts.some((option) => option.effort === stored?.effort);
-  const has_mode = options.modes.some((option) => option.mode === stored?.mode);
+  const has_mode = options.sourceFormats.some((option) => option.sourceFormat === stored?.sourceFormat);
   return {
-    model_id: has_model && stored?.model_id ? stored.model_id : options.default_model_id,
-    effort: has_effort && stored?.effort ? stored.effort : options.default_effort,
-    mode: has_mode && stored?.mode ? stored.mode : options.default_mode,
+    modelId: has_model && stored?.modelId ? stored.modelId : options.defaultModelId,
+    effort: has_effort && stored?.effort ? stored.effort : options.defaultEffort,
+    sourceFormat: has_mode && stored?.sourceFormat ? stored.sourceFormat : options.defaultSourceFormat,
   };
 }
 
@@ -154,7 +154,7 @@ function setTranslationSettings(next_settings: TranslationSettings): void {
 // The id itself for a model no longer offered (a history entry can name one), or while the options failed to load:
 // history and run info must still render then.
 export function modelLabelOf(model_id: string): string {
-  const model_option = translation_options?.models.find((option) => option.model_id === model_id);
+  const model_option = translation_options?.models.find((option) => option.modelId === model_id);
   return model_option?.label ?? model_id;
 }
 
@@ -162,26 +162,26 @@ function effortOptionOf(effort: string): EffortOption | undefined {
   return translation_options?.efforts.find((option) => option.effort === effort);
 }
 
-function modeLabelOf(mode: string): string {
-  const mode_option = translation_options?.modes.find((option) => option.mode === mode);
+function sourceFormatLabelOf(mode: string): string {
+  const mode_option = translation_options?.sourceFormats.find((option) => option.sourceFormat === mode);
   return mode_option?.label ?? mode;
 }
 
 // "Sonnet 5.5 · Low": the one wording of a model and effort, used by the trigger, history run info and tooltips.
-export function choiceLabelOf({ model_id, effort }: { model_id: string; effort: string }): string {
+export function choiceLabelOf({ modelId: model_id, effort }: { modelId: string; effort: string }): string {
   const effort_label = effortOptionOf(effort)?.label ?? effort;
   return `${modelLabelOf(model_id)} · ${effort_label}`;
 }
 
-// "Markdown · " for a history entry's mode; '' for the default mode, which most entries use, or none.
-export function modeNoteOf(mode: Mode | undefined): string {
+// "Markdown · " for a history entry's source format; '' for the default one, which most entries use, or none.
+export function sourceFormatNoteOf(mode: SourceFormat | undefined): string {
   if (translation_options === null || mode === undefined) return '';
-  if (mode === translation_options.default_mode) return '';
-  return `${modeLabelOf(mode)} · `;
+  if (mode === translation_options.defaultSourceFormat) return '';
+  return `${sourceFormatLabelOf(mode)} · `;
 }
 
 // "Weekly limit 94% used · resets Mon 06:00"
-function quotaWarningHtml({ rate_limit_type, utilization, resets_at }: QuotaWarning): string {
+function quotaWarningHtml({ rateLimitType: rate_limit_type, utilization, resetsAt: resets_at }: QuotaWarning): string {
   const window_label = QUOTA_WINDOW_LABELS[rate_limit_type ?? ''] ?? 'Usage';
   let percent_text = 'nearly used';
   if (typeof utilization === 'number') percent_text = `<strong>${Math.round(utilization * 100)}%</strong> used`;
@@ -207,12 +207,12 @@ function menuOptionMarkup({ data_attribute, value, label, description, is_defaul
 
 function renderModeMenu(): void {
   const options = loadedOptions();
-  const mode_rows = options.modes.map((option) => menuOptionMarkup({
+  const mode_rows = options.sourceFormats.map((option) => menuOptionMarkup({
     data_attribute: 'data-mode',
-    value: option.mode,
+    value: option.sourceFormat,
     label: option.label,
     description: option.description,
-    is_default: option.mode === options.default_mode,
+    is_default: option.sourceFormat === options.defaultSourceFormat,
   }));
   mode_menu.innerHTML = `
     <div class="menu-label" aria-hidden="true">Mode<span class="menu-keys">↑ ↓</span></div>
@@ -223,10 +223,10 @@ function renderModelMenu(): void {
   const options = loadedOptions();
   const model_rows = options.models.map((option) => menuOptionMarkup({
     data_attribute: 'data-model-id',
-    value: option.model_id,
+    value: option.modelId,
     label: option.label,
     description: option.description,
-    is_default: option.model_id === options.default_model_id,
+    is_default: option.modelId === options.defaultModelId,
   }));
   const effort_segments = options.efforts.map((option) => {
     return `<button class="effort-option" role="menuitemradio" data-effort="${option.effort}" tabindex="-1">${option.label}</button>`;
@@ -261,8 +261,8 @@ function effortGlyphMarkup(effort: string): string {
 }
 
 function renderModePicker(): void {
-  const { mode } = currentSettings();
-  const mode_label = modeLabelOf(mode);
+  const { sourceFormat: mode } = currentSettings();
+  const mode_label = sourceFormatLabelOf(mode);
   mode_button_label.textContent = mode_label;
   mode_button.title = `Mode: ${mode_label}`;
   mode_button.setAttribute('aria-label', `Mode: ${mode_label}`);
@@ -273,17 +273,17 @@ function renderModePicker(): void {
 
 function renderModelPicker(): void {
   const settings = currentSettings();
-  const model_option = loadedOptions().models.find((option) => option.model_id === settings.model_id);
+  const model_option = loadedOptions().models.find((option) => option.modelId === settings.modelId);
   const effort_option = effortOptionOf(settings.effort);
   if (model_option === undefined || effort_option === undefined) throw new Error(`Unknown setting ${choiceLabelOf(settings)}`);
   const choice_label = choiceLabelOf(settings);
   model_picker_label_full.textContent = choice_label;
-  model_picker_label_short.textContent = `${model_option.short_label} · ${effort_option.label}`;
+  model_picker_label_short.textContent = `${model_option.shortLabel} · ${effort_option.label}`;
   model_picker_effort_glyph.innerHTML = effortGlyphMarkup(settings.effort);
   model_picker_button.title = `${choice_label} (⌘/)`;
   model_picker_button.setAttribute('aria-label', `Model and effort: ${choice_label}`);
   for (const row of model_menu.querySelectorAll<HTMLElement>('.menu-option')) {
-    row.setAttribute('aria-checked', String(row.dataset.modelId === settings.model_id));
+    row.setAttribute('aria-checked', String(row.dataset.modelId === settings.modelId));
   }
   for (const segment of model_menu.querySelectorAll<HTMLElement>('.effort-option')) {
     segment.setAttribute('aria-checked', String(segment.dataset.effort === settings.effort));
@@ -333,7 +333,7 @@ for (const [menu, trigger] of [[mode_menu, mode_button], [model_menu, model_pick
 mode_menu.addEventListener('click', (event) => {
   const mode_row = eventElement(event)?.closest<HTMLElement>('.menu-option');
   if (!mode_row) return;
-  setTranslationSettings({ ...currentSettings(), mode: modeOfRow(mode_row) });
+  setTranslationSettings({ ...currentSettings(), sourceFormat: sourceFormatOfRow(mode_row) });
   mode_menu.hidePopover();
 });
 
@@ -344,7 +344,7 @@ mode_menu.addEventListener('keydown', (event) => {
   } else if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
     const mode_row = document.activeElement?.closest<HTMLElement>('.menu-option');
-    if (mode_row) setTranslationSettings({ ...currentSettings(), mode: modeOfRow(mode_row) });
+    if (mode_row) setTranslationSettings({ ...currentSettings(), sourceFormat: sourceFormatOfRow(mode_row) });
     mode_menu.hidePopover();
   } else if (event.key === 'Tab') {
     // The menu lives at the end of the DOM; Tab goes on from its chip instead.
@@ -358,7 +358,7 @@ model_menu.addEventListener('click', (event) => {
   const model_row = eventElement(event)?.closest<HTMLElement>('.menu-option');
   const effort_segment = eventElement(event)?.closest<HTMLElement>('.effort-option');
   if (model_row) {
-    setTranslationSettings({ ...currentSettings(), model_id: modelIdOfRow(model_row) });
+    setTranslationSettings({ ...currentSettings(), modelId: modelIdOfRow(model_row) });
     model_menu.hidePopover();
   } else if (effort_segment) {
     // An effort is a setting, not a command: the menu stays open.
@@ -375,7 +375,7 @@ model_menu.addEventListener('keydown', (event) => {
   } else if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
     const model_row = document.activeElement?.closest<HTMLElement>('.menu-option');
-    if (model_row) setTranslationSettings({ ...currentSettings(), model_id: modelIdOfRow(model_row) });
+    if (model_row) setTranslationSettings({ ...currentSettings(), modelId: modelIdOfRow(model_row) });
     model_menu.hidePopover();
   } else if (event.key === 'Tab') {
     // Focus leaves before the menu closes, so the close does not send it back to the trigger.

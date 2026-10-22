@@ -18,10 +18,10 @@ export type TextLength = 'sentence' | 'paragraph' | 'multi_paragraph';
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // Why a `claude -p` run failed, as shared/server/claude-runner.ts reports it.
-export type ErrorKind = 'start_failed' | 'no_response' | 'stalled' | 'output_limit' | 'exited' | 'claude_error';
+export type CliErrorCode = 'start_failed' | 'no_response' | 'stalled' | 'output_limit' | 'exited' | 'claude_error';
 
 export type RunErrorCode =
-  | ErrorKind
+  | CliErrorCode
   // The model answered with no text.
   | 'empty_reply'
   // English check: the reply had no check block.
@@ -55,21 +55,25 @@ export interface ModelRun {
 
 // ---- Options, pairs and errors ----
 
-export type PairType = 'heading' | 'paragraph' | 'list_item' | 'table' | 'code' | 'quote' | 'other';
+export type BlockType = 'heading' | 'paragraph' | 'list_item' | 'table' | 'code' | 'quote' | 'other';
 
-// One unit of the input and its translation, as the model returned it.
-export interface Pair {
-  pair_type: PairType;
+// One heading, paragraph or list item next to its translation (docs/data-model-proposal.md §3.5), as the model returns it
+// and as a Translation stores it. Shared because the Markdown renderer draws it.
+export interface TranslatedBlock {
+  blockType: BlockType;
+  // Heading or list depth; 0 when none.
   level: number;
-  marker: string;
-  source_text: string;
-  translation_text: string;
+  // A list marker: "-", "1.".
+  marker: string | null;
+  // With the 'markdown' source format, the repaired text.
+  sourceText: string;
+  translatedText: string;
 }
 
 export interface ModelOption {
-  model_id: string;
+  modelId: string;
   label: string;
-  short_label: string;
+  shortLabel: string;
   description: string;
 }
 

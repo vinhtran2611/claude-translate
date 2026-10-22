@@ -2,16 +2,19 @@
 // Translation (docs/data-model-proposal.md §3.5). Types only: both sides import it with `import type`, so it is erased
 // before anything runs and never reaches the browser.
 import type {
-  Effort, EffortOption, ErrorKind, Language, ModelOption, ModelRun, PairType, Timestamp,
+  BlockType, CliErrorCode, Effort, EffortOption, Language, ModelOption, ModelRun, Timestamp, TranslatedBlock,
 } from '../../shared/api-types.ts';
 
-// Language is one of the data model's shared types; it is named here too, where Translate's files look for it.
-export type { Language };
-export type Mode = 'translate' | 'translate_markdown';
+// Language and TranslatedBlock are shared types of the data model; they are named here too, where Translate's files look.
+export type { Language, TranslatedBlock };
 export type Outcome = 'done' | 'error' | 'cancelled';
 
-export interface ModeOption {
-  mode: Mode;
+// 'markdown' also repairs broken layout before it translates; 'plain_text' keeps the text as pasted.
+export type SourceFormat = 'plain_text' | 'markdown';
+
+// One choice of the source format menu.
+export interface SourceFormatOption {
+  sourceFormat: SourceFormat;
   label: string;
   description: string;
 }
@@ -19,47 +22,48 @@ export interface ModeOption {
 // The latest reply's rate limit, when it warns or rejects.
 export interface QuotaWarning {
   status: string;
-  rate_limit_type: string | undefined;
+  rateLimitType: string | undefined;
   utilization: number | undefined;
-  resets_at: number | undefined;
+  resetsAt: number | undefined;
 }
 
 // GET /translation-options
 export interface TranslationOptions {
   models: ModelOption[];
   efforts: EffortOption[];
-  modes: ModeOption[];
-  default_model_id: string;
-  default_effort: Effort;
-  default_mode: Mode;
-  quota_warning: QuotaWarning | null;
+  sourceFormats: SourceFormatOption[];
+  defaultModelId: string;
+  defaultEffort: Effort;
+  defaultSourceFormat: SourceFormat;
+  quotaWarning: QuotaWarning | null;
 }
 
 // POST /translate body.
 export interface TranslateRequest {
-  source_language: Language;
-  target_language: Language;
-  text: string;
-  model_id: string;
+  sourceLanguage: Language;
+  targetLanguage: Language;
+  sourceText: string;
+  modelId: string;
   effort: Effort;
-  mode: Mode;
+  sourceFormat: SourceFormat;
 }
 
-// POST /translate response: one Server-Sent Event per entry, `event: <name>` and `data: <JSON>`. The live stream keeps its
-// snake_case fields: it is the protocol of a running request, not the stored model.
+// POST /translate response: one Server-Sent Event per entry, `event: <name>` and `data: <JSON>`. Event names are lowercase
+// snake_case values; their data is camelCase, in the words of the stored Translation (a block, its blockIndex...).
+// translationId names the saved Translation (saved when the run starts); null only when saving it failed.
 export interface StreamEvents {
-  pair_start: { pair_index: number; pair_type: PairType; level: number; marker: string };
-  source_delta: { pair_index: number; text: string };
-  translation_delta: { pair_index: number; text: string };
-  // Reply text outside any pair.
-  unpaired_delta: { text: string };
-  retry: { attempt: number; max_retries: number; error: string };
+  block_start: { blockIndex: number; blockType: BlockType; level: number; marker: string | null };
+  source_delta: { blockIndex: number; text: string };
+  translation_delta: { blockIndex: number; text: string };
+  // Reply text outside any block: it becomes the Translation's textOutsideBlocks.
+  outside_text_delta: { text: string };
+  retry: { attempt: number; maxRetries: number; error: string };
   thinking_delta: { text: string };
-  thinking_done: { duration_ms: number };
-  fallback: { from_model_id: string; to_model_id: string };
-  done: { duration_ms: number; served_model_id: string; effort: Effort; is_fallback: boolean; history_id: number | null };
+  thinking_done: { durationMs: number };
+  fallback: { fromModelId: string; toModelId: string };
+  done: { durationMs: number; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null };
   error: {
-    error_kind: ErrorKind; message: string; served_model_id: string; effort: Effort; is_fallback: boolean; history_id: number | null;
+    errorCode: CliErrorCode; message: string; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null;
   };
 }
 
@@ -69,10 +73,6 @@ export type StreamEventName = keyof StreamEvents;
 export type StreamEvent = { [Name in StreamEventName]: [Name, StreamEvents[Name]] }[StreamEventName];
 
 // ---- The stored translation ----
-
-// 'markdown' also repairs broken layout (the 'translate_markdown' mode); 'plain_text' keeps the text as pasted.
-export type SourceFormat = 'plain_text' | 'markdown';
-export type BlockType = PairType;
 
 // One translate run. The row is saved when the run starts and updated when it ends, whatever the outcome.
 export interface Translation {
@@ -89,18 +89,6 @@ export interface Translation {
   run: ModelRun;
   createdAt: Timestamp;
   updatedAt: Timestamp;
-}
-
-// One heading, paragraph or list item next to its translation.
-export interface TranslatedBlock {
-  blockType: BlockType;
-  // Heading or list depth; 0 when none.
-  level: number;
-  // A list marker: "-", "1.".
-  marker: string | null;
-  // With 'markdown', the repaired text.
-  sourceText: string;
-  translatedText: string;
 }
 
 // GET /history, newest first: a translation without its texts, with a preview of each side (worked out when read).

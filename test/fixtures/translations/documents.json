@@ -1,20 +1,20 @@
 {
   "description": "Made up. A typical document: headings, nested lists, a table, code, a quote, bold text and links.",
-  "pairs": [
-    { "pair_type": "heading", "level": 1, "marker": "#", "source_text": "How we ship", "translation_text": "Cách chúng tôi phát hành" },
-    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "This page is **the short version**. The long one is on [the wiki](https://example.com/wiki).", "translation_text": "Trang này là **bản ngắn**. Bản dài nằm trên [wiki](https://example.com/wiki)." },
-    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Steps", "translation_text": "Các bước" },
-    { "pair_type": "list_item", "level": 1, "marker": "1.", "source_text": "**Plan** the change.", "translation_text": "**Lên kế hoạch** cho thay đổi." },
-    { "pair_type": "list_item", "level": 2, "marker": "-", "source_text": "Write it down in one page.", "translation_text": "Viết nó ra trong một trang." },
-    { "pair_type": "list_item", "level": 2, "marker": "-", "source_text": "Ask one person to read it.", "translation_text": "Nhờ một người đọc nó." },
-    { "pair_type": "list_item", "level": 1, "marker": "2.", "source_text": "**Build** it behind a flag.", "translation_text": "**Xây dựng** nó sau một cờ." },
-    { "pair_type": "list_item", "level": 1, "marker": "3.", "source_text": "**Check** it, then turn the flag on.", "translation_text": "**Kiểm tra** nó, rồi bật cờ." },
-    { "pair_type": "list_item", "level": 1, "marker": "- [x]", "source_text": "Tests pass", "translation_text": "Kiểm thử đạt" },
-    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Who does what", "translation_text": "Ai làm gì" },
-    { "pair_type": "table", "level": 0, "marker": "", "source_text": "| Role | Task |\n|:---|---:|\n| Author | writes the plan |\n| Reviewer | reads it |", "translation_text": "| Vai trò | Việc |\n|:---|---:|\n| Tác giả | viết kế hoạch |\n| Người duyệt | đọc nó |" },
-    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Commands", "translation_text": "Lệnh" },
-    { "pair_type": "code", "level": 0, "marker": "```bash", "source_text": "npm run check\nnpm start", "translation_text": "npm run check\nnpm start" },
-    { "pair_type": "quote", "level": 0, "marker": ">", "source_text": "Ship small, ship often.\n> Then rest.", "translation_text": "Phát hành nhỏ, phát hành thường xuyên.\n> Rồi nghỉ ngơi." },
-    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "Questions? Write to `team@example.com` or see <https://example.com/help>.", "translation_text": "Có câu hỏi? Viết cho `team@example.com` hoặc xem <https://example.com/help>." }
+  "blocks": [
+    { "blockType": "heading", "level": 1, "marker": "#", "sourceText": "How we ship", "translatedText": "Cách chúng tôi phát hành" },
+    { "blockType": "paragraph", "level": 0, "marker": null, "sourceText": "This page is **the short version**. The long one is on [the wiki](https://example.com/wiki).", "translatedText": "Trang này là **bản ngắn**. Bản dài nằm trên [wiki](https://example.com/wiki)." },
+    { "blockType": "heading", "level": 2, "marker": "##", "sourceText": "Steps", "translatedText": "Các bước" },
+    { "blockType": "list_item", "level": 1, "marker": "1.", "sourceText": "**Plan** the change.", "translatedText": "**Lên kế hoạch** cho thay đổi." },
+    { "blockType": "list_item", "level": 2, "marker": "-", "sourceText": "Write it down in one page.", "translatedText": "Viết nó ra trong một trang." },
+    { "blockType": "list_item", "level": 2, "marker": "-", "sourceText": "Ask one person to read it.", "translatedText": "Nhờ một người đọc nó." },
+    { "blockType": "list_item", "level": 1, "marker": "2.", "sourceText": "**Build** it behind a flag.", "translatedText": "**Xây dựng** nó sau một cờ." },
+    { "blockType": "list_item", "level": 1, "marker": "3.", "sourceText": "**Check** it, then turn the flag on.", "translatedText": "**Kiểm tra** nó, rồi bật cờ." },
+    { "blockType": "list_item", "level": 1, "marker": "- [x]", "sourceText": "Tests pass", "translatedText": "Kiểm thử đạt" },
+    { "blockType": "heading", "level": 2, "marker": "##", "sourceText": "Who does what", "translatedText": "Ai làm gì" },
+    { "blockType": "table", "level": 0, "marker": null, "sourceText": "| Role | Task |\n|:---|---:|\n| Author | writes the plan |\n| Reviewer | reads it |", "translatedText": "| Vai trò | Việc |\n|:---|---:|\n| Tác giả | viết kế hoạch |\n| Người duyệt | đọc nó |" },
+    { "blockType": "heading", "level": 2, "marker": "##", "sourceText": "Commands", "translatedText": "Lệnh" },
+    { "blockType": "code", "level": 0, "marker": "```bash", "sourceText": "npm run check\nnpm start", "translatedText": "npm run check\nnpm start" },
+    { "blockType": "quote", "level": 0, "marker": ">", "sourceText": "Ship small, ship often.\n> Then rest.", "translatedText": "Phát hành nhỏ, phát hành thường xuyên.\n> Rồi nghỉ ngơi." },
+    { "blockType": "paragraph", "level": 0, "marker": null, "sourceText": "Questions? Write to `team@example.com` or see <https://example.com/help>.", "translatedText": "Có câu hỏi? Viết cho `team@example.com` hoặc xem <https://example.com/help>." }
   ]
 }

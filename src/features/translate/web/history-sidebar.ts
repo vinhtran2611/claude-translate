@@ -4,12 +4,9 @@ import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { parseInline, plainTextOf } from '../../../shared/web/markdown.ts';
 import { foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type { ModelRun } from '../../../shared/api-types.ts';
-import type { Mode, SourceFormat, Translation, TranslationSummary } from '../api-types.ts';
+import type { Translation, TranslationSummary } from '../api-types.ts';
 import { errorText, showAlert } from './alert.ts';
-import { arrowTargetOf, choiceLabelOf, modeNoteOf } from './settings-menus.ts';
-
-// A stored translation's source format, as the mode the page names it by.
-export const MODE_OF_SOURCE_FORMAT: Record<SourceFormat, Mode> = { plain_text: 'translate', markdown: 'translate_markdown' };
+import { arrowTargetOf, choiceLabelOf, sourceFormatNoteOf } from './settings-menus.ts';
 
 // The model that answered; the requested one while that is not known yet.
 export function servedModelOf(run: Pick<ModelRun, 'servedModelId' | 'requestedModelId'>): string {
@@ -71,8 +68,8 @@ function describeHistoryTooltip(summary: TranslationSummary): string {
   let day_label = day;
   if (day !== 'Today' && day !== 'Yesterday') day_label = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const partial_note = summary.run.status === 'succeeded' ? '' : ' · partial';
-  const choice = { model_id: servedModelOf(summary.run), effort: summary.run.effort ?? '' };
-  const choice_label = `${modeNoteOf(MODE_OF_SOURCE_FORMAT[summary.sourceFormat])}${choiceLabelOf(choice)}`;
+  const choice = { modelId: servedModelOf(summary.run), effort: summary.run.effort ?? '' };
+  const choice_label = `${sourceFormatNoteOf(summary.sourceFormat)}${choiceLabelOf(choice)}`;
   const direction = `${summary.sourceLanguage.toUpperCase()} → ${summary.targetLanguage.toUpperCase()}`;
   return `${direction} · ${day_label} ${time} · ${choice_label}${partial_note}`;
 }

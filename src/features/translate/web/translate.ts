@@ -1,23 +1,23 @@
 // The page: the text box, the translation run and the keyboard. Loaded by translate.html; the server strips its types
 // as it serves it. The pairs live in pairs-view.ts, the history in history-sidebar.ts, the alert in alert.ts and the
 // settings menus in settings-menus.ts.
-import type { ModelRun, Pair } from '../../../shared/api-types.ts';
+import type { ModelRun, TranslatedBlock } from '../../../shared/api-types.ts';
 import { documentIndexOf, parseCellBlocks, renderCellContent } from '../../../shared/web/markdown.ts';
 import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { Language, Mode, Outcome, StreamEvent, TranslatedBlock, Translation } from '../api-types.ts';
+import type { Language, Outcome, SourceFormat, StreamEvent, TranslateRequest, Translation } from '../api-types.ts';
 import { errorText, hideAlert, isAlertShown, showAlert } from './alert.ts';
 import { alertForError, type PageErrorKind } from './alert-text.ts';
 import { detectSourceLanguage } from './detect-language.ts';
 import {
   closeSidebar, focusHistorySearch, historyTitleOf, initHistorySidebar, isDockedOnStart, isSidebarModal, isSidebarOpen,
-  loadHistory, MODE_OF_SOURCE_FORMAT, openSidebar, servedModelOf, setShownHistoryId, shownHistoryId, toggleSidebar,
+  loadHistory, openSidebar, servedModelOf, setShownHistoryId, shownHistoryId, toggleSidebar,
 } from './history-sidebar.ts';
 import { composePairsMarkdown } from './pairs-markdown.ts';
 import {
-  applyPairEvent, copyWithFeedback, isPairEvent, pairs_view, renderStoredPairs, resetPairs, setStreamingCell, shownPairs,
+  applyBlockEvent, copyWithFeedback, isBlockEvent, pairs_view, renderStoredBlocks, resetPairs, setStreamingCell, shownBlocks,
 } from './pairs-view.ts';
 import {
-  choiceLabelOf, closeSettingsMenus, loadTranslationOptions, modeNoteOf, modelLabelOf, openSettingsMenu,
+  choiceLabelOf, closeSettingsMenus, loadTranslationOptions, sourceFormatNoteOf, modelLabelOf, openSettingsMenu,
   refreshQuotaWarning, toggleModelMenu, translationSettings,
 } from './settings-menus.ts';
 import { findSourceDivergence, type SourceDivergence } from './source-check.ts';
@@ -30,12 +30,12 @@ type ViewMode = 'edit' | 'pairs';
 // Everything Undo needs to put the workspace back.
 interface WorkspaceSnapshot {
   source_text: string;
-  pairs: Pair[];
+  blocks: TranslatedBlock[];
   plain_target_text: string;
   target_state: TargetState;
   run_info: string;
   view_mode: ViewMode;
-  result_mode: Mode | null;
+  resultSourceFormat: SourceFormat | null;
   thinking_text: string;
   thinking_duration_ms: number | null;
 }
@@ -43,13 +43,13 @@ interface WorkspaceSnapshot {
 // The facts the end-of-run status line is worded from; a failed or cancelled run has only the first two.
 interface RunInfo {
   outcome: Outcome;
-  has_output: boolean;
-  duration_ms?: number;
-  served_model_id?: string;
+  hasOutput: boolean;
+  durationMs?: number;
+  servedModelId?: string;
   effort?: string;
-  mode?: Mode;
-  is_fallback?: boolean;
-  is_from_history?: boolean;
+  sourceFormat?: SourceFormat;
+  isFallback?: boolean;
+  isFromHistory?: boolean;
 }
 
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
@@ -90,7 +90,7 @@ const thinking_label = requiredElement('#thinking-label', HTMLSpanElement);
 const thinking_body = requiredElement('#thinking-text', HTMLDivElement);
 // The mode the result on screen ran in; null when there is none. Written by translate, showHistoryEntry and
 // restoreClearedTranslation.
-let shown_result_mode: Mode | null = null;
+let shown_result_mode: SourceFormat | null = null;
 // The thinking summary of the result on screen; '' when there is none. Written only by setThinking.
 let thinking_text = '';
 // null while the summary is still arriving. Written only by setThinking.
@@ -133,8 +133,8 @@ function setViewMode(view_mode: ViewMode): void {
   panes.hidden = view_mode === 'pairs';
   pairs_view.hidden = view_mode !== 'pairs';
   edit_button.hidden = view_mode !== 'pairs';
-  if (view_mode === 'edit' && shownPairs().length > 0 && current_target_state === 'done') {
-    target_text.textContent = composePairsMarkdown(shownPairs(), 'translation');
+  if (view_mode === 'edit' && shownBlocks().length > 0 && current_target_state === 'done') {
+    target_text.textContent = composePairsMarkdown(shownBlocks(), 'translation');
     target_text.classList.remove('is-empty');
   }
 }
@@ -142,8 +142,8 @@ function setViewMode(view_mode: ViewMode): void {
 // Only a Markdown-mode left column differs from the textarea; elsewhere the text as typed is the source. A column that
 // lost words (a cut-off run, or the model dropped some) never stands in for the input.
 function isReformattedSourceShown(): boolean {
-  if (pairs_view.hidden || shown_result_mode !== 'translate_markdown' || shownPairs().length === 0) return false;
-  return findSourceDivergence(source_text.value, shownPairs()) === null;
+  if (pairs_view.hidden || shown_result_mode !== 'markdown' || shownBlocks().length === 0) return false;
+  return findSourceDivergence(source_text.value, shownBlocks()) === null;
 }
 
 function showErrorAlert(error_kind: PageErrorKind, message: string, has_partial_translation: boolean, silence_text: string): void {
@@ -165,17 +165,6 @@ function outcomeOf(run: Pick<ModelRun, 'status'>): Outcome {
   return 'error';
 }
 
-// A stored block as the live stream's pair, so it is drawn by the same path.
-function pairOf(block: TranslatedBlock): Pair {
-  return {
-    pair_type: block.blockType,
-    level: block.level,
-    marker: block.marker ?? '',
-    source_text: block.sourceText,
-    translation_text: block.translatedText,
-  };
-}
-
 // Shows a stored translation without calling Claude. Text typed but never translated is kept for Undo,
 // the same way Clear keeps it. Assigning .value fires no input event, so detection keeps the stored direction.
 function showHistoryEntry(translation: Translation): void {
@@ -189,15 +178,15 @@ function showHistoryEntry(translation: Translation): void {
     forgetClearedSnapshot();
   }
   const { run } = translation;
-  const pairs = translation.blocks.map(pairOf);
+  const pairs = translation.blocks;
   const text_outside_blocks = translation.textOutsideBlocks ?? '';
-  const mode = MODE_OF_SOURCE_FORMAT[translation.sourceFormat];
+  const mode = translation.sourceFormat;
   source_text.value = translation.sourceText;
   source_language = translation.sourceLanguage;
   is_direction_auto = false;
   renderLanguages();
   renderSource();
-  renderStoredPairs(pairs);
+  renderStoredBlocks(pairs);
   renderTarget('done', pairs.length > 0 ? '' : text_outside_blocks);
   shown_result_mode = mode;
   setThinking(run.thinkingText ?? '', run.thinkingMs, false);
@@ -205,13 +194,13 @@ function showHistoryEntry(translation: Translation): void {
   const finished_at = run.finishedAt ?? run.startedAt;
   const run_info: RunInfo = {
     outcome: outcomeOf(run),
-    has_output: pairs.length > 0 || text_outside_blocks !== '',
-    duration_ms: Date.parse(finished_at) - Date.parse(run.startedAt),
-    served_model_id: servedModelOf(run),
+    hasOutput: pairs.length > 0 || text_outside_blocks !== '',
+    durationMs: Date.parse(finished_at) - Date.parse(run.startedAt),
+    servedModelId: servedModelOf(run),
     effort: run.effort ?? '',
-    mode,
-    is_fallback: run.servedModelId !== null && run.servedModelId !== run.requestedModelId,
-    is_from_history: true,
+    sourceFormat: mode,
+    isFallback: run.servedModelId !== null && run.servedModelId !== run.requestedModelId,
+    isFromHistory: true,
   };
   setRunInfo(`From history · ${runInfoTextOf(run_info)}`);
   setViewMode(pairs.length > 0 ? 'pairs' : 'edit');
@@ -219,16 +208,16 @@ function showHistoryEntry(translation: Translation): void {
 }
 
 function snapshotWorkspace(): WorkspaceSnapshot {
-  const translation_pairs = shownPairs();
+  const translation_pairs = shownBlocks();
   return {
     source_text: source_text.value,
-    pairs: translation_pairs.map(({ pair_type, level, marker, source_text: pair_source_text, translation_text }) =>
-      ({ pair_type, level, marker, source_text: pair_source_text, translation_text })),
+    // Only the block's own fields, not the cells it is drawn in.
+    blocks: translation_pairs.map(({ blockType, level, marker, sourceText, translatedText }) => ({ blockType, level, marker, sourceText, translatedText })),
     plain_target_text: translation_pairs.length > 0 ? '' : target_text.textContent,
     target_state: current_target_state === 'done' ? 'done' : 'empty',
     run_info: current_target_state === 'done' ? run_info.textContent : '',
     view_mode: pairs_view.hidden ? 'edit' : 'pairs',
-    result_mode: shown_result_mode,
+    resultSourceFormat: shown_result_mode,
     thinking_text: current_target_state === 'done' ? thinking_text : '',
     thinking_duration_ms: current_target_state === 'done' ? thinking_duration_ms : null,
   };
@@ -241,12 +230,12 @@ function forgetClearedSnapshot(): void {
 
 // The one place the end-of-run status line is worded. A live run names the model only after a fallback, since the
 // picker already shows the choice; a history entry always names its choice.
-function runInfoTextOf({ outcome, has_output, duration_ms = 0, served_model_id = '', effort = '', mode, is_fallback, is_from_history }: RunInfo): string {
+function runInfoTextOf({ outcome, hasOutput: has_output, durationMs: duration_ms = 0, servedModelId: served_model_id = '', effort = '', sourceFormat: mode, isFallback: is_fallback, isFromHistory: is_from_history }: RunInfo): string {
   if (outcome === 'cancelled') return has_output ? 'Cancelled · partial' : 'Cancelled';
   if (outcome === 'error') return has_output ? 'Stopped · partial' : 'Failed';
   const seconds = `${(duration_ms / 1000).toFixed(1)}s`;
   // The mode leads: the chip shows the next run's mode, and the end of this line is cut at 1280 with the sidebar docked.
-  if (is_from_history) return `${modeNoteOf(mode)}${seconds} · ${choiceLabelOf({ model_id: served_model_id, effort })}`;
+  if (is_from_history) return `${sourceFormatNoteOf(mode)}${seconds} · ${choiceLabelOf({ modelId: served_model_id, effort })}`;
   return is_fallback ? `${seconds} · ${modelLabelOf(served_model_id)}` : seconds;
 }
 
@@ -254,20 +243,20 @@ function restoreClearedTranslation(): void {
   const snapshot = cleared_snapshot;
   if (snapshot === null) return;
   forgetClearedSnapshot();
-  renderStoredPairs(snapshot.pairs);
+  renderStoredBlocks(snapshot.blocks);
   renderTarget(snapshot.target_state, snapshot.plain_target_text);
-  shown_result_mode = snapshot.result_mode;
+  shown_result_mode = snapshot.resultSourceFormat;
   setThinking(snapshot.thinking_text, snapshot.thinking_duration_ms, false);
   setRunInfo(snapshot.run_info);
   setViewMode(snapshot.view_mode);
 }
 
 function composeCopyText(): string {
-  return shownPairs().length > 0 ? composePairsMarkdown(shownPairs(), 'translation') : target_text.textContent;
+  return shownBlocks().length > 0 ? composePairsMarkdown(shownBlocks(), 'translation') : target_text.textContent;
 }
 
 function composeSourceCopyText(): string {
-  return isReformattedSourceShown() ? composePairsMarkdown(shownPairs(), 'source') : source_text.value;
+  return isReformattedSourceShown() ? composePairsMarkdown(shownBlocks(), 'source') : source_text.value;
 }
 
 function setRunInfo(text: string): void {
@@ -322,12 +311,12 @@ function cancelTranslation(): void {
   setStreamingCell(null);
   const has_output = current_target_state === 'streaming';
   renderTarget(has_output ? 'done' : 'empty', has_output ? target_text.textContent : '');
-  setRunInfo(runInfoTextOf({ outcome: 'cancelled', has_output }));
+  setRunInfo(runInfoTextOf({ outcome: 'cancelled', hasOutput: has_output }));
 }
 
 // What the edit view shows after a run: the text that came outside pairs, when no pairs came at all.
 function plainTextAfterRun(unpaired_text: string): string {
-  return shownPairs().length > 0 ? '' : unpaired_text;
+  return shownBlocks().length > 0 ? '' : unpaired_text;
 }
 
 function showSourceDivergenceAlert(source_divergence: SourceDivergence): void {
@@ -362,7 +351,7 @@ async function translate(): Promise<void> {
   forgetClearedSnapshot();
   setShownHistoryId(null);
   resetPairs();
-  shown_result_mode = request_settings.mode;
+  shown_result_mode = request_settings.sourceFormat;
   setViewMode('edit');
   renderTarget('waiting');
 
@@ -386,58 +375,58 @@ async function translate(): Promise<void> {
   // Keeps what arrived, and returns whether anything did.
   const endFailedRun = (): boolean => {
     setStreamingCell(null);
-    const has_output = shownPairs().length > 0 || unpaired_text.trim() !== '';
+    const has_output = shownBlocks().length > 0 || unpaired_text.trim() !== '';
     renderTarget(has_output ? 'done' : 'empty', plainTextAfterRun(unpaired_text));
-    setRunInfo(runInfoTextOf({ outcome: 'error', has_output }));
+    setRunInfo(runInfoTextOf({ outcome: 'error', hasOutput: has_output }));
     return has_output;
   };
 
   const handleStreamEvent = (stream_event: StreamEvent): void => {
-    if (isPairEvent(stream_event)) {
+    if (isBlockEvent(stream_event)) {
       const [event_name, data] = stream_event;
-      if (event_name === 'pair_start' && data.pair_index === 0) setViewMode('pairs');
+      if (event_name === 'block_start' && data.blockIndex === 0) setViewMode('pairs');
       retry_note = '';
-      applyPairEvent(stream_event);
+      applyBlockEvent(stream_event);
       if (current_target_state !== 'streaming') renderTarget('streaming');
       return;
     }
     const [event_name, data] = stream_event;
-    if (event_name === 'unpaired_delta') {
+    if (event_name === 'outside_text_delta') {
       unpaired_text += data.text;
       retry_note = '';
       // Once pairs exist, text outside them is a stray note and is not shown.
-      if (shownPairs().length === 0) renderTarget('streaming', unpaired_text);
+      if (shownBlocks().length === 0) renderTarget('streaming', unpaired_text);
     } else if (event_name === 'thinking_delta') {
       // Opens as the summary starts arriving; a click to close it while thinking is kept.
       const is_open = thinking_text === '' || thinking_block.open;
       setThinking(thinking_text + data.text, null, is_open);
       renderProgress();
     } else if (event_name === 'thinking_done') {
-      setThinking(thinking_text, data.duration_ms, false);
+      setThinking(thinking_text, data.durationMs, false);
       renderProgress();
     } else if (event_name === 'retry') {
-      retry_note = `API busy (${data.error}), retry ${data.attempt}/${data.max_retries}…`;
+      retry_note = `API busy (${data.error}), retry ${data.attempt}/${data.maxRetries}…`;
       renderProgress();
     } else if (event_name === 'fallback') {
-      retry_note = `${modelLabelOf(data.from_model_id)} is slow, switched to ${modelLabelOf(data.to_model_id)}…`;
+      retry_note = `${modelLabelOf(data.fromModelId)} is slow, switched to ${modelLabelOf(data.toModelId)}…`;
       renderProgress();
     } else if (event_name === 'done') {
       setStreamingCell(null);
       renderTarget('done', plainTextAfterRun(unpaired_text));
-      setShownHistoryId(data.history_id);
+      setShownHistoryId(data.translationId);
       if (isSidebarOpen()) loadHistory();
-      setRunInfo(runInfoTextOf({ outcome: 'done', has_output: true, ...data }));
+      setRunInfo(runInfoTextOf({ outcome: 'done', hasOutput: true, ...data }));
       refreshQuotaWarning();
-      if (shownPairs().length > 0) {
-        const source_divergence = findSourceDivergence(text, shownPairs());
+      if (shownBlocks().length > 0) {
+        const source_divergence = findSourceDivergence(text, shownBlocks());
         if (source_divergence !== null) showSourceDivergenceAlert(source_divergence);
       }
     } else if (event_name === 'error') {
       const has_output = endFailedRun();
-      const silence_text = silenceTextOf(request_settings.model_id, data.served_model_id, data.is_fallback);
-      showErrorAlert(data.error_kind, data.message, has_output, silence_text);
+      const silence_text = silenceTextOf(request_settings.modelId, data.servedModelId, data.isFallback);
+      showErrorAlert(data.errorCode, data.message, has_output, silence_text);
       refreshQuotaWarning();
-      setShownHistoryId(data.history_id);
+      setShownHistoryId(data.translationId);
       if (isSidebarOpen()) loadHistory();
     }
   };
@@ -445,17 +434,18 @@ async function translate(): Promise<void> {
   renderProgress();
   const progress_timer = setInterval(renderProgress, 1000);
   try {
+    const request_body: TranslateRequest = {
+      sourceLanguage: source_language,
+      targetLanguage: targetLanguageOf(source_language),
+      sourceText: text,
+      modelId: request_settings.modelId,
+      effort: request_settings.effort,
+      sourceFormat: request_settings.sourceFormat,
+    };
     const response = await fetch('/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source_language,
-        target_language: targetLanguageOf(source_language),
-        text,
-        model_id: request_settings.model_id,
-        effort: request_settings.effort,
-        mode: request_settings.mode,
-      }),
+      body: JSON.stringify(request_body),
       signal: request.signal,
     });
     if (!response.ok) throw new Error(await response.text());
@@ -511,7 +501,7 @@ swap_button.addEventListener('click', swapLanguages);
 // A reformatted left column is what gets edited, so a second Markdown run starts from it; insertText keeps the
 // pasted text one ⌘Z away. Its input event treats the insert as typing, so the entry and direction are put back.
 edit_button.addEventListener('click', () => {
-  const reformatted_source_text = isReformattedSourceShown() ? composePairsMarkdown(shownPairs(), 'source') : null;
+  const reformatted_source_text = isReformattedSourceShown() ? composePairsMarkdown(shownBlocks(), 'source') : null;
   setViewMode('edit');
   source_text.focus();
   if (reformatted_source_text !== null && reformatted_source_text !== source_text.value) {

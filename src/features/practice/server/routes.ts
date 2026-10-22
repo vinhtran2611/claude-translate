@@ -103,7 +103,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
 
   const grader = createGrader(store);
   const grading_options: GradingOptions = {
-    models: MODEL_OPTIONS.map(({ model_id, label, short_label, description }) => ({ model_id, label, short_label, description })),
+    models: MODEL_OPTIONS.map(({ modelId, label, shortLabel, description }) => ({ modelId, label, shortLabel, description })),
     efforts: EFFORT_OPTIONS,
     defaultModelId: DEFAULT_MODEL_ID,
     defaultEffort: DEFAULT_EFFORT,
@@ -113,7 +113,7 @@ export function createPracticeFeature({ database_path }: { database_path: string
   // because the CLI does not: an unknown --effort only prints a warning and runs at its default.
   function settingsOf({ modelId = DEFAULT_MODEL_ID, effort = DEFAULT_EFFORT }: RegradeRequest, problems: Problem[]): GradingSettings {
     if (modelOptionOf(modelId) === undefined) {
-      const models = MODEL_OPTIONS.map((option) => option.model_id).join(', ');
+      const models = MODEL_OPTIONS.map((option) => option.modelId).join(', ');
       problems.push({ path: '/modelId', code: 'not_allowed', message: `modelId must be one of ${models}.` });
     }
     if (!isEffort(effort)) {

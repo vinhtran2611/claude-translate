@@ -1,46 +1,46 @@
-// The translation modes and the system prompt each one runs with, built from the files in translate/prompts/.
+// The source formats a translation runs with, and the system prompt of each, built from the files in translate/prompts/.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Mode, ModeOption } from '../api-types.ts';
+import type { SourceFormat, SourceFormatOption } from '../api-types.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 
 const PROMPTS_DIRECTORY = join(FEATURES_DIRECTORY, 'translate', 'prompts');
-// The system prompt, in order: these shared parts, then the mode's source part.
+// The system prompt, in order: these shared parts, then the source format's own part.
 const SHARED_PROMPT_PATHS = ['core.md', 'style-vi.md', 'style-en.md'].map((name) => join(PROMPTS_DIRECTORY, name));
 // Data, not prompt text: it replaces {{glossary}} in the style part.
 const GLOSSARY_PATH = join(PROMPTS_DIRECTORY, 'glossary.tsv');
 
-// source_prompt_path: the mode's "# Source" section, the last part of the system prompt.
-interface ModeConfig extends ModeOption {
-  source_prompt_path: string;
+// sourcePromptPath: the source format's "# Source" section, the last part of the system prompt.
+interface SourceFormatConfig extends SourceFormatOption {
+  sourcePromptPath: string;
 }
 
 // Menu order.
-export const MODE_OPTIONS: ModeConfig[] = [
+export const SOURCE_FORMAT_OPTIONS: SourceFormatConfig[] = [
   {
-    mode: 'translate',
+    sourceFormat: 'plain_text',
     label: 'As pasted',
     description: 'Keeps your text exactly as pasted.',
-    source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate.md'),
+    sourcePromptPath: join(PROMPTS_DIRECTORY, 'source-translate.md'),
   },
   {
-    mode: 'translate_markdown',
+    sourceFormat: 'markdown',
     label: 'Markdown',
     description: 'Tidies pasted text into headings, lists and paragraphs, then translates. Words never change.',
-    source_prompt_path: join(PROMPTS_DIRECTORY, 'source-translate_markdown.md'),
+    sourcePromptPath: join(PROMPTS_DIRECTORY, 'source-translate_markdown.md'),
   },
 ];
-export const DEFAULT_MODE: Mode = 'translate';
+export const DEFAULT_SOURCE_FORMAT: SourceFormat = 'plain_text';
 
 // Every file a system prompt is read from, so a change to any of them can be noticed.
-export const PROMPT_PATHS = [...SHARED_PROMPT_PATHS, GLOSSARY_PATH, ...MODE_OPTIONS.map((option) => option.source_prompt_path)];
+export const PROMPT_PATHS = [...SHARED_PROMPT_PATHS, GLOSSARY_PATH, ...SOURCE_FORMAT_OPTIONS.map((option) => option.sourcePromptPath)];
 
-function modeOptionOf(mode: string | undefined): ModeConfig | undefined {
-  return MODE_OPTIONS.find((option) => option.mode === mode);
+function sourceFormatOptionOf(sourceFormat: string | undefined): SourceFormatConfig | undefined {
+  return SOURCE_FORMAT_OPTIONS.find((option) => option.sourceFormat === sourceFormat);
 }
 
-export function isMode(mode: unknown): mode is Mode {
-  return modeOptionOf(mode as string) !== undefined;
+export function isSourceFormat(sourceFormat: unknown): sourceFormat is SourceFormat {
+  return sourceFormatOptionOf(sourceFormat as string) !== undefined;
 }
 
 // The glossary as the prompt shows it: one "English term -> Vietnamese form" per line. "#" lines are comments.
@@ -54,11 +54,11 @@ function glossaryBlock(): string {
 }
 
 // Read at every spawn, so a prompt edit reaches the next process without a restart.
-export function systemPromptOf(mode: Mode): string {
-  const { source_prompt_path } = modeOptionOf(mode) as ModeConfig;
-  const glossary_block = glossaryBlock();
+export function systemPromptOf(sourceFormat: SourceFormat): string {
+  const { sourcePromptPath } = sourceFormatOptionOf(sourceFormat) as SourceFormatConfig;
+  const glossary = glossaryBlock();
   // A function as the replacement, so a "$" in the glossary is not read as a pattern.
-  const shared_parts = SHARED_PROMPT_PATHS.map((path) => readFileSync(path, 'utf8').trim().replace('{{glossary}}', () => glossary_block));
-  const source_part = readFileSync(source_prompt_path, 'utf8').trim();
-  return `${shared_parts.join('\n\n')}\n\n${source_part}\n`;
+  const sharedParts = SHARED_PROMPT_PATHS.map((path) => readFileSync(path, 'utf8').trim().replace('{{glossary}}', () => glossary));
+  const sourcePart = readFileSync(sourcePromptPath, 'utf8').trim();
+  return `${sharedParts.join('\n\n')}\n\n${sourcePart}\n`;
 }

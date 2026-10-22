@@ -1,7 +1,7 @@
 // Runs one `claude -p` request for any feature: the safe flags, the stream-json reading, first-token fallback,
 // stall timeout, API retries and quota logging. What the reply text means is the caller's business.
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { Effort, EffortOption, ErrorKind, ModelOption } from '../api-types.ts';
+import type { Effort, EffortOption, CliErrorCode, ModelOption } from '../api-types.ts';
 import { formatCount, formatSeconds, formatWeekdayTime, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from './log.ts';
 import { APP_DIRECTORY } from './paths.ts';
 
@@ -13,9 +13,9 @@ export interface ModelConfig extends ModelOption {
 
 // Menu order.
 export const MODEL_OPTIONS: ModelConfig[] = [
-  { model_id: 'claude-opus-5-5', label: 'Opus 5.5', short_label: 'Opus', description: "Best nuance and tone · 2× Sonnet's usage", fallback_model_id: 'claude-sonnet-5-5' },
-  { model_id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', short_label: 'Sonnet', description: 'Natural and quick for everyday text', fallback_model_id: 'claude-haiku-5-5' },
-  { model_id: 'claude-haiku-5-5', label: 'Haiku 5.5', short_label: 'Haiku', description: 'Fastest · a fraction of the usage', fallback_model_id: null },
+  { modelId: 'claude-opus-5-5', label: 'Opus 5.5', shortLabel: 'Opus', description: "Best nuance and tone · 2× Sonnet's usage", fallback_model_id: 'claude-sonnet-5-5' },
+  { modelId: 'claude-sonnet-5-5', label: 'Sonnet 5.5', shortLabel: 'Sonnet', description: 'Natural and quick for everyday text', fallback_model_id: 'claude-haiku-5-5' },
+  { modelId: 'claude-haiku-5-5', label: 'Haiku 5.5', shortLabel: 'Haiku', description: 'Fastest · a fraction of the usage', fallback_model_id: null },
 ];
 // xhigh and max are left out: translation gains little from them, and they think longest and use the most.
 export const EFFORT_OPTIONS: EffortOption[] = [
@@ -91,7 +91,7 @@ export function lastRateLimitInfo(): RateLimitInfo | null {
 
 // undefined for an id no longer offered (a history row can name one).
 export function modelOptionOf(model_id: string | undefined): ModelConfig | undefined {
-  return MODEL_OPTIONS.find((option) => option.model_id === model_id);
+  return MODEL_OPTIONS.find((option) => option.modelId === model_id);
 }
 
 export function modelLabelOf(model_id: string): string {
@@ -173,7 +173,7 @@ export function stopProcess(claude_process: ChildProcess): void {
 }
 
 export interface RunError {
-  error_kind: ErrorKind;
+  errorCode: CliErrorCode;
   message: string;
 }
 
@@ -182,8 +182,8 @@ export interface RunHandlers {
   onThinkingDelta?(text: string): void;
   onThinkingDone?(duration_ms: number): void;
   onText?(text: string): void;
-  onRetry?(retry: { attempt: number; max_retries: number; error: string }): void;
-  onFallback?(fallback: { from_model_id: string; to_model_id: string }): void;
+  onRetry?(retry: { attempt: number; maxRetries: number; error: string }): void;
+  onFallback?(fallback: { fromModelId: string; toModelId: string }): void;
   // The result message arrived, just before onDone or onError; output_tokens is null when it named none.
   onResultMessage?(output_tokens: number | null): void;
   onDone(reply_text: string): void;
@@ -252,10 +252,10 @@ export function runClaude({ request_number, settings, user_message, first_token_
     let stdout_buffer = '';
     let stderr_text = '';
 
-    // The caller picks its wording from error_kind.
-    const stopForTimeout = (error_kind: ErrorKind, reason: string): void => {
+    // The caller picks its wording from errorCode.
+    const stopForTimeout = (error_kind: CliErrorCode, reason: string): void => {
       if (!isCurrent()) return;
-      finishError({ error_kind, message: `${modelLabelOf(model_id)} ${reason}.` }, `${reason}, last_event=${last_event_kind}`);
+      finishError({ errorCode: error_kind, message: `${modelLabelOf(model_id)} ${reason}.` }, `${reason}, last_event=${last_event_kind}`);
     };
     const switchToFallback = (): void => {
       if (!isCurrent() || fallback_model_id === null) return;
@@ -264,7 +264,7 @@ export function runClaude({ request_number, settings, user_message, first_token_
         `${modelLabelOf(model_id)} sent no token within ${formatSeconds(switch_to_fallback_after_ms)}, last_event=${last_event_kind} ` +
           `-> ${modelLabelOf(fallback_model_id)}`,
       );
-      handlers.onFallback?.({ from_model_id: model_id, to_model_id: fallback_model_id });
+      handlers.onFallback?.({ fromModelId: model_id, toModelId: fallback_model_id });
       stopProcess(run_process);
       // The same effort: falling back is about getting an answer at all, not about how deeply to think.
       runModel(fallback_model_id, spawnClaudeProcess({ model_id: fallback_model_id, effort, system_prompt }), false);
@@ -292,11 +292,11 @@ export function runClaude({ request_number, settings, user_message, first_token_
       handlers.onResultMessage?.(message.usage?.output_tokens ?? null);
       if (last_stop_reason === 'max_tokens') {
         const limit_message = `The reply reached the ${formatCount(MAX_OUTPUT_TOKENS)}-token output limit and was cut off.`;
-        finishError({ error_kind: 'output_limit', message: limit_message }, `stop_reason=max_tokens after claude's continuations`);
+        finishError({ errorCode: 'output_limit', message: limit_message }, `stop_reason=max_tokens after claude's continuations`);
       } else if (message.is_error) {
         const result_text = String(message.result ?? message.subtype);
         const status_note = message.api_error_status ? ` (${message.api_error_status})` : '';
-        finishError({ error_kind: 'claude_error', message: result_text }, `${result_text}${status_note}`);
+        finishError({ errorCode: 'claude_error', message: result_text }, `${result_text}${status_note}`);
       } else {
         finishDone();
       }
@@ -350,7 +350,7 @@ export function runClaude({ request_number, settings, user_message, first_token_
         log('warn', request_number, 'continue', `${modelLabelOf(model_id)} hit ${limit_text}; claude asked it to continue`);
       } else if (message.type === 'system' && message.subtype === 'api_retry') {
         logRetry(message);
-        handlers.onRetry?.({ attempt: message.attempt ?? 0, max_retries: message.max_retries ?? 0, error: message.error ?? '' });
+        handlers.onRetry?.({ attempt: message.attempt ?? 0, maxRetries: message.max_retries ?? 0, error: message.error ?? '' });
       } else if (message.type === 'rate_limit_event' && message.rate_limit_info !== undefined) {
         noteRateLimit(message.rate_limit_info);
       } else if (message.type === 'result') {
@@ -382,13 +382,13 @@ export function runClaude({ request_number, settings, user_message, first_token_
     run_process.on('error', (error) => {
       clearTimers();
       if (!isCurrent()) return;
-      finishError({ error_kind: 'start_failed', message: `Cannot start claude: ${error.message}` }, error.message);
+      finishError({ errorCode: 'start_failed', message: `Cannot start claude: ${error.message}` }, error.message);
     });
     run_process.on('close', (exit_code, signal) => {
       clearTimers();
       if (!isCurrent() || has_result) return;
       finishError(
-        { error_kind: 'exited', message: stderr_text.trim() || `claude exited with code ${exit_code}` },
+        { errorCode: 'exited', message: stderr_text.trim() || `claude exited with code ${exit_code}` },
         `${signal ? `killed by ${signal}` : `exit code ${exit_code}`}, last_event=${last_event_kind}`,
         lastLines(stderr_text, LOG_DETAIL_MAX_LINES),
       );

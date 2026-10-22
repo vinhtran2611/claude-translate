@@ -286,12 +286,12 @@ test('a gap fill is graded by claude with the accepted answers and the typed gap
 
 test('the grading options are the ones Claude Translate offers', async () => {
   const options = await get('/grading-options');
-  assert.deepEqual(options.models.map((model: any) => model.model_id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.deepEqual(options.models.map((model: any) => model.modelId), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
   assert.deepEqual(options.efforts.map((effort: any) => effort.effort), ['low', 'medium', 'high']);
 
   const translate_options = await (await fetch(`${server.base_url}/translation-options`)).json() as any;
-  assert.equal(options.defaultModelId, translate_options.default_model_id);
-  assert.equal(options.defaultEffort, translate_options.default_effort);
+  assert.equal(options.defaultModelId, translate_options.defaultModelId);
+  assert.equal(options.defaultEffort, translate_options.defaultEffort);
   assert.deepEqual(options.models, translate_options.models);
 });
 

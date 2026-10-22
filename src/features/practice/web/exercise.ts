@@ -62,21 +62,15 @@ let picker: ModelPicker | null = null;
 async function gradingPicker(signal: AbortSignal): Promise<ModelPicker> {
   if (picker !== null) return picker;
   const options = await readGradingOptions(signal);
-  const picker_options = {
-    models: options.models,
-    efforts: options.efforts,
-    default_model_id: options.defaultModelId,
-    default_effort: options.defaultEffort,
-  };
   // Another call may have made it while this one waited.
-  picker ??= createModelPicker(picker_options, PICKER_STORAGE_KEY, document.body);
+  picker ??= createModelPicker(options, PICKER_STORAGE_KEY, document.body);
   return picker;
 }
 
 // The picker's choice, as the API names it.
 function gradingSettingsOf(model_picker: ModelPicker): GradingSettings {
-  const { model_id, effort } = model_picker.settings();
-  return { modelId: model_id, effort };
+  const { modelId, effort } = model_picker.settings();
+  return { modelId, effort };
 }
 
 export async function showExercise(page: Page, project_key: string, exercise_key: string): Promise<void> {

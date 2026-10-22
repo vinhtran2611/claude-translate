@@ -1,5 +1,5 @@
-// The block parser for one cell: pair_type already names the block, so each type has exactly one shape.
-import type { PairType } from '../../api-types.ts';
+// The block parser for one cell: the blockType already names the block, so each type has exactly one shape.
+import type { BlockType } from '../../api-types.ts';
 import { type InlineNode, type InlineOptions, parseInline, unescapeString } from './inline.ts';
 
 export interface ListMarker {
@@ -43,7 +43,9 @@ const QUOTE_LIST_LINE = /^\s*([-*+]|\d{1,9}[.)])\s+/;
 const BARE_LIST_MARKER = /^\s*([-*+]|\d{1,9}[.)]?)\s*$/;
 
 // One block list per cell.
-export function parseCellBlocks(pair_type: PairType, marker: string, level: number, text: string, inline_options: InlineOptions): Block[] {
+// marker: null when the block has none (the same as an empty one here).
+export function parseCellBlocks(pair_type: BlockType, block_marker: string | null, level: number, text: string, inline_options: InlineOptions): Block[] {
+  const marker = block_marker ?? '';
   const inline = (inline_text: string): InlineNode[] => parseInline(inline_text, inline_options);
   if (pair_type === 'code') {
     // The marker is the opening fence, like "```ts": its first word is the language.

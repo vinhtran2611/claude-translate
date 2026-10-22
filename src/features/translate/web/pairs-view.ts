@@ -1,6 +1,6 @@
 // The side-by-side pairs: one row per <pair> the model returned, a source cell and a translation cell, each rendered
 // as Markdown as its text arrives.
-import type { Pair } from '../../../shared/api-types.ts';
+import type { TranslatedBlock } from '../../../shared/api-types.ts';
 import { documentIndexOf, parseCellBlocks, renderCellContent } from '../../../shared/web/markdown.ts';
 import { ICONS, requiredElement } from '../../../shared/web/ui.ts';
 import type { StreamEvent } from '../api-types.ts';
@@ -8,29 +8,29 @@ import { errorText, showAlert } from './alert.ts';
 import { type PairSide, translationTextOf } from './pairs-markdown.ts';
 
 // A pair on screen: what the model returned, plus the cells it renders into.
-export interface ShownPair extends Pair {
-  pair_index: number;
+export interface ShownBlock extends TranslatedBlock {
+  blockIndex: number;
   source_content: HTMLElement;
   translation_content: HTMLElement;
 }
 
-export type PairEvent = Extract<StreamEvent, ['pair_start' | 'source_delta' | 'translation_delta', unknown]>;
+export type BlockEvent = Extract<StreamEvent, ['block_start' | 'source_delta' | 'translation_delta', unknown]>;
 interface StreamingCell {
-  pair: ShownPair;
+  pair: ShownBlock;
   side: PairSide;
 }
 
 export const pairs_view = requiredElement('#pairs-view', HTMLDivElement);
 
 // One entry per <pair> the model returned, in order; written only by applyPairEvent.
-let translation_pairs: ShownPair[] = [];
+let translation_pairs: ShownBlock[] = [];
 // { pair, side } of the cell text is arriving in, or null. Written only by setStreamingCell.
 let streaming_cell: StreamingCell | null = null;
 // The cross-pair facts of the pairs on screen. Written only by refreshDocumentIndex.
 let document_index = documentIndexOf([]);
 
 // The pairs on screen, in order.
-export function shownPairs(): ShownPair[] {
+export function shownBlocks(): ShownBlock[] {
   return translation_pairs;
 }
 
@@ -39,17 +39,17 @@ function refreshDocumentIndex() {
 }
 
 // side: 'source' | 'translation'. Only the cell being streamed into renders provisionally; every other cell is final.
-function renderPairCell(pair: ShownPair, side: PairSide): void {
+function renderPairCell(pair: ShownBlock, side: PairSide): void {
   const is_streaming = streaming_cell !== null && streaming_cell.pair === pair && streaming_cell.side === side;
-  const text = side === 'source' ? pair.source_text : translationTextOf(pair);
+  const text = side === 'source' ? pair.sourceText : translationTextOf(pair);
   const inline_options = { is_streaming, link_definitions: document_index.link_definitions };
-  const blocks = parseCellBlocks(pair.pair_type, pair.marker, pair.level, text, inline_options);
+  const blocks = parseCellBlocks(pair.blockType, pair.marker, pair.level, text, inline_options);
   const content_element = side === 'source' ? pair.source_content : pair.translation_content;
   const is_document_complete = streaming_cell === null;
-  renderCellContent(content_element, blocks, { side, pair_index: pair.pair_index, document_index, is_streaming, is_document_complete });
+  renderCellContent(content_element, blocks, { side, pair_index: pair.blockIndex, document_index, is_streaming, is_document_complete });
 }
 
-function renderPairCells(pair: ShownPair): void {
+function renderPairCells(pair: ShownBlock): void {
   renderPairCell(pair, 'source');
   renderPairCell(pair, 'translation');
 }
@@ -121,16 +121,16 @@ export function resetPairs(): void {
   pairs_view.innerHTML = '';
 }
 
-export function isPairEvent(stream_event: StreamEvent): stream_event is PairEvent {
-  return stream_event[0] === 'pair_start' || stream_event[0] === 'source_delta' || stream_event[0] === 'translation_delta';
+export function isBlockEvent(stream_event: StreamEvent): stream_event is BlockEvent {
+  return stream_event[0] === 'block_start' || stream_event[0] === 'source_delta' || stream_event[0] === 'translation_delta';
 }
 
-export function applyPairEvent([event_name, data]: PairEvent): void {
-  if (event_name === 'pair_start') {
-    const cell_classes = [`type-${data.pair_type}`, `level-${data.level}`];
-    if (data.pair_index === 0) cell_classes.push('is-first');
-    const pair = { ...data, source_text: '', translation_text: '' };
-    const source = createPairCell(['pair-cell', 'source', ...cell_classes], 'Copy source', () => pair.source_text);
+export function applyBlockEvent([event_name, data]: BlockEvent): void {
+  if (event_name === 'block_start') {
+    const cell_classes = [`type-${data.blockType}`, `level-${data.level}`];
+    if (data.blockIndex === 0) cell_classes.push('is-first');
+    const pair = { ...data, sourceText: '', translatedText: '' };
+    const source = createPairCell(['pair-cell', 'source', ...cell_classes], 'Copy source', () => pair.sourceText);
     const translation = createPairCell(['pair-cell', 'translation', ...cell_classes], 'Copy translation', () => translationTextOf(pair));
     const indent_level = String(Math.max(1, data.level));
     source.cell.style.setProperty('--level', indent_level);
@@ -140,27 +140,27 @@ export function applyPairEvent([event_name, data]: PairEvent): void {
     row.className = 'pair-row';
     row.append(source.cell, translation.cell);
     pairs_view.append(row);
-    translation_pairs[data.pair_index] = Object.assign(pair, { source_content: source.content, translation_content: translation.content });
+    translation_pairs[data.blockIndex] = Object.assign(pair, { source_content: source.content, translation_content: translation.content });
     return;
   }
-  const pair = translation_pairs[data.pair_index];
+  const pair = translation_pairs[data.blockIndex];
   if (!pair) return;
   const side = event_name === 'source_delta' ? 'source' : 'translation';
-  if (side === 'source') pair.source_text += data.text;
-  else pair.translation_text += data.text;
+  if (side === 'source') pair.sourceText += data.text;
+  else pair.translatedText += data.text;
   setStreamingCell({ pair, side });
   // Only the cell whose text changed: rebuilding the other side's DOM per delta loses its selection and clicks.
   renderPairCell(pair, side);
 }
 
-// Replays stored pairs ({ pair_type, level, marker, source_text, translation_text }) through applyPairEvent,
+// Replays stored blocks ({ blockType, level, marker, sourceText, translatedText }) through applyBlockEvent,
 // the same path a live translation takes. Used by Undo after Clear and by opening a history entry.
-export function renderStoredPairs(pairs: Pair[]): void {
+export function renderStoredBlocks(pairs: TranslatedBlock[]): void {
   resetPairs();
   pairs.forEach((pair, pair_index) => {
-    applyPairEvent(['pair_start', { pair_index, pair_type: pair.pair_type, level: pair.level, marker: pair.marker }]);
-    applyPairEvent(['source_delta', { pair_index, text: pair.source_text }]);
-    applyPairEvent(['translation_delta', { pair_index, text: pair.translation_text }]);
+    applyBlockEvent(['block_start', { blockIndex: pair_index, blockType: pair.blockType, level: pair.level, marker: pair.marker }]);
+    applyBlockEvent(['source_delta', { blockIndex: pair_index, text: pair.sourceText }]);
+    applyBlockEvent(['translation_delta', { blockIndex: pair_index, text: pair.translatedText }]);
   });
   setStreamingCell(null);
 }

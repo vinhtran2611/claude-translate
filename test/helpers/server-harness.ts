@@ -73,7 +73,7 @@ export async function translate(base_url: string, text: string, model_id = 'clau
   const response = await fetch(`${base_url}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source_language: 'en', target_language: 'vi', text, model_id, effort: 'low', mode: 'translate' }),
+    body: JSON.stringify({ sourceLanguage: 'en', targetLanguage: 'vi', sourceText: text, modelId: model_id, effort: 'low', sourceFormat: 'plain_text' }),
   });
   const body = await response.text();
   return body.split('\n\n').filter((block) => block.trim() !== '').map((block) => {

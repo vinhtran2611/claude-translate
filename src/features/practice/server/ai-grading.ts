@@ -123,8 +123,8 @@ export function createGrader(store: PracticeStore): Grader {
           live.text += text;
           tell('text_delta', { text });
         },
-        onRetry: (retry) => tell('retry', { attempt: retry.attempt, maxRetries: retry.max_retries, error: retry.error }),
-        onFallback: (fallback) => tell('fallback', { fromModelId: fallback.from_model_id, toModelId: fallback.to_model_id }),
+        onRetry: (retry) => tell('retry', retry),
+        onFallback: (fallback) => tell('fallback', fallback),
         onDone: (reply_text) => {
           const grading_ms = Date.now() - live.started_at;
           const served_model_id = servedModelId();
@@ -142,9 +142,9 @@ export function createGrader(store: PracticeStore): Grader {
         onError: (error, failure_text, failure_detail_lines) => {
           const grading_ms = Date.now() - live.started_at;
           const served_model_id = servedModelId();
-          const summary = `${modelLabelOf(served_model_id)}  ${formatSeconds(grading_ms)}  ${error.error_kind}: ${failure_text}  attempt ${attempt.id}`;
+          const summary = `${modelLabelOf(served_model_id)}  ${formatSeconds(grading_ms)}  ${error.errorCode}: ${failure_text}  attempt ${attempt.id}`;
           log('error', request_number, 'error', summary, failure_detail_lines);
-          const failure = { errorCode: error.error_kind, errorMessage: error.message };
+          const failure = { errorCode: error.errorCode, errorMessage: error.message };
           finish({ status: 'failed', servedModelId: served_model_id, ...what_so_far(), ...failure });
         },
       },

@@ -1,5 +1,5 @@
 // The one place that decides whether the source column kept every word of the input.
-import type { Pair } from '../../../shared/api-types.ts';
+import type { TranslatedBlock } from '../../../shared/api-types.ts';
 import { parseInline, plainTextOf } from '../../../shared/web/markdown.ts';
 
 // Syntax the source column may drop or add around the words: heading #, quote >, list markers and checkboxes,
@@ -9,7 +9,7 @@ const BLOCK_SYNTAX_WORD = /^(#{1,6}|>+|[-*+-◦▪]|\d{1,9}[.)]|(`{3,}|~{3,})[\w
 const EXCERPT_WORD_COUNT = 6;
 
 // The two sides of a source check: only the type and the left column's text matter.
-export type CheckedPair = Pick<Pair, 'pair_type' | 'source_text'>;
+export type CheckedBlock = Pick<TranslatedBlock, 'blockType' | 'sourceText'>;
 
 // Where the left column first parts from the input; '' when that side has run out.
 export interface SourceDivergence {
@@ -24,11 +24,11 @@ function wordsOf(text: string): string[] {
 
 // The input with each word run of a type "other" pair cut out, once, wherever it is; the pairs are then left out of
 // the ordered comparison. A run not found in the input stays in that comparison, so a changed one is still caught.
-function withoutMovedUnits(input_words: string[], pairs: CheckedPair[]): { remaining_words: string[]; ordered_pairs: CheckedPair[] } {
+function withoutMovedUnits(input_words: string[], pairs: CheckedBlock[]): { remaining_words: string[]; ordered_pairs: CheckedBlock[] } {
   const remaining_words = [...input_words];
-  const ordered_pairs: CheckedPair[] = [];
+  const ordered_pairs: CheckedBlock[] = [];
   for (const pair of pairs) {
-    const unit_words = pair.pair_type === 'other' ? wordsOf(pair.source_text) : [];
+    const unit_words = pair.blockType === 'other' ? wordsOf(pair.sourceText) : [];
     const found_at = unit_words.length === 0 ? -1 : remaining_words.findIndex((_, start) =>
       unit_words.every((word, offset) => remaining_words[start + offset] === word));
     if (found_at === -1) ordered_pairs.push(pair);
@@ -37,13 +37,13 @@ function withoutMovedUnits(input_words: string[], pairs: CheckedPair[]): { remai
   return { remaining_words, ordered_pairs };
 }
 
-// pairs: [{ pair_type, source_text }]. null when every input word appears in the sources once, in order, except that
+// pairs: [{ blockType, sourceText }]. null when every input word appears in the sources once, in order, except that
 // a type "other" unit (page furniture) may sit anywhere. Otherwise the first place they part, as
 // { input_excerpt, source_excerpt } ('' when that side has run out). A word ending in "-" may join the next one,
 // with or without the hyphen, since rejoining a word split across a PDF line is allowed.
-export function findSourceDivergence(input_text: string, pairs: CheckedPair[]): SourceDivergence | null {
+export function findSourceDivergence(input_text: string, pairs: CheckedBlock[]): SourceDivergence | null {
   const { remaining_words: input_words, ordered_pairs } = withoutMovedUnits(wordsOf(input_text), pairs);
-  const source_words = ordered_pairs.flatMap((pair) => wordsOf(pair.source_text));
+  const source_words = ordered_pairs.flatMap((pair) => wordsOf(pair.sourceText));
   let input_index = 0;
   let source_index = 0;
   while (input_index < input_words.length || source_index < source_words.length) {

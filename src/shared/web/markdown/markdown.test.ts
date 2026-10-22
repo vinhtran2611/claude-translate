@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Pair } from '../../api-types.ts';
+import type { TranslatedBlock } from '../../api-types.ts';
 import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../markdown.ts';
 
 interface SpecExample {
@@ -154,14 +154,14 @@ test('URL policy', () => {
 });
 
 test('document index: GitHub slugs, footnote order, a table of contents', () => {
-  const entry = readJson<{ pairs: Pair[] }>('./fixtures/translations/table-of-contents.json');
-  const index = documentIndexOf(entry.pairs);
-  const fragments = entry.pairs.flatMap((pair) => [...pair.source_text.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]));
+  const entry = readJson<{ blocks: TranslatedBlock[] }>('./fixtures/translations/table-of-contents.json');
+  const index = documentIndexOf(entry.blocks);
+  const fragments = entry.blocks.flatMap((pair) => [...pair.sourceText.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]));
   const resolved = fragments.filter((fragment) => index.anchor_ids.has(`md-${fragment}`));
   // The notes stop at section 5, so the 5 links to prospects, the appendix and sources have no heading to point at.
   assert.equal(fragments.length, 13);
   assert.equal(resolved.length, 8);
-  const essay = documentIndexOf(readJson<{ pairs: Pair[] }>('./fixtures/translations/footnotes.json').pairs);
+  const essay = documentIndexOf(readJson<{ blocks: TranslatedBlock[] }>('./fixtures/translations/footnotes.json').blocks);
   assert.equal(essay.footnote_numbers.get('1'), 1);
   assert.ok(essay.anchor_ids.has('md-fn-1') && essay.anchor_ids.has('md-fnref-1'));
 });
@@ -196,7 +196,7 @@ const visibleOf = (blocks: Block[]): string => blocks.map(blockText).join(' ').r
 
 // Every prefix of every cell, with the index the app holds live (the pairs completed before this one); a frame is
 // unstable when it shows text the cell's final render does not start with. Text only: style flips and reflow are not seen.
-export function streamingStabilityOf(pairs: Pair[]): {
+export function streamingStabilityOf(pairs: TranslatedBlock[]): {
   frames: number; unstable_frames: number; cells: number; unstable_cells: string[]; end_of_stream_changes: string[];
 } {
   const final_index = documentIndexOf(pairs);
@@ -204,8 +204,8 @@ export function streamingStabilityOf(pairs: Pair[]): {
   pairs.forEach((pair, pair_index) => {
     const live_index = documentIndexOf(pairs.slice(0, pair_index));
     for (const side of ['source', 'translation']) {
-      const text = side === 'source' ? pair.source_text : pair.translation_text;
-      const parse = (prefix: string, is_streaming: boolean, index: DocumentIndex): Block[] => parseCellBlocks(pair.pair_type, pair.marker, pair.level, prefix, { is_streaming, link_definitions: index.link_definitions });
+      const text = side === 'source' ? pair.sourceText : pair.translatedText;
+      const parse = (prefix: string, is_streaming: boolean, index: DocumentIndex): Block[] => parseCellBlocks(pair.blockType, pair.marker, pair.level, prefix, { is_streaming, link_definitions: index.link_definitions });
       const final_text = visibleOf(parse(text, false, final_index));
       let cell_unstable = 0;
       for (let length = 1; length <= text.length; length++) {
@@ -224,8 +224,8 @@ export function streamingStabilityOf(pairs: Pair[]): {
 
 test('streaming: no raw syntax flashes in the documents; the edge cases flash only where expected', () => {
   for (const name of ['table-of-contents', 'footnotes', 'documents', 'edge-cases']) {
-    const { pairs } = readJson<{ pairs: Pair[] }>(`./fixtures/translations/${name}.json`);
-    const result = streamingStabilityOf(pairs);
+    const { blocks } = readJson<{ blocks: TranslatedBlock[] }>(`./fixtures/translations/${name}.json`);
+    const result = streamingStabilityOf(blocks);
     console.log(name, JSON.stringify({ ...result, unstable_cells: result.unstable_cells.join(' '), end_of_stream_changes: result.end_of_stream_changes.join(' ') }));
     if (name === 'edge-cases') {
       // 1: "**Source:**text" is literal by CommonMark flanking but bold while streaming. 3: "[collapsed][]" has no

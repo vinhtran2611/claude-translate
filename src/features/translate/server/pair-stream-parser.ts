@@ -1,7 +1,8 @@
 // Turns the model's <pair><source>…</source><translation>…</translation></pair> reply into page events as the text
-// arrives. Text outside any pair becomes unpaired_delta, which is how a reply that ignores the format still reaches
-// the page.
-import type { PairType } from '../../../shared/api-types.ts';
+// arrives: each <pair> is one translated block (block_start, then source_delta and translation_delta). The <pair> tags
+// are the reply format the prompts ask for. Text outside any pair becomes outside_text_delta, which is how a reply that
+// ignores the format still reaches the page.
+import type { BlockType } from '../../../shared/api-types.ts';
 import type { StreamEvent } from '../api-types.ts';
 
 const PAIR_TYPES = new Set<string>(['heading', 'paragraph', 'list_item', 'table', 'code', 'quote', 'other']);
@@ -17,15 +18,18 @@ export interface PairStreamParser {
   finish(): StreamEvent[];
 }
 
-// <pair type="list_item" level="2" marker="-">: an unknown type becomes 'other', a missing level 0.
-function parsePairAttributes(attribute_text: string): { pair_type: PairType; level: number; marker: string } {
+// <pair type="list_item" level="2" marker="-">: an unknown type becomes 'other', a missing level 0, a missing or empty
+// marker null.
+function parsePairAttributes(attribute_text: string): { blockType: BlockType; level: number; marker: string | null } {
   const attributes: Record<string, string | undefined> = {};
   for (const match of attribute_text.matchAll(/(\w+)="([^"]*)"/g)) attributes[match[1]] = match[2];
   const is_known_type = attributes.type !== undefined && PAIR_TYPES.has(attributes.type);
+  let marker: string | null = attributes.marker ?? null;
+  if (marker === '') marker = null;
   return {
-    pair_type: is_known_type ? (attributes.type as PairType) : 'other',
+    blockType: is_known_type ? (attributes.type as BlockType) : 'other',
     level: Number.parseInt(attributes.level ?? '', 10) || 0,
-    marker: attributes.marker ?? '',
+    marker,
   };
 }
 
@@ -47,8 +51,8 @@ export function createPairStreamParser(): PairStreamParser {
 
   // The delta event for text inside the field being read.
   const fieldDelta = (text: string): StreamEvent => {
-    if (state === 'in_source') return ['source_delta', { pair_index, text }];
-    return ['translation_delta', { pair_index, text }];
+    if (state === 'in_source') return ['source_delta', { blockIndex: pair_index, text }];
+    return ['translation_delta', { blockIndex: pair_index, text }];
   };
 
   // Each read step below handles the buffer in one state. It returns true when it changed state and the loop should
@@ -57,10 +61,10 @@ export function createPairStreamParser(): PairStreamParser {
   const readBetweenPairs = (events: StreamEvent[]): boolean => {
     const open_match = PAIR_OPEN_TAG.exec(buffer);
     if (open_match) {
-      const unpaired_text = buffer.slice(0, open_match.index);
-      if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
+      const outside_text = buffer.slice(0, open_match.index);
+      if (outside_text.trim() !== '') events.push(['outside_text_delta', { text: outside_text }]);
       pair_index += 1;
-      events.push(['pair_start', { pair_index, ...parsePairAttributes(open_match[1]) }]);
+      events.push(['block_start', { blockIndex: pair_index, ...parsePairAttributes(open_match[1]) }]);
       buffer = buffer.slice(open_match.index + open_match[0].length);
       state = 'in_pair';
       return true;
@@ -69,8 +73,8 @@ export function createPairStreamParser(): PairStreamParser {
     const last_open_bracket = buffer.lastIndexOf('<');
     const is_tag_pending = last_open_bracket !== -1 && buffer.indexOf('>', last_open_bracket) === -1;
     const flush_end = is_tag_pending ? last_open_bracket : buffer.length;
-    const unpaired_text = buffer.slice(0, flush_end);
-    if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
+    const outside_text = buffer.slice(0, flush_end);
+    if (outside_text.trim() !== '') events.push(['outside_text_delta', { text: outside_text }]);
     buffer = buffer.slice(flush_end);
     return false;
   };
@@ -145,7 +149,7 @@ export function createPairStreamParser(): PairStreamParser {
     if (is_in_field && field_text !== '') {
       events.push(fieldDelta(field_text));
     } else if (state === 'between_pairs' && buffer.trim() !== '') {
-      events.push(['unpaired_delta', { text: buffer }]);
+      events.push(['outside_text_delta', { text: buffer }]);
     }
     buffer = '';
     return events;

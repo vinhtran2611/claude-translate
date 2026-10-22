@@ -7,12 +7,12 @@ import { createIcon, readStored, writeStored } from './ui.ts';
 export interface PickerOptions {
   models: ModelOption[];
   efforts: EffortOption[];
-  default_model_id: string;
-  default_effort: Effort;
+  defaultModelId: string;
+  defaultEffort: Effort;
 }
 
 export interface PickerSettings {
-  model_id: string;
+  modelId: string;
   effort: Effort;
 }
 
@@ -43,8 +43,8 @@ function effortGlyphMarkup(efforts: EffortOption[], effort: string): string {
 }
 
 // storage_key: where the choice is remembered. The menu is appended to `host` (any element of the page).
-export function createModelPicker({ models, efforts, default_model_id, default_effort }: PickerOptions, storage_key: string, host: HTMLElement): ModelPicker {
-  const modelLabel = (model_id: string): string => models.find((option) => option.model_id === model_id)?.label ?? model_id;
+export function createModelPicker({ models, efforts, defaultModelId: default_model_id, defaultEffort: default_effort }: PickerOptions, storage_key: string, host: HTMLElement): ModelPicker {
+  const modelLabel = (model_id: string): string => models.find((option) => option.modelId === model_id)?.label ?? model_id;
   const effortLabel = (effort: string | null): string | undefined => efforts.find((option) => option.effort === effort)?.label;
   const labelOf = (model_id: string, effort: string | null): string => [modelLabel(model_id), effortLabel(effort)].filter((part) => part !== undefined).join(' · ');
 
@@ -53,7 +53,7 @@ export function createModelPicker({ models, efforts, default_model_id, default_e
     let stored: Partial<PickerSettings> | null = null;
     try { stored = JSON.parse(readStored(storage_key) ?? 'null') as Partial<PickerSettings> | null; } catch { /* Unreadable: the defaults apply. */ }
     return {
-      model_id: models.some((option) => option.model_id === stored?.model_id) ? stored!.model_id! : default_model_id,
+      modelId: models.some((option) => option.modelId === stored?.modelId) ? stored!.modelId! : default_model_id,
       effort: efforts.some((option) => option.effort === stored?.effort) ? stored!.effort! : default_effort,
     };
   }
@@ -87,8 +87,8 @@ export function createModelPicker({ models, efforts, default_model_id, default_e
   menu.innerHTML = `
     <div class="menu-label" aria-hidden="true">Model<span class="menu-keys">↑ ↓</span></div>
     <div role="group" aria-label="Model">${models.map((option) => `
-      <button class="menu-option" type="button" role="menuitemradio" data-model-id="${option.model_id}" tabindex="-1">
-        <span><span class="menu-option-name">${option.label}${option.model_id === default_model_id ? '<span class="menu-option-default">Default</span>' : ''}</span>
+      <button class="menu-option" type="button" role="menuitemradio" data-model-id="${option.modelId}" tabindex="-1">
+        <span><span class="menu-option-name">${option.label}${option.modelId === default_model_id ? '<span class="menu-option-default">Default</span>' : ''}</span>
         <span class="menu-option-description">${option.description}</span></span>${CHECK_ICON}
       </button>`).join('')}</div>
     <div class="model-menu-separator" role="separator"></div>
@@ -105,12 +105,12 @@ export function createModelPicker({ models, efforts, default_model_id, default_e
   const stops = (): HTMLElement[] => [...rows(), menu.querySelector<HTMLElement>('.effort-option[aria-checked="true"]')!];
 
   function render(): void {
-    label_full.textContent = labelOf(current.model_id, current.effort);
-    label_short.textContent = `${models.find((option) => option.model_id === current.model_id)?.short_label ?? current.model_id} · ${effortLabel(current.effort) ?? ''}`;
+    label_full.textContent = labelOf(current.modelId, current.effort);
+    label_short.textContent = `${models.find((option) => option.modelId === current.modelId)?.shortLabel ?? current.modelId} · ${effortLabel(current.effort) ?? ''}`;
     glyph.innerHTML = effortGlyphMarkup(efforts, current.effort);
     chip.title = `${label_full.textContent} (⌘/)`;
     chip.setAttribute('aria-label', `Model and effort: ${label_full.textContent}`);
-    for (const row of rows()) row.setAttribute('aria-checked', String(row.dataset.modelId === current.model_id));
+    for (const row of rows()) row.setAttribute('aria-checked', String(row.dataset.modelId === current.modelId));
     for (const segment of segments()) segment.setAttribute('aria-checked', String(segment.dataset.effort === current.effort));
     menu.querySelector('.effort-description')!.textContent = efforts.find((option) => option.effort === current.effort)?.description ?? '';
   }
@@ -143,7 +143,7 @@ export function createModelPicker({ models, efforts, default_model_id, default_e
     const row = target?.closest<HTMLElement>('.menu-option');
     const segment = target?.closest<HTMLElement>('.effort-option');
     if (row) {
-      change({ ...current, model_id: row.dataset.modelId! });
+      change({ ...current, modelId: row.dataset.modelId! });
       menu.hidePopover();
     } else if (segment) {
       // An effort is a setting, not a command: the menu stays open.
@@ -163,7 +163,7 @@ export function createModelPicker({ models, efforts, default_model_id, default_e
     } else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       const row = document.activeElement?.closest<HTMLElement>('.menu-option');
-      if (row) change({ ...current, model_id: row.dataset.modelId! });
+      if (row) change({ ...current, modelId: row.dataset.modelId! });
       menu.hidePopover();
     } else if (event.key === 'Tab') {
       // The menu lives at the end of the page; Tab goes on from its chip instead.

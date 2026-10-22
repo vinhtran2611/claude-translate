@@ -1,11 +1,11 @@
 // Tests for pairs-markdown.ts: the pairs on screen rebuilt as Markdown.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Pair } from '../../../shared/api-types.ts';
+import type { TranslatedBlock } from '../../../shared/api-types.ts';
 import { composePairsMarkdown } from './pairs-markdown.ts';
 
-function pair(pair_type: Pair['pair_type'], source_text: string, level = 0, marker = ''): Pair {
-  return { pair_type, level, marker, source_text, translation_text: `${source_text} (vi)` };
+function pair(pair_type: TranslatedBlock['blockType'], source_text: string, level = 0, marker = ''): TranslatedBlock {
+  return { blockType: pair_type, level, marker, sourceText: source_text, translatedText: `${source_text} (vi)` };
 }
 
 test('headings, list items and paragraphs are rebuilt as Markdown', () => {
@@ -18,7 +18,7 @@ test('the translation side uses the translated text', () => {
 });
 
 test('a code block keeps its fence and shows its source on both sides', () => {
-  const code: Pair = { pair_type: 'code', level: 0, marker: '```ts', source_text: 'let a = 1;', translation_text: '' };
+  const code: TranslatedBlock = { blockType: 'code', level: 0, marker: '```ts', sourceText: 'let a = 1;', translatedText: '' };
   assert.equal(composePairsMarkdown([code], 'translation'), '```ts\nlet a = 1;\n```');
 });
 

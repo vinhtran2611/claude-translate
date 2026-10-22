@@ -3,7 +3,7 @@
 import { watchFile } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
-import type { Effort, ErrorKind, Pair } from '../../../shared/api-types.ts';
+import type { Effort, CliErrorCode, TranslatedBlock } from '../../../shared/api-types.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
   type ClaudeProcess, type Run,
@@ -12,17 +12,17 @@ import { readJsonBody, sendFile, sendJson, type Feature } from '../../../shared/
 import { formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../../../shared/server/log.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type {
-  Language, Mode, Outcome, SourceFormat, StreamEvent, TranslatedBlock, TranslateRequest, TranslationOptions,
+  Language, Outcome, SourceFormat, StreamEvent, TranslateRequest, TranslationOptions,
 } from '../api-types.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
-import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
+import { DEFAULT_SOURCE_FORMAT, isSourceFormat, PROMPT_PATHS, SOURCE_FORMAT_OPTIONS, systemPromptOf } from './translate-prompt.ts';
 
 // What a translate process is started with; all three are fixed for its lifetime.
 interface TranslateSettings {
   model_id: string;
   effort: Effort;
-  mode: Mode;
+  sourceFormat: SourceFormat;
 }
 
 // Output is the ceiling, not input: the reply restates the source and adds the translation, ~1.05 output tokens per
@@ -34,16 +34,7 @@ const CHARS_PER_TOKEN: Record<Language, number> = { en: 4, vi: 1.3 };
 // being mistaken for a silent model.
 const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
-// The page's mode is how a translation stores its source: 'translate_markdown' repairs the layout first.
-const SOURCE_FORMATS: Record<Mode, SourceFormat> = { translate: 'plain_text', translate_markdown: 'markdown' };
 const RUN_STATUS_OF_OUTCOME = { done: 'succeeded', error: 'failed', cancelled: 'cancelled' } as const;
-
-// A pair as the live stream has it, as a stored block: an empty marker is null.
-function blockOf(pair: Pair): TranslatedBlock {
-  let marker: string | null = pair.marker;
-  if (marker === '') marker = null;
-  return { blockType: pair.pair_type, level: pair.level, marker, sourceText: pair.source_text, translatedText: pair.translation_text };
-}
 
 const HISTORY_ENTRY_PATH = /^\/history\/(\d+)$/;
 // The page, at /. Its modules and stylesheet are served by the entry file, at their path under src/.
@@ -51,26 +42,26 @@ const PAGE_PATH = join(FEATURES_DIRECTORY, 'translate', 'web', 'translate.html')
 
 let translate_request_count = 0;
 
-function spawnTranslateProcess({ model_id, effort, mode }: TranslateSettings): ClaudeProcess {
-  return spawnClaudeProcess({ model_id, effort, system_prompt: systemPromptOf(mode) });
+function spawnTranslateProcess({ model_id, effort, sourceFormat }: TranslateSettings): ClaudeProcess {
+  return spawnClaudeProcess({ model_id, effort, system_prompt: systemPromptOf(sourceFormat) });
 }
 
 // A fact the request never reached (null, or no tokens) is left out. 10, 6 and 6 fit 'Sonnet 5.5', 'medium' and
 // '144.5s', so model, effort and duration line up across closing lines.
 function formatRequestSummary({
-  outcome, model_label, effort, duration_ms, failure_text, first_text_ms, thinking_duration_ms, pair_count,
-  unpaired_char_count, output_tokens, history_id,
+  outcome, model_label, effort, duration_ms, failure_text, first_text_ms, thinking_duration_ms, block_count,
+  outside_char_count, output_tokens, history_id,
 }: {
   outcome: Outcome; model_label: string; effort: Effort; duration_ms: number; failure_text: string; first_text_ms: number | null;
-  thinking_duration_ms: number | null; pair_count: number; unpaired_char_count: number; output_tokens: number | null;
+  thinking_duration_ms: number | null; block_count: number; outside_char_count: number; output_tokens: number | null;
   history_id: number | null;
 }): string {
   const fields = [model_label.padEnd(10), effort.padEnd(6), formatSeconds(duration_ms).padStart(6)];
   if (failure_text !== '') fields.push(failure_text);
   if (first_text_ms !== null) fields.push(`first text ${formatSeconds(first_text_ms)}`);
   if (thinking_duration_ms !== null) fields.push(`thought ${formatSeconds(thinking_duration_ms)}`);
-  if (pair_count > 0 || outcome === 'done') fields.push(`${formatCount(pair_count)} ${pair_count === 1 ? 'pair' : 'pairs'}`);
-  if (unpaired_char_count > 0) fields.push(`${formatCount(unpaired_char_count)} unpaired chars`);
+  if (block_count > 0 || outcome === 'done') fields.push(`${formatCount(block_count)} ${block_count === 1 ? 'block' : 'blocks'}`);
+  if (outside_char_count > 0) fields.push(`${formatCount(outside_char_count)} chars outside blocks`);
   if (output_tokens !== null && output_tokens > 0) fields.push(`${formatCount(output_tokens)} tokens`);
   if (history_id !== null) fields.push(`history ${history_id}`);
   return fields.join('  ');
@@ -85,7 +76,7 @@ function sendEvent(res: ServerResponse, ...[event_name, data]: StreamEvent): voi
 // cold vs 1.0s warm). Each process translates once, so no context carries over.
 let spare_process: ClaudeProcess | null = null;
 // The settings spare_process was started with: the last request's. Written only by spawnSpareProcess.
-let spare_settings: TranslateSettings = { model_id: DEFAULT_MODEL_ID, effort: DEFAULT_EFFORT, mode: DEFAULT_MODE };
+let spare_settings: TranslateSettings = { model_id: DEFAULT_MODEL_ID, effort: DEFAULT_EFFORT, sourceFormat: DEFAULT_SOURCE_FORMAT };
 // Set when a waiting spare dies, cleared by any result: a CLI that cannot start warns once, not once per request.
 let is_spare_failing = false;
 
@@ -108,11 +99,11 @@ function spawnSpareProcess(settings: TranslateSettings): void {
   spare_settings = settings;
 }
 
-// The model, effort and mode (its system prompt) are fixed at spawn, so a spare started for other settings is replaced,
+// The model, effort and source format (its system prompt) are fixed at spawn, so a spare started for other settings is replaced,
 // not used: only the first translation after a change starts cold.
 function takeClaudeProcess(settings: TranslateSettings): { claude_process: ClaudeProcess; is_cold_start: boolean } {
   const is_spare_usable = spare_process !== null && spare_process.exitCode === null && spare_process.signalCode === null &&
-    spare_settings.model_id === settings.model_id && spare_settings.effort === settings.effort && spare_settings.mode === settings.mode;
+    spare_settings.model_id === settings.model_id && spare_settings.effort === settings.effort && spare_settings.sourceFormat === settings.sourceFormat;
   const claude_process = is_spare_usable && spare_process !== null ? spare_process : spawnTranslateProcess(settings);
   if (!is_spare_usable) spare_process?.kill();
   spawnSpareProcess(settings);
@@ -138,26 +129,28 @@ function rejectBadRequest(res: ServerResponse, reason: string): void {
 // Why the body is not a translate request, or null when it is one.
 function translateRequestProblem(body: Partial<TranslateRequest>): string | null {
   const is_valid_direction =
-    (body.source_language === 'en' && body.target_language === 'vi') ||
-    (body.source_language === 'vi' && body.target_language === 'en');
+    (body.sourceLanguage === 'en' && body.targetLanguage === 'vi') ||
+    (body.sourceLanguage === 'vi' && body.targetLanguage === 'en');
   if (!is_valid_direction) return 'Direction must be en->vi or vi->en';
-  if (typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > MAX_TEXT_CHARS) {
-    return `text must be a non-empty string of at most ${MAX_TEXT_CHARS} chars`;
+  if (typeof body.sourceText !== 'string' || body.sourceText.trim() === '' || body.sourceText.length > MAX_TEXT_CHARS) {
+    return `sourceText must be a non-empty string of at most ${MAX_TEXT_CHARS} chars`;
   }
   // Checked here because the CLI does not: an unknown --effort only prints a warning and runs at its default.
-  if (modelOptionOf(body.model_id) === undefined) {
-    return `model_id must be one of ${MODEL_OPTIONS.map((option) => option.model_id).join(', ')}`;
+  if (modelOptionOf(body.modelId) === undefined) {
+    return `modelId must be one of ${MODEL_OPTIONS.map((option) => option.modelId).join(', ')}`;
   }
   if (!isEffort(body.effort)) return `effort must be one of ${EFFORT_OPTIONS.map((option) => option.effort).join(', ')}`;
-  if (!isMode(body.mode)) return `mode must be one of ${MODE_OPTIONS.map((option) => option.mode).join(', ')}`;
+  if (!isSourceFormat(body.sourceFormat)) {
+    return `sourceFormat must be one of ${SOURCE_FORMAT_OPTIONS.map((option) => option.sourceFormat).join(', ')}`;
+  }
   return null;
 }
 
-// The closing log line is a warning when the model ignored the pair format, an error when the run failed.
-function closingLogLevel(outcome: Outcome, pair_count: number, unpaired_char_count: number): LogLevel {
+// The closing log line is a warning when the model ignored the block format, an error when the run failed.
+function closingLogLevel(outcome: Outcome, block_count: number, outside_char_count: number): LogLevel {
   if (outcome === 'error') return 'error';
-  const is_pair_format_broken = outcome === 'done' && (pair_count === 0 || unpaired_char_count > 0);
-  if (is_pair_format_broken) return 'warn';
+  const is_block_format_broken = outcome === 'done' && (block_count === 0 || outside_char_count > 0);
+  if (is_block_format_broken) return 'warn';
   return 'info';
 }
 
@@ -174,7 +167,7 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     rejectBadRequest(res, problem);
     return;
   }
-  const { source_language, target_language, text, model_id: requested_model_id, effort, mode } = body as TranslateRequest;
+  const { sourceLanguage: source_language, targetLanguage: target_language, sourceText: text, modelId: requested_model_id, effort, sourceFormat } = body as TranslateRequest;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -191,8 +184,8 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   const servedModelId = (): string => run?.served_model_id() ?? requested_model_id;
   // What the model has produced so far, in the shape history stores; written only by sendOutputEvents.
   // thinking_duration_ms stays null unless a thinking block closed.
-  const translation_output: { pairs: Pair[]; unpaired_text: string; thinking_text: string; thinking_duration_ms: number | null } =
-    { pairs: [], unpaired_text: '', thinking_text: '', thinking_duration_ms: null };
+  const translation_output: { blocks: TranslatedBlock[]; text_outside_blocks: string; thinking_text: string; thinking_duration_ms: number | null } =
+    { blocks: [], text_outside_blocks: '', thinking_text: '', thinking_duration_ms: null };
   // null while running; the outcome once the request ended. Written only by finishTranslation.
   let finished_outcome: Outcome | null = null;
   // The run is saved as it starts (the spec's run rules), so a failure or a cancel is kept too. null when the save
@@ -202,7 +195,7 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     history_id = history_store.startTranslation({
       sourceLanguage: source_language,
       targetLanguage: target_language,
-      sourceFormat: SOURCE_FORMATS[mode],
+      sourceFormat,
       sourceText: text,
       requestedModelId: requested_model_id,
       effort,
@@ -218,46 +211,48 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   const sendOutputEvents = (output_events: StreamEvent[]): void => {
     for (const output_event of output_events) {
       const [event_name, data] = output_event;
-      if (event_name === 'pair_start') {
-        const { pair_type, level, marker } = data;
-        translation_output.pairs[data.pair_index] = { pair_type, level, marker, source_text: '', translation_text: '' };
+      if (event_name === 'block_start') {
+        const { blockType, level, marker } = data;
+        translation_output.blocks[data.blockIndex] = { blockType, level, marker, sourceText: '', translatedText: '' };
       } else if (event_name === 'source_delta') {
-        translation_output.pairs[data.pair_index].source_text += data.text;
+        translation_output.blocks[data.blockIndex].sourceText += data.text;
       } else if (event_name === 'translation_delta') {
-        translation_output.pairs[data.pair_index].translation_text += data.text;
-      } else if (event_name === 'unpaired_delta') {
-        translation_output.unpaired_text += data.text;
+        translation_output.blocks[data.blockIndex].translatedText += data.text;
+      } else if (event_name === 'outside_text_delta') {
+        translation_output.text_outside_blocks += data.text;
       } else if (event_name === 'thinking_delta') {
         translation_output.thinking_text += data.text;
       } else if (event_name === 'thinking_done') {
-        translation_output.thinking_duration_ms = data.duration_ms;
+        translation_output.thinking_duration_ms = data.durationMs;
       }
       sendEvent(res, ...output_event);
     }
   };
 
   // The one place a translate request ends: saves how it ended with what the model produced, logs the closing line,
-  // then sends the closing event. When outcome is 'error', error = { error_kind, message } goes to the page and the
+  // then sends the closing event. When outcome is 'error', error = { errorCode, message } goes to the page and the
   // saved run, and failure_text (one line) and failure_detail_lines (e.g. a stderr tail) go to the log only.
   function finishTranslation(
-    outcome: Outcome, error: { error_kind: ErrorKind; message: string } | null = null, failure_text = '', failure_detail_lines: string[] = [],
+    outcome: Outcome, error: { errorCode: CliErrorCode; message: string } | null = null, failure_text = '', failure_detail_lines: string[] = [],
   ): void {
     if (finished_outcome !== null) return;
     finished_outcome = outcome;
     const served_model_id = servedModelId();
     const duration_ms = Date.now() - started_at;
-    const pair_count = translation_output.pairs.length;
-    const unpaired_char_count = translation_output.unpaired_text.length;
+    const block_count = translation_output.blocks.length;
+    const outside_char_count = translation_output.text_outside_blocks.length;
+    let text_outside_blocks = translation_output.text_outside_blocks;
+    if (text_outside_blocks.trim() === '') text_outside_blocks = '';
     if (history_id !== null) {
       try {
         history_store.finishTranslation(history_id, {
           status: RUN_STATUS_OF_OUTCOME[outcome],
-          blocks: translation_output.pairs.map(blockOf),
-          textOutsideBlocks: translation_output.unpaired_text.trim() === '' ? '' : translation_output.unpaired_text,
+          blocks: translation_output.blocks,
+          textOutsideBlocks: text_outside_blocks,
           servedModelId: served_model_id,
           thinkingText: translation_output.thinking_text,
           thinkingMs: translation_output.thinking_duration_ms,
-          errorCode: error?.error_kind ?? null,
+          errorCode: error?.errorCode ?? null,
           errorMessage: error?.message ?? null,
         });
       } catch (save_error) {
@@ -269,36 +264,36 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
       model_label: modelLabelOf(served_model_id),
       effort,
       duration_ms,
-      failure_text: error === null ? '' : `${error.error_kind}: ${failure_text}`,
+      failure_text: error === null ? '' : `${error.errorCode}: ${failure_text}`,
       first_text_ms,
       thinking_duration_ms: translation_output.thinking_duration_ms,
-      pair_count,
-      unpaired_char_count,
+      block_count,
+      outside_char_count,
       output_tokens,
       history_id,
     });
-    const log_level = closingLogLevel(outcome, pair_count, unpaired_char_count);
+    const log_level = closingLogLevel(outcome, block_count, outside_char_count);
     log(log_level, request_number, outcome, summary, failure_detail_lines);
     if (outcome === 'cancelled') return;
     const is_fallback = served_model_id !== requested_model_id;
-    if (outcome === 'done') sendEvent(res, 'done', { duration_ms, served_model_id, effort, is_fallback, history_id });
-    else if (error !== null) sendEvent(res, 'error', { ...error, served_model_id, effort, is_fallback, history_id });
+    if (outcome === 'done') sendEvent(res, 'done', { durationMs: duration_ms, servedModelId: served_model_id, effort, isFallback: is_fallback, translationId: history_id });
+    else if (error !== null) sendEvent(res, 'error', { ...error, servedModelId: served_model_id, effort, isFallback: is_fallback, translationId: history_id });
     res.end();
   }
 
-  const { claude_process, is_cold_start } = takeClaudeProcess({ model_id: requested_model_id, effort, mode });
+  const { claude_process, is_cold_start } = takeClaudeProcess({ model_id: requested_model_id, effort, sourceFormat });
   const cold_start_note = is_cold_start ? '  cold start' : '';
-  const request_line = `${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${mode}`;
+  const request_line = `${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${sourceFormat}`;
   log('info', request_number, 'start', `${source_language}->${target_language}  ${request_line}${cold_start_note}`);
   run = runClaude({
     request_number,
-    settings: { model_id: requested_model_id, effort, system_prompt: systemPromptOf(mode) },
+    settings: { model_id: requested_model_id, effort, system_prompt: systemPromptOf(sourceFormat) },
     user_message: `${direction_line}\n\n<input_text>\n${text}\n</input_text>`,
     first_token_allowance_ms,
     claude_process,
     handlers: {
       onThinkingDelta: (thinking_text) => sendOutputEvents([['thinking_delta', { text: thinking_text }]]),
-      onThinkingDone: (duration_ms) => sendOutputEvents([['thinking_done', { duration_ms }]]),
+      onThinkingDone: (duration_ms) => sendOutputEvents([['thinking_done', { durationMs: duration_ms }]]),
       onText: (reply_text) => {
         if (first_text_ms === null) first_text_ms = Date.now() - started_at;
         sendOutputEvents(pair_parser.push(reply_text));
@@ -322,19 +317,21 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   });
 }
 
-// What the page offers in its settings menus. quota_warning: the latest reply's rate limit when it is a warning or a
+// What the page offers in its settings menus. quotaWarning: the latest reply's rate limit when it is a warning or a
 // rejection, else null (also before the first reply since the server started).
 function translationOptionsResponse(): TranslationOptions {
   const { status, rateLimitType, utilization, resetsAt } = lastRateLimitInfo() ?? {};
   const is_quota_warning = status === 'allowed_warning' || status === 'rejected';
+  let quota_warning: TranslationOptions['quotaWarning'] = null;
+  if (is_quota_warning) quota_warning = { status, rateLimitType, utilization, resetsAt };
   return {
-    models: MODEL_OPTIONS.map(({ model_id, label, short_label, description }) => ({ model_id, label, short_label, description })),
+    models: MODEL_OPTIONS.map(({ modelId, label, shortLabel, description }) => ({ modelId, label, shortLabel, description })),
     efforts: EFFORT_OPTIONS,
-    modes: MODE_OPTIONS.map(({ mode, label, description }) => ({ mode, label, description })),
-    default_model_id: DEFAULT_MODEL_ID,
-    default_effort: DEFAULT_EFFORT,
-    default_mode: DEFAULT_MODE,
-    quota_warning: is_quota_warning ? { status, rate_limit_type: rateLimitType, utilization, resets_at: resetsAt } : null,
+    sourceFormats: SOURCE_FORMAT_OPTIONS.map(({ sourceFormat, label, description }) => ({ sourceFormat, label, description })),
+    defaultModelId: DEFAULT_MODEL_ID,
+    defaultEffort: DEFAULT_EFFORT,
+    defaultSourceFormat: DEFAULT_SOURCE_FORMAT,
+    quotaWarning: quota_warning,
   };
 }
 

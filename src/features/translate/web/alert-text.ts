@@ -1,8 +1,8 @@
 // The words of the error alert: a title and a sentence for each way a translation can fail.
-import type { ErrorKind } from '../../../shared/api-types.ts';
+import type { CliErrorCode } from '../../../shared/api-types.ts';
 
 // The server's error kinds, plus the two the page detects itself.
-export type PageErrorKind = ErrorKind | 'server_unreachable' | 'request_rejected';
+export type PageErrorKind = CliErrorCode | 'server_unreachable' | 'request_rejected';
 
 // silence_text: who sent nothing (see silenceTextOf in translate.ts); used only by 'no_response'.
 export function alertForError(error_kind: PageErrorKind, message: string, has_partial_translation: boolean, silence_text: string): { title: string; body: string } {

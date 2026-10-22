@@ -4,9 +4,9 @@ Status: **proposal for review**. Nothing here is built yet. Date: 2026-10-19.
 
 ## 0. What this design is about
 
-Today two features call `claude -p`: Translate (`server/server.ts:290-470`) and Practice grading
-(`features/practice/server/ai-grading.ts`). Each one builds its own prompt, checks the model and effort itself, streams to
-the page in its own way, and saves the result in its own way. The shared file `shared/server/claude-runner.ts` **is**
+Today two features call `claude -p`: Translate (`src/features/translate/server/routes.ts`) and Practice grading
+(`src/features/practice/server/ai-grading.ts`). Each one builds its own prompt, checks the model and effort itself, streams to
+the page in its own way, and saves the result in its own way. The shared file `src/shared/server/claude-runner.ts` **is**
 `claude -p`: it starts the process and reads the CLI's own JSON lines.
 
 This design adds **one layer, the LLM gateway**. Every LLM call in the app goes through it. A feature says **what** it
@@ -45,7 +45,7 @@ These rules decide every interface below:
                           │
                           ▼
  ┌────────────────────────────────────────────────────────────┐
- │ Gateway (shared/server/llm/)                               │
+ │ Gateway (src/shared/server/llm/)                           │
  │  check settings → queue → stream with fallback → save run  │
  └───────────────────────────┬────────────────────────────────┘
                              │ provider.stream(request, signal)
@@ -58,7 +58,7 @@ These rules decide every interface below:
 ## 3. The provider: the only part that knows the backend
 
 ```ts
-// shared/server/llm/provider.ts
+// src/shared/server/llm/provider.ts
 
 export interface LlmRequest {
   model_id: string;
@@ -102,7 +102,7 @@ Why each choice:
 
 ### 3.1 `claude-cli` = today's runner, moved
 
-`claude-runner.ts` becomes `shared/server/llm/providers/claude-cli.ts`. It keeps its hard-won details: the safe flags,
+`claude-runner.ts` becomes `src/shared/server/llm/providers/claude-cli.ts`. It keeps its hard-won details: the safe flags,
 stream-json reading, the stall timer, `max_tokens` handling and quota logging (`claude-runner.ts:31-50, 128-157, 209-386`).
 
 It also takes over **the warm spare process**, which is Translate-only code today (`server.ts:240-282`). The provider
@@ -114,7 +114,7 @@ warm starts too.
 ### 3.2 The model list: where the backend is chosen
 
 ```ts
-// shared/server/llm/models.ts
+// src/shared/server/llm/models.ts
 export const MODELS: Model[] = [
   { model_id: 'claude-opus-5-5',   label: 'Opus 5.5',   provider: 'claude-cli', fallback: 'claude-sonnet-5-5' },
   { model_id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', provider: 'claude-cli', fallback: 'claude-haiku-5-5' },
@@ -135,7 +135,7 @@ The API needs an **API key and is paid per token**. The design makes switching e
 ## 4. The task: what one kind of call is
 
 ```ts
-// shared/server/llm/task.ts
+// src/shared/server/llm/task.ts
 export interface Task<Input, Output = string> {
   name: string;                       // 'translate', 'practice.grade', 'evaluate'
   system(input: Input): string;       // the system prompt (usually: read a Markdown file)
@@ -150,7 +150,7 @@ export interface Task<Input, Output = string> {
 Example, the whole Practice grading task:
 
 ```ts
-// features/practice/server/tasks.ts
+// src/features/practice/server/tasks.ts
 const PROMPT_PATH = join(FEATURE_DIRECTORY, 'prompts', 'grade.md');
 
 export const gradeTask: Task<{ exercise: ExerciseBody; answer: Answer }> = {
@@ -164,9 +164,9 @@ Why:
 
 | Choice | Why |
 |---|---|
-| **Each feature owns its tasks** | The prompt and the meaning of the reply belong to the feature (Practice knows what an exercise is). It also keeps the rule in `test/boundaries.test.ts`: features import from `shared/`, never from each other. |
+| **Each feature owns its tasks** | The prompt and the meaning of the reply belong to the feature (Practice knows what an exercise is). It also keeps the rule in `test/boundaries.test.ts`: features import from `src/shared/`, never from each other. |
 | `system` and `user` are functions | They cover every case: one file, several files joined (Translate's `core.md` + style + glossary, `server.ts:79-86`), or text built from the input. No special "prompt files" field to learn. |
-| `output: Spec` for JSON | One field says "I want JSON of this shape". The gateway does the rest (§5.2). `Spec` is the same small checker as the Practice import (`import-check.ts:12-21`), moved to `shared/`: one way to describe a shape in the whole app. |
+| `output: Spec` for JSON | One field says "I want JSON of this shape". The gateway does the rest (§5.2). `Spec` is the same small checker as the Practice import (`import-check.ts:12-21`), moved to `src/shared/`: one way to describe a shape in the whole app. |
 | `input: Spec` only for HTTP | Inside the server, the feature already checked its input (Practice checks answers in `answers.ts`). The spec is needed only when a stranger (curl, agent) sends the input. **Having an `input` spec is also the rule for "may be called over HTTP"**, so there is no second flag to keep in sync. |
 | No "defaults" per task | The model and effort come from the caller (the page's picker) or `DEFAULTS`. One place, not one per task. |
 
@@ -175,7 +175,7 @@ Why:
 ## 5. The gateway: the rules every call shares
 
 ```ts
-// shared/server/llm/gateway.ts
+// src/shared/server/llm/gateway.ts
 export interface Llm {
   // Checks the settings and starts the run (it may wait in the queue). Throws LlmInputError for a bad model, effort or input.
   start<Input, Output>(task: Task<Input, Output>, input: Input, options?: RunOptions): Run<Output>;
@@ -279,7 +279,7 @@ gateway for callers **outside** the server.
 
 ## 6. The record: `data/llm.sqlite`
 
-One file for the gateway, with the same safety rules as the others (`shared/server/sqlite.ts`) and a daily backup.
+One file for the gateway, with the same safety rules as the others (`src/shared/server/sqlite.ts`) and a daily backup.
 
 ```sql
 CREATE TABLE prompts (
@@ -393,7 +393,7 @@ The issues have a fixed shape, so later they can be counted. That is what the pl
 
 ## 10. Migration plan (small steps, the app works after each)
 
-1. **Provider.** Create `shared/server/llm/` with `provider.ts`, `models.ts`, `providers/claude-cli.ts` (from
+1. **Provider.** Create `src/shared/server/llm/` with `provider.ts`, `models.ts`, `providers/claude-cli.ts` (from
    `claude-runner.ts`) and `providers/fake.ts`. Keep a thin `runClaude` wrapper over the new provider, so Translate and
    grading do not change yet.
 2. **Gateway and record.** `task.ts`, `gateway.ts`, the run store and `data/llm.sqlite` with a daily backup. Tests with the
@@ -429,6 +429,6 @@ need the API, it is one provider file.
 one retry that shows the model its problems.
 
 **Q4. Where does the code live?**
-*Recommendation:* the gateway in `shared/server/llm/` (every feature needs it, and features may import only from
-`shared/`). The `/api/llm` routes go in `server/server.ts`, which already puts the features together. Each feature's tasks
+*Recommendation:* the gateway in `src/shared/server/llm/` (every feature needs it, and features may import only from
+`src/shared/`). The `/api/llm` routes go in `src/server.ts`, which already puts the features together. Each feature's tasks
 stay in the feature.

@@ -66,7 +66,7 @@ Copying the source back costs about twice the output tokens of a plain translati
 the price of exact pairing.
 
 - After the run, the words of the left column are checked against the input, ignoring layout and
-  Markdown syntax (`web/source-check.ts`); a unit of type other (page furniture) may sit anywhere but must
+  Markdown syntax (`src/features/translate/web/source-check.ts`); a unit of type other (page furniture) may sit anywhere but must
   still be there. If the model changed or dropped a word, a yellow alert shows where the two part.
 - If the reply has no pairs (the model ignored the format), the translation is shown as plain
   text, as before.
@@ -76,8 +76,8 @@ the price of exact pairing.
 
 ### Markdown
 
-`shared/web/markdown.ts` is the one Markdown renderer (no dependencies). It is the entry point; each job has its own file under
-`shared/web/markdown/`: `inline.ts`, `blocks.ts`, `document.ts`, `document-index.ts`, `links.ts` and `render.ts`. The pair's type decides the block;
+`src/shared/web/markdown.ts` is the one Markdown renderer (no dependencies). It is the entry point; each job has its own file under
+`src/shared/web/markdown/`: `inline.ts`, `blocks.ts`, `document.ts`, `document-index.ts`, `links.ts` and `render.ts`. The pair's type decides the block;
 inside it, inline Markdown follows CommonMark 0.31.2 plus the GitHub extensions people paste:
 `~~strikethrough~~`, bare URLs, tables (pipe or tab-separated), task lists and footnotes.
 
@@ -92,7 +92,7 @@ inside it, inline Markdown follows CommonMark 0.31.2 plus the GitHub extensions 
   waits, so raw Markdown never flashes. When the reply ends, every cell renders again strictly.
 
 Tests (plain Node, no packages): the CommonMark spec examples, GFM, the URL policy, and a check that
-no raw syntax flashes on every prefix of real documents (`test/fixtures/`):
+no raw syntax flashes on every prefix of small made-up documents (`test/fixtures/translations/`):
 
 ```
 npm test
@@ -116,12 +116,14 @@ as it is.
 
 ## How it works
 
-1. `start.sh` checks requirements, then runs `node server/server.ts`.
-2. `server/server.ts` serves `web/index.html` on `127.0.0.1` only and handles `POST /translate`.
-   Every `.ts` file under `web/` and `shared/web/` (for example `web/app.ts` and `/shared/web/markdown.ts`) is served as
-   JavaScript with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
+1. `npm start` runs `scripts/start.sh`, which checks requirements, then runs `node src/server.ts`.
+2. `src/server.ts` listens on `127.0.0.1` only. `src/features/translate/server/routes.ts` serves the page
+   (`src/features/translate/web/translate.html`) at `/` and handles `POST /translate`.
+   A file under `src/` is served at its path under `src/` (`src/shared/web/markdown.ts` at `/shared/web/markdown.ts`),
+   except the entry file and anything in a `server/` or `prompts/` folder. Every `.ts` file is served as JavaScript
+   with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
 3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
-   they stream (`server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
+   they stream (`src/features/translate/server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
 
 ### The `claude` command
 
@@ -131,14 +133,14 @@ claude -p
   --tools ""                                   # translate only, no file or shell access
   --setting-sources "" --disable-slash-commands --strict-mcp-config
   --no-session-persistence
-  --system-prompt <the prompts/ files, see Changing the translation style>
+  --system-prompt <the translate/prompts/ files, see Changing the translation style>
   --input-format stream-json --output-format stream-json --verbose --include-partial-messages
   --thinking-display summarized                # hidden flag: readable thinking summaries
 ```
 
 `--thinking-display summarized` is not listed in `claude --help` (checked on 2.1.301). Without it
 every thinking delta arrives empty. If a later `claude` drops the flag, every translation fails with
-an `exited` error; delete that line in `spawnClaudeProcess` (`shared/server/claude-runner.ts`) to recover.
+an `exited` error; delete that line in `spawnClaudeProcess` (`src/shared/server/claude-runner.ts`) to recover.
 
 `--setting-sources ""` and the two flags after it keep your `~/.claude/CLAUDE.md`, skills,
 plugins and MCP servers out of the request (measured: 5982 input tokens without them,
@@ -240,7 +242,7 @@ website cannot read your history through DNS rebinding.
 
 ### Server log
 
-The server writes its log to the terminal running `start.sh` and appends the same lines, without
+The server writes its log to the terminal running `npm start` and appends the same lines, without
 colour, to `data/server.log` (next to the history database; `SERVER_LOG_PATH` overrides it), so the log
 outlives the terminal tab: `tail -f data/server.log` follows it. Each translation prints a `start` line and exactly one
 closing line (`done`, `error` or `cancelled`); `fallback`, `retry` and `quota` lines appear in between
@@ -259,12 +261,12 @@ only when they happen. Times are local.
 
 Columns: time, level (blank, `WARN` or `ERROR`), request number, event, message.
 `grep -E 'WARN|ERROR'` keeps only the problems. Colour (WARN yellow, ERROR red) is used on a terminal
-only; `NO_COLOR=1 bash start.sh` turns it off.
+only; `NO_COLOR=1 npm start` turns it off.
 
 | Event | Level | Meaning |
 |---|---|---|
 | `ready` | none | the server is listening |
-| `prompt` | none | a file in `prompts/` changed; the spare process was replaced |
+| `prompt` | none | a file in `src/features/translate/prompts/` changed; the spare process was replaced |
 | `spare` | WARN | the waiting `claude` died before a request used it; its stderr follows. Logged once until a spare works again |
 | `start` | none | a translation began, with the chosen model, effort and mode; `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
 | `retry` | WARN | the API is busy and `claude` retries: attempt/max, error (HTTP status), delay |
@@ -284,7 +286,7 @@ failure, `first text` (time to the first translated text), `thought` (thinking t
 
 ## Changing the translation style
 
-The system prompt is assembled from files in `prompts/`, in this order, each wrapped in its own XML tag
+The system prompt is assembled from files in `src/features/translate/prompts/`, in this order, each wrapped in its own XML tag
 (Anthropic's prompting guidance): `core.md` (`<role>`, `<task>`, `<input_handling>`, `<output_format>` with worked
 examples), `style-vi.md` (`<style_guide>` with the `{{glossary}}` placeholder), `style-en.md`, then the mode's
 `source-translate.md` or `source-translate_markdown.md`. `glossary.tsv` is data: one `term<TAB>rule` per
@@ -299,8 +301,8 @@ engineer would say them in English, and write natural Vietnamese rather than Eng
 traced word by word. Changes to the skill do not reach this app; copy them over by hand.
 
 The modes, models and efforts the menus offer, their descriptions, fallbacks and defaults are the
-`MODE_OPTIONS` table in `server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
-`shared/server/claude-runner.ts`; restart after
-changing them. A new mode also needs a source format: `SOURCE_FORMATS` in `server/server.ts` and the
-`source_format` CHECK of `server/history-store.ts`.
+`MODE_OPTIONS` table in `src/features/translate/server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
+`src/shared/server/claude-runner.ts`; restart after
+changing them. A new mode also needs a source format: `SOURCE_FORMATS` in `src/features/translate/server/routes.ts` and the
+`source_format` CHECK of `src/features/translate/server/history-store.ts`.
 

@@ -13,11 +13,11 @@ except the model calls; your history and answers stay in a local SQLite file.
 ```bash
 git clone https://github.com/vinhtran2611/claude-translate.git
 cd claude-translate
-bash start.sh
+npm start
 ```
 
 This starts the server and opens http://localhost:8787. Press `Ctrl-C` to stop it.
-Another port: `PORT=8788 bash start.sh`.
+Another port: `PORT=8788 npm start`. (`npm start` runs `scripts/start.sh`.)
 
 ### What you need
 
@@ -27,7 +27,7 @@ Another port: `PORT=8788 bash start.sh`.
 | Claude Code CLI | `claude --version` | [code.claude.com/docs](https://code.claude.com/docs) |
 | The CLI logged in with a Claude subscription | `claude auth status` shows `"authMethod": "claude.ai"` | `claude auth login` |
 
-`start.sh` checks all three and tells you what to fix. There is nothing to install and no build step:
+`scripts/start.sh` checks all three and tells you what to fix. There is nothing to install and no build step:
 Node runs the TypeScript files directly.
 
 ## Translate
@@ -48,7 +48,7 @@ Node runs the TypeScript files directly.
 **Models:** Opus 5.5 for the best tone, Sonnet 5.5 for everyday text, Haiku 5.5 for speed.
 **Effort** is how long the model may think first: Low, Medium or High.
 
-Every translation is saved in your history. To change the translation style, edit the files in `prompts/`;
+Every translation is saved in your history. To change the translation style, edit the files in `src/features/translate/prompts/`;
 the next translation uses them, with no restart.
 
 How it works inside (the `claude` command, streaming, timeouts, the API, the log):
@@ -58,7 +58,7 @@ How it works inside (the `claude` command, streaming, timeouts, the API, the log
 
 Open http://localhost:8787/practice, or **Practice** at the top of the page.
 
-1. **Get exercises.** Ask Claude for a JSON file in the [import format](docs/practice-import-format.md). One file is one
+1. **Get exercises.** Ask Claude for a JSON file in the [import format](src/features/practice/static/import-format.md). One file is one
    project, for example one day of study. There are seven exercise types (`content.type`):
 
    | Type | For | Graded by |
@@ -71,14 +71,14 @@ Open http://localhost:8787/practice, or **Practice** at the top of the page.
    | `gap_fill` | fill in the blanks | Claude |
    | `flashcard` | vocabulary and rules | you: *Didn't know*, *Almost*, *Knew it* |
 
-   [features/practice/examples/example-project.json](features/practice/examples/example-project.json) has one of each.
+   [src/features/practice/static/example-project.json](src/features/practice/static/example-project.json) has one of each.
 2. **Import it.** On the Projects page, choose **New project** and drop the file. The page lists any problems and imports
    nothing until the file is right. Importing the same file again updates the exercises in place.
 3. **Practise.** Write your answer and press **Submit**. Claude's feedback streams in under your answer, and keeps going
    if you close the page. **Try again** makes a new attempt.
 4. **Look back.** The sidebar lists your latest attempt for each exercise. Click one to see it exactly as it was.
 
-The grading prompt is [features/practice/prompts/grade.md](features/practice/prompts/grade.md). Edit it and the next
+The grading prompt is [src/features/practice/prompts/grade.md](src/features/practice/prompts/grade.md). Edit it and the next
 grading uses it.
 
 ### Practice API (for scripts and AI agents)
@@ -129,27 +129,28 @@ npm test             # Node's test runner, with a fake `claude`
 npm run check        # all three
 ```
 
-GitHub Actions runs the lint and the type check on every push.
+GitHub Actions runs the lint, the type check and the tests on every push.
 
 | Folder | What is in it |
 |---|---|
-| `server/` | the HTTP server and the Translate routes |
-| `web/` | the Translate page |
-| `features/practice/` | the Practice feature: `server/`, `web/`, the grading prompt, the import checker |
-| `features/english-log/` | Claude Code hooks that save the English you type and its corrections |
-| `shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, the Markdown renderer, the model picker |
-| `prompts/` | the translation prompt and glossary |
-| `test/` | tests; the server tests run against a fake `claude` |
-| `docs/` | design docs |
+| `src/server.ts` | the HTTP server: startup, static files and the list of features |
+| `src/features/translate/` | the Translate feature: `server/` (its routes, history store, reply parser, prompt builder), `web/` (the page), `prompts/` (the translation prompt and glossary) |
+| `src/features/practice/` | the Practice feature: `server/`, `web/`, `prompts/` (the grading prompt), `static/` (the example file and the format guide), the import checker |
+| `src/shared/` | code both pages use: running `claude -p`, HTTP and SQLite helpers, repo paths, the pages' `fetchJson`, the Markdown renderer, the model picker |
+| `test/` | `boundaries.test.ts`; `integration/` (tests through the real server with a fake `claude`); `helpers/`; `fixtures/` |
+
+A unit test sits next to its file: `store.ts` and `store.test.ts`. The server never serves `*.test.ts` files.
+| `scripts/` | `start.sh`, which `npm start` runs |
+| `docs/` | design docs and reports; [docs/README.md](docs/README.md) says which is which |
 
 All code is TypeScript limited to syntax Node can strip (`erasableSyntaxOnly`), so there is no build step.
-A feature imports only from itself and `shared/` (checked by `test/boundaries.test.ts`).
+A feature imports only from itself and `src/shared/` (checked by `test/boundaries.test.ts`).
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | `claude CLI is not logged in` | Run `claude auth login`. |
-| `port 8787 is used by ...` | Stop the other program, or run `PORT=8788 bash start.sh`. |
+| `port 8787 is used by ...` | Stop the other program, or run `PORT=8788 npm start`. |
 | `... sent nothing within ...` or `... stopped streaming ...` | Look in `data/server.log` for `retry` or `quota` lines, then try again. |
 | The page shows strange English labels | Chrome's page translation is on. Turn it off for this site. |

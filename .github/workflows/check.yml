@@ -1,5 +1,4 @@
-# Runs on every push and pull request: the linter and the type check.
-# Tests are not run here yet: two Markdown tests need test/fixtures/, which is not in the repo.
+# Runs on every push and pull request: the linter, the type check and the tests.
 name: Check
 
 on:
@@ -18,3 +17,4 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test

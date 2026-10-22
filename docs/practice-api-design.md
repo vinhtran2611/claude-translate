@@ -36,8 +36,8 @@ The goal: one clean, predictable API that all three can use with the same JSON.
   then deltas (`ai-grading.ts:64-132`). A page can leave and come back. A restart turns lost gradings into `failed`
   (`store.ts:272-274`). This is a solid async-job design; keep it as it is.
 - **Safe storage**: `STRICT` tables with `CHECK`s, schema version in `PRAGMA user_version`, migrations in one transaction,
-  `synchronous = FULL`, daily backups (`shared/server/sqlite.ts`).
-- **Safe network**: loopback only, with a `Host` allow-list (`server/server.ts:495-504, 558`).
+  `synchronous = FULL`, daily backups (`src/shared/server/sqlite.ts`).
+- **Safe network**: loopback only, with a `Host` allow-list (`src/server.ts`).
 - **One shared spec** for the file check, used by the page and the server (`import-check.ts:26-58`).
 
 ### 1.2 Problems
@@ -450,7 +450,7 @@ have only a few format-2 files, and the generator prompt is one edit.
 {
   "api": "practice",
   "version": 3,
-  "docs": "/practice/format-guide.md",
+  "docs": "/features/practice/static/import-format.md",
   "schemas": { "exercise": "/api/practice/schemas/exercise.json", "import": "/api/practice/schemas/import.json" },
   "types": ["rewrite", "write", "choice", "fill", "flashcard"],
   "limits": {
@@ -612,7 +612,7 @@ Small steps. After each step all tests pass and the app works. Steps 1–3 add t
 `data/backups/practice-v2-before-schema-2.sqlite` before it changes anything.
 
 **Step 1 — One error shape (no URL changes).**
-- Add `sendError(res, status, code, message, problems?)` in `shared/server/http.ts`.
+- Add `sendError(res, status, code, message, problems?)` in `src/shared/server/http.ts`.
 - `import-check.ts` returns `{ path, code, message }[]` instead of strings; add `problemLine(problem, exercises)` that builds
   today's friendly line for the page.
 - Replace `reject()` and `{ errors }` in `routes.ts`; return `405` for a known path with the wrong method; make the server's

@@ -4,8 +4,8 @@
 	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
 	"files": {
-		// Third-party test data, copied as it is.
-		"includes": ["**", "!test/vendor", "!package-lock.json"]
+		// The CommonMark spec data, copied as it is.
+		"includes": ["**", "!test/fixtures/commonmark", "!package-lock.json"]
 	},
 	"formatter": { "enabled": false },
 	"assist": { "enabled": false },
@@ -26,7 +26,7 @@
 			"correctness": {
 				// Route handlers end with `return reject(...)`: one line to answer and stop.
 				"noVoidTypeReturn": "off",
-				// False alarm on a valid 2 x 2 grid in web/index.html.
+				// False alarm on a valid 2 x 2 grid in src/features/translate/web/translate.css.
 				"noInvalidGridAreas": "off"
 			},
 			"a11y": {

@@ -1,0 +1,24 @@
+{
+  "description": "Made up. A table of contents whose links point at headings by their GitHub slug; the last two sections are missing.",
+  "pairs": [
+    { "pair_type": "heading", "level": 1, "marker": "#", "source_text": "Field notes", "translation_text": "Ghi chép thực địa" },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Contents", "translation_text": "Mục lục" },
+    { "pair_type": "list_item", "level": 1, "marker": "1.", "source_text": "[Overview](#overview)", "translation_text": "[Tổng quan](#overview)" },
+    { "pair_type": "list_item", "level": 1, "marker": "2.", "source_text": "[Getting started](#getting-started)", "translation_text": "[Bắt đầu](#getting-started)" },
+    { "pair_type": "list_item", "level": 1, "marker": "3.", "source_text": "[Getting started, again](#getting-started-1)", "translation_text": "[Bắt đầu, lần nữa](#getting-started-1)" },
+    { "pair_type": "list_item", "level": 1, "marker": "4.", "source_text": "[Q&A: what's next?](#qa-whats-next)", "translation_text": "[Hỏi đáp: tiếp theo là gì?](#qa-whats-next)" },
+    { "pair_type": "list_item", "level": 1, "marker": "5.", "source_text": "[5. Field_work](#5-field_work)", "translation_text": "[5. Thực địa](#5-field_work)" },
+    { "pair_type": "list_item", "level": 1, "marker": "6.", "source_text": "[6. Prospects](#6-prospects)", "translation_text": "[6. Triển vọng](#6-prospects)" },
+    { "pair_type": "list_item", "level": 1, "marker": "7.", "source_text": "[7. Appendix](#7-appendix)", "translation_text": "[7. Phụ lục](#7-appendix)" },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Overview", "translation_text": "Tổng quan" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "A short trip to the river. See [getting started](#getting-started) first.", "translation_text": "Một chuyến đi ngắn ra sông. Xem [bắt đầu](#getting-started) trước." },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Getting started", "translation_text": "Bắt đầu" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "Pack light and leave early.", "translation_text": "Mang đồ nhẹ và đi sớm." },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Getting started", "translation_text": "Bắt đầu" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "The same title twice gets a `-1` slug.", "translation_text": "Cùng một tiêu đề hai lần thì có slug `-1`." },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "Q&A: what's next?", "translation_text": "Hỏi đáp: tiếp theo là gì?" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "Back to the [top](#field-notes) or the [contents](#contents).", "translation_text": "Về [đầu trang](#field-notes) hoặc [mục lục](#contents)." },
+    { "pair_type": "heading", "level": 2, "marker": "##", "source_text": "5. Field_work", "translation_text": "5. Thực địa" },
+    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "Write down what you see. The notes stop here, so [prospects](#6-prospects), [the appendix](#7-appendix) and [sources](#sources) have no heading.", "translation_text": "Ghi lại những gì bạn thấy. Ghi chép dừng ở đây, nên [triển vọng](#6-prospects), [phụ lục](#7-appendix) và [nguồn](#sources) không có tiêu đề." }
+  ]
+}

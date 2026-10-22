@@ -1,34 +1,37 @@
 // #/ : every project as a card, with a search and a sort.
 import { requiredElement } from '../../../shared/web/ui.ts';
-import type { Project } from '../api.ts';
+import type { ProjectSummary } from '../api.ts';
 import { listProjects } from './client.ts';
 import { h, link } from './dom.ts';
 import { pluralize, relativeDay, typeMix } from './format.ts';
 import { reloadView, type Page } from './page.ts';
 import { showProjectsSide } from './side.ts';
 
+// Its newest attempt, or its creation before the first one.
+const activityTimeOf = (project: ProjectSummary): string => project.lastActivityAt ?? project.createdAt;
+
 const SORTS = {
-  activity: { label: 'Last activity', compare: (a: Project, b: Project) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at) },
-  name: { label: 'Name', compare: (a: Project, b: Project) => a.name.localeCompare(b.name) },
-  created: { label: 'Newest', compare: (a: Project, b: Project) => b.created_at.localeCompare(a.created_at) },
+  activity: { label: 'Last activity', compare: (a: ProjectSummary, b: ProjectSummary) => activityTimeOf(b).localeCompare(activityTimeOf(a)) },
+  name: { label: 'Name', compare: (a: ProjectSummary, b: ProjectSummary) => a.name.localeCompare(b.name) },
+  created: { label: 'Newest', compare: (a: ProjectSummary, b: ProjectSummary) => b.createdAt.localeCompare(a.createdAt) },
 };
 
 // Archived projects are hidden unless this is on. It lasts until the page is reloaded.
 let is_showing_archived = false;
 
-function activityOf(project: Project): string {
-  if (project.archived) return 'Archived';
-  if (project.last_activity_at === null) return `Created ${relativeDay(project.created_at)} · not started`;
-  return `Last activity ${relativeDay(project.last_activity_at)}`;
+function activityOf(project: ProjectSummary): string {
+  if (project.archivedAt !== null) return 'Archived';
+  if (project.lastActivityAt === null) return `Created ${relativeDay(project.createdAt)} · not started`;
+  return `Last activity ${relativeDay(project.lastActivityAt)}`;
 }
 
-function createCard(project: Project): HTMLAnchorElement {
+function createCard(project: ProjectSummary): HTMLAnchorElement {
   const activity = activityOf(project);
   return link(`#/p/${project.key}`, 'project-card',
     h('div', 'project-icon', Array.from(project.name)[0].toUpperCase()),
     h('h2', '', project.name),
-    h('p', 'count', `${pluralize(project.exercise_count, 'exercise')} · ${project.done_count} done`),
-    h('p', 'mix', typeMix(project.type_counts)),
+    h('p', 'count', `${pluralize(project.exerciseCount, 'exercise')} · ${project.doneCount} done`),
+    h('p', 'mix', typeMix(project.typeCounts)),
     h('p', 'activity', activity));
 }
 

@@ -46,7 +46,10 @@ function createProblems(problems: Problem[], text: string): HTMLElement {
 
 function createFound(file: ProjectFile): HTMLElement {
   const counts: Partial<Record<ExerciseType, number>> = {};
-  for (const exercise of file.exercises) counts[exercise.type] = (counts[exercise.type] ?? 0) + 1;
+  for (const exercise of file.exercises) {
+    const type = exercise.content.type;
+    counts[type] = (counts[type] ?? 0) + 1;
+  }
   const title = h('strong', '', `✓ ${pluralize(file.exercises.length, 'exercise')} for “${file.name}”`);
   const details = h('small', '', `Project key ${file.key} · ${typeMix(counts)}`);
   return Object.assign(h('div', 'found', title, details), { role: 'status' });

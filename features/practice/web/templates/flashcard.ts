@@ -1,15 +1,15 @@
 // flashcard: say the meaning to yourself, look at the answer, rate how well you knew it. Nothing to grade: the rating is the answer.
-import type { Rating } from '../../api.ts';
+import type { FlashcardRating } from '../../api.ts';
 import { RATING_LABELS } from '../../text.ts';
 import { renderDocument } from '../../../../shared/web/markdown.ts';
 import { button, h } from '../dom.ts';
 import type { Template } from './types.ts';
 
-const RATINGS: Rating[] = ['unknown', 'almost', 'known'];
+const RATINGS: FlashcardRating[] = ['didnt_know', 'almost', 'knew'];
 
 export const flashcard: Template<'flashcard'> = {
   single: true,
-  empty: () => ({ rating: 'known' }),
+  empty: () => ({ type: 'flashcard', rating: 'knew' }),
   isBlank: () => true,
   isReady: () => true,
 
@@ -17,7 +17,11 @@ export const flashcard: Template<'flashcard'> = {
     const actions = h('div', 'card-actions');
     const note = h('p', 'card-note');
     const rate = (): void => {
-      actions.replaceChildren(...RATINGS.map((rating) => button(rating === 'known' ? 'primary-button' : 'secondary-button', RATING_LABELS[rating], () => submit({ rating }))));
+      const buttons = RATINGS.map((rating) => {
+        const class_name = rating === 'knew' ? 'primary-button' : 'secondary-button';
+        return button(class_name, RATING_LABELS[rating], () => submit({ type: 'flashcard', rating }));
+      });
+      actions.replaceChildren(...buttons);
       note.textContent = 'How well did you know it? The answer is below.';
       actions.querySelector('button')?.focus();
       reveal();
@@ -27,25 +31,21 @@ export const flashcard: Template<'flashcard'> = {
       actions.append(button('primary-button', 'Show answer', rate));
       note.textContent = 'Say the meaning in your head first.';
     }
+    const hint = content.hint === null ? [] : [h('p', 'card-hint', content.hint)];
     return {
       kind: topic === null ? 'Flashcard' : `Flashcard · ${topic}`,
-      content: [h('div', 'card-face',
-        h('p', 'card-word', content.front),
-        ...(content.hint === undefined ? [] : [h('p', 'card-hint', content.hint)]),
-        actions, ...(editable ? [note] : []))],
+      content: [h('div', 'card-face', h('p', 'card-word', content.front), ...hint, actions, ...(editable ? [note] : []))],
     };
   },
 
   evaluation({ exercise: { content } }) {
-    const explanation = h('div', 'eval-text doc-content');
-    if (content.explanation !== undefined) renderDocument(explanation, content.explanation);
-    return {
-      title: 'Answer',
-      content: [
-        h('p', 'answer-text', content.back),
-        ...(content.example === undefined ? [] : [h('p', 'label', 'Example'), h('p', 'read', content.example)]),
-        ...(content.explanation === undefined ? [] : [h('p', 'label', 'Explanation'), explanation]),
-      ],
-    };
+    const parts: HTMLElement[] = [h('p', 'answer-text', content.back)];
+    if (content.example !== null) parts.push(h('p', 'label', 'Example'), h('p', 'read', content.example));
+    if (content.explanationMarkdown !== null) {
+      const explanation = h('div', 'eval-text doc-content');
+      renderDocument(explanation, content.explanationMarkdown);
+      parts.push(h('p', 'label', 'Explanation'), explanation);
+    }
+    return { title: 'Answer', content: parts };
   },
 };

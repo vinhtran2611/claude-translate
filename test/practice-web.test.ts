@@ -25,6 +25,7 @@ test('small formats: counts, the type mix, the clock, the day', () => {
   assert.equal(pluralize(0, 'exercise'), '0 exercises');
   assert.equal(typeMix({ flashcard: 3, rewrite: 5, choice: 4 }), 'Rewrite 5 · Choice 4 · Flashcard 3');
   assert.equal(typeMix({ choice: 2, rewrite: 2 }), 'Rewrite 2 · Choice 2');
+  assert.equal(typeMix({ gap_fill: 1, essay: 1 }), 'Essay 1 · Gap fill 1');
   assert.equal(formatClock(75_000), '1:15');
   const now = new Date(2026, 9, 18, 9, 0);
   assert.equal(relativeDay(new Date(2026, 9, 18, 0, 5).toISOString(), now), 'today');
@@ -33,33 +34,72 @@ test('small formats: counts, the type mix, the clock, the day', () => {
   assert.match(relativeDay(new Date(2026, 8, 4, 12, 0).toISOString(), now), /^on 4 Sep/);
 });
 
-test('a draft comes back only for the same type and shape, and is listed newest first', () => {
-  const empty = { text: '' };
-  writeDraft(1, 'rewrite', { text: 'one' });
-  writeDraft(2, 'rewrite', { text: 'two' });
-  assert.deepEqual(readDraft(1, 'rewrite', empty), { text: 'one' });
-  assert.equal(readDraft(1, 'write', empty), null);
-  assert.equal(readDraft(3, 'rewrite', empty), null);
-  storage.set('practice.draft.4', '{"type":"rewrite","answer":{"text":5},"saved_at":1}');
+test('a draft is stored with its schema version, and comes back only for the same type and shape', () => {
+  const empty = { type: 'rewrite' as const, text: '' };
+  writeDraft(1, 3, { type: 'rewrite', text: 'one' });
+  const stored = JSON.parse(storage.get('practice.draft.1')!);
+  assert.equal(stored.schemaVersion, 1);
+  assert.equal(stored.exerciseId, 1);
+  assert.equal(stored.exerciseVersion, 3);
+  assert.match(stored.createdAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
+  assert.deepEqual(readDraft(1, 3, empty), { answer: { type: 'rewrite', text: 'one' }, is_outdated: false });
+  assert.equal(readDraft(1, 3, { type: 'essay', text: '' }), null);
+  assert.equal(readDraft(3, 1, empty), null);
+  storage.clear();
+});
+
+test('a draft written for an older version of the exercise says so; writing again keeps its createdAt', () => {
+  writeDraft(1, 1, { type: 'essay', text: 'first' });
+  const created_at = JSON.parse(storage.get('practice.draft.1')!).createdAt;
+  writeDraft(1, 1, { type: 'essay', text: 'second' });
+  assert.equal(JSON.parse(storage.get('practice.draft.1')!).createdAt, created_at);
+  assert.equal(readDraft(1, 2, { type: 'essay', text: '' })?.is_outdated, true);
+  storage.clear();
+});
+
+test('a draft saved before drafts had a version is read; an unknown version or broken one is dropped', () => {
+  storage.set('practice.draft.4', '{"type":"rewrite","answer":{"chosen":[2]},"saved_at":1760000000000}');
+  assert.deepEqual(readDraft(4, 1, { type: 'choice', chosenOptionIndexes: [] }), { answer: { type: 'choice', chosenOptionIndexes: [2] }, is_outdated: false });
+  storage.set('practice.draft.5', '{"schemaVersion":2,"answer":{}}');
+  storage.set('practice.draft.6', 'not json');
+  storage.set('practice.draft.7', '{"type":"rewrite","answer":{"text":5},"saved_at":1}');
+  assert.equal(readDraft(5, 1, { type: 'rewrite', text: '' }), null);
+  assert.equal(readDraft(6, 1, { type: 'rewrite', text: '' }), null);
+  assert.equal(readDraft(7, 1, { type: 'rewrite', text: '' }), null);
+  assert.equal(storage.has('practice.draft.5'), false);
+  assert.equal(storage.has('practice.draft.6'), false);
+  storage.clear();
+});
+
+test('drafts are listed newest first, only for the exercises asked about', () => {
+  storage.set('practice.draft.1', JSON.stringify({ schemaVersion: 1, exerciseId: 1, exerciseVersion: 1, answer: {}, createdAt: '2026-10-20T00:00:00.000Z', updatedAt: '2026-10-20T00:00:00.000Z' }));
+  storage.set('practice.draft.2', JSON.stringify({ schemaVersion: 1, exerciseId: 2, exerciseVersion: 1, answer: {}, createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' }));
+  storage.set('practice.draft.4', '{"type":"rewrite","answer":{"text":"x"},"saved_at":1}');
   storage.set('practice.draft.5', 'not json');
-  assert.equal(readDraft(4, 'rewrite', empty), null);
-  assert.equal(readDraft(5, 'rewrite', empty), null);
   storage.set('other.key', 'x');
-  assert.deepEqual(listDrafts(new Set([1, 2, 4, 5, 9])).map((draft) => draft.exercise_id).sort(), [1, 2, 4]);
+  const listed = listDrafts(new Set([1, 2, 4, 5, 9])).map((draft) => draft.exerciseId);
+  assert.deepEqual(listed, [2, 1, 4]);
   storage.clear();
 });
 
 test('templates know an empty answer from one worth keeping, and when Submit is allowed', () => {
-  const edit = { type: 'rewrite' as const, topic: null, tags: [], content: { instruction: 'Fix.', length: 'sentence' as const, prefill: true, text: 'Many student like it.' } };
-  assert.deepEqual(rewrite.empty(edit), { text: 'Many student like it.' });
-  assert.equal(rewrite.isBlank(edit, { text: 'Many student like it.' }), true);
-  assert.equal(rewrite.isBlank(edit, { text: 'Many students like it.' }), false);
-  const fresh = { ...edit, content: { ...edit.content, prefill: false } };
-  assert.deepEqual([rewrite.empty(fresh), rewrite.isReady(fresh, { text: ' ' }), rewrite.isReady(fresh, { text: 'x' })], [{ text: '' }, false, true]);
-  assert.deepEqual([choice.isReady({} as never, { chosen: [] }), choice.isReady({} as never, { chosen: [1] })], [false, true]);
-  const gaps = { type: 'fill' as const, topic: null, tags: [], content: { text: '{{1}} {{2}}', gaps: [{ answer: 'a' }, { answer: 'b' }] } };
-  assert.deepEqual(fill.empty(gaps), { gaps: ['', ''] });
-  assert.deepEqual([fill.isReady(gaps, { gaps: ['', ' '] }), fill.isReady(gaps, { gaps: ['', 'x'] })], [false, true]);
+  const content = { type: 'correction' as const, instruction: 'Fix.', sourceText: 'Many student like it.', length: 'sentence' as const, plantedMistakes: [], constraints: [], modelAnswer: null };
+  const correction = { topic: null, tags: [], content };
+  assert.deepEqual(rewrite.empty(correction), { type: 'correction', text: 'Many student like it.' });
+  assert.equal(rewrite.isBlank(correction, { type: 'correction', text: 'Many student like it.' }), true);
+  assert.equal(rewrite.isBlank(correction, { type: 'correction', text: 'Many students like it.' }), false);
+  const fresh = { topic: null, tags: [], content: { ...content, type: 'rewrite' as const } };
+  assert.deepEqual(rewrite.empty(fresh), { type: 'rewrite', text: '' });
+  assert.deepEqual([rewrite.isReady(fresh, { type: 'rewrite', text: ' ' }), rewrite.isReady(fresh, { type: 'rewrite', text: 'x' })], [false, true]);
+  const none = { type: 'choice' as const, chosenOptionIndexes: [] };
+  const one = { type: 'choice' as const, chosenOptionIndexes: [1] };
+  assert.deepEqual([choice.isReady({} as never, none), choice.isReady({} as never, one)], [false, true]);
+  const gap_content = { type: 'gap_fill' as const, instruction: null, textWithGaps: '{{1}} {{2}}', gaps: [{ acceptedAnswers: ['a'], hint: null, explanationMarkdown: null }, { acceptedAnswers: ['b'], hint: null, explanationMarkdown: null }] };
+  const gaps = { topic: null, tags: [], content: gap_content };
+  assert.deepEqual(fill.empty(gaps), { type: 'gap_fill', gapAnswers: ['', ''] });
+  const blank = { type: 'gap_fill' as const, gapAnswers: ['', ' '] };
+  const typed = { type: 'gap_fill' as const, gapAnswers: ['', 'x'] };
+  assert.deepEqual([fill.isReady(gaps, blank), fill.isReady(gaps, typed)], [false, true]);
 });
 
 test('the two dark colour blocks of base.css say the same', () => {

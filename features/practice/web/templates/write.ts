@@ -1,34 +1,35 @@
-// write: free writing, an IELTS Task 2 essay.
+// essay: free writing, an IELTS Task 2 essay.
 import { countWords } from '../../text.ts';
 import { h } from '../dom.ts';
 import { formatClock } from '../format.ts';
 import { answerBox, tagList } from './parts.ts';
 import type { Template } from './types.ts';
 
-const DEFAULT_MIN_WORDS = 250;
-
-export const write: Template<'write'> = {
+export const essay: Template<'essay'> = {
   submitLabel: 'Submit',
   timed: true,
-  empty: () => ({ text: '' }),
+  empty: () => ({ type: 'essay', text: '' }),
   isBlank: (_exercise, answer) => answer.text.trim() === '',
   isReady: (_exercise, answer) => answer.text.trim() !== '',
 
   problem({ exercise: { content, tags } }) {
-    const guide = [`At least ${content.min_words ?? DEFAULT_MIN_WORDS} words`, ...(content.minutes === undefined ? [] : [`About ${content.minutes} minutes`])];
-    return { kind: 'Free writing', content: [h('p', 'read', content.prompt), ...tagList([...guide, ...tags])] };
+    const guide = [`At least ${content.minWords} words`];
+    if (content.suggestedMinutes !== null) guide.push(`About ${content.suggestedMinutes} minutes`);
+    return { kind: 'Essay', content: [h('p', 'read', content.instruction), ...tagList([...guide, ...content.constraints, ...tags])] };
   },
 
   answer({ answer, editable, change }) {
-    return [answerBox(answer.text, editable, true, (text) => change({ text }))];
+    return [answerBox(answer.text, editable, true, (text) => change({ type: 'essay', text }))];
   },
 
   // The clock only shows the time you have spent; it never stops you.
   status({ exercise: { content }, answer, editable }, elapsed_ms) {
     const words = countWords(answer.text);
-    const target = content.min_words ?? DEFAULT_MIN_WORDS;
-    return [h('strong', '', words >= target ? `${words} words` : `${words} of ${target} words`),
-      ...(words >= target ? [' · ', h('span', 'is-met', 'Target reached')] : []),
-      ...(editable ? [` · ⏱ ${formatClock(elapsed_ms)}`] : [])];
+    const target = content.minWords;
+    const is_met = words >= target;
+    const parts: (Node | string)[] = [h('strong', '', is_met ? `${words} words` : `${words} of ${target} words`)];
+    if (is_met) parts.push(' · ', h('span', 'is-met', 'Target reached'));
+    if (editable) parts.push(` · ⏱ ${formatClock(elapsed_ms)}`);
+    return parts;
   },
 };

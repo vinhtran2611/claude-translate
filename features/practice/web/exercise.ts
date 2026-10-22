@@ -3,8 +3,8 @@
 // grading (the AI is working, its words streaming in), graded, failed. A template draws the insides of the panes (./templates/);
 // this file draws the cards, the buttons and the phases.
 import { createModelPicker, type ModelPicker } from '../../../shared/web/model-picker.ts';
-import type { AiResult, AnswerByType, Attempt, AttemptStatus, ExerciseBody, ExerciseType } from '../api.ts';
-import { kindOf } from '../text.ts';
+import type { Answer, AttemptDetail, ExerciseContent, ExerciseType, Grading, GradingSettings } from '../api.ts';
+import { labelOf } from '../text.ts';
 import {
   ApiError, deleteExercise, errorText, readAttempt, readExercise, readGradingOptions, readProjectView, regrade, submitAttempt, watchGrading, type ProjectView,
 } from './client.ts';
@@ -15,31 +15,68 @@ import { formatDateTime } from './format.ts';
 import { sleep, type Page } from './page.ts';
 import { projectToolbar, showSide } from './side.ts';
 import { templateOf } from './templates/index.ts';
-import type { View } from './templates/types.ts';
+import type { ShownExercise, View } from './templates/types.ts';
 
 // How long to wait before following a grading again, when the stream broke while it was still going.
 const FOLLOW_RETRY_MS = 1_500;
 const PICKER_STORAGE_KEY = 'practice.grading';
 
-type Answer = AnswerByType[ExerciseType];
+// Where the page is: answering, or an attempt whose latest grading is running, succeeded, or failed (a cancelled one too).
+// A flashcard attempt is graded at once: its rating is its result.
+type Phase = 'answering' | 'grading' | 'graded' | 'failed';
 
 interface Start {
   exercise_key: string;
-  // Drafts in the browser are kept under it. null once the exercise is deleted (only an old attempt can show that).
-  exercise_id: number | null;
+  // Drafts in the browser are kept under it.
+  exercise_id: number;
   // What the page shows: the exercise as it is now, or as the attempt saw it.
-  exercise: ExerciseBody;
+  exercise: ShownExercise<ExerciseType>;
   // The version shown. It is sent with the answer, so a change made meanwhile is caught (409 exercise_changed).
   version: number;
   // The attempt being reopened; null for a new answer.
-  attempt: Attempt | null;
+  attempt: AttemptDetail | null;
+}
+
+// The grading an attempt shows: its latest (rule 7). null for a flashcard.
+function latestGradingOf(attempt: AttemptDetail): Grading | null {
+  return attempt.gradings.at(-1) ?? null;
+}
+
+function phaseOf(attempt: AttemptDetail): Phase {
+  if (attempt.answer.type === 'flashcard') return 'graded';
+  const latest = latestGradingOf(attempt);
+  if (latest === null) return 'failed';
+  if (latest.run.status === 'running') return 'grading';
+  if (latest.run.status === 'succeeded') return 'graded';
+  return 'failed';
+}
+
+// The model answer the learner sees after grading; null when the exercise has none.
+function modelAnswerOf(content: ExerciseContent): string | null {
+  if ('modelAnswer' in content) return content.modelAnswer;
+  return null;
 }
 
 // One picker for the whole page: its menu lives in the document, and the choice is the same for every exercise.
 let picker: ModelPicker | null = null;
 async function gradingPicker(signal: AbortSignal): Promise<ModelPicker> {
-  picker ??= createModelPicker(await readGradingOptions(signal), PICKER_STORAGE_KEY, document.body);
+  if (picker !== null) return picker;
+  const options = await readGradingOptions(signal);
+  const picker_options = {
+    models: options.models,
+    efforts: options.efforts,
+    default_model_id: options.defaultModelId,
+    default_effort: options.defaultEffort,
+  };
+  // Another call may have made it while this one waited.
+  picker ??= createModelPicker(picker_options, PICKER_STORAGE_KEY, document.body);
   return picker;
+}
+
+// The picker's choice, as the API names it.
+function gradingSettingsOf(model_picker: ModelPicker): GradingSettings {
+  const { model_id, effort } = model_picker.settings();
+  return { modelId: model_id, effort };
 }
 
 export async function showExercise(page: Page, project_key: string, exercise_key: string): Promise<void> {
@@ -48,16 +85,20 @@ export async function showExercise(page: Page, project_key: string, exercise_key
     readExercise(project_key, exercise_key, page.signal),
     gradingPicker(page.signal),
   ]);
-  const start: Start = { exercise_key, exercise_id: exercise.id, exercise, version: exercise.version, attempt: null };
+  const shown = { topic: exercise.topic, tags: exercise.tags, content: exercise.content };
+  const start: Start = { exercise_key, exercise_id: exercise.id, exercise: shown, version: exercise.version, attempt: null };
   openScreen(page, view, start, model_picker);
 }
 
 export async function showAttempt(page: Page, attempt_id_text: string): Promise<void> {
   const attempt = await readAttempt(Number(attempt_id_text), page.signal);
-  const [view, model_picker] = await Promise.all([readProjectView(attempt.project, page.signal), gradingPicker(page.signal)]);
-  const current = view.exercises.find((item) => item.key === attempt.exercise);
+  const [view, model_picker] = await Promise.all([readProjectView(attempt.projectKey, page.signal), gradingPicker(page.signal)]);
   const start: Start = {
-    exercise_key: attempt.exercise, exercise_id: current?.id ?? null, exercise: attempt.snapshot, version: attempt.exercise_version, attempt,
+    exercise_key: attempt.exerciseKey,
+    exercise_id: attempt.exerciseId,
+    exercise: attempt.exerciseSnapshot,
+    version: attempt.exerciseVersion,
+    attempt,
   };
   openScreen(page, view, start, model_picker);
 }
@@ -65,18 +106,26 @@ export async function showAttempt(page: Page, attempt_id_text: string): Promise<
 function openScreen(page: Page, first_view: ProjectView, start: Start, model_picker: ModelPicker): void {
   const { signal } = page;
   const { exercise_key, exercise_id, exercise, version, attempt: reopened } = start;
-  const template = templateOf(exercise.type);
+  const template = templateOf(exercise.content.type);
   const project_key = first_view.project.key;
   const is_review = reopened !== null;
-  const is_exercise_deleted = exercise_id === null;
   // Only a new answer keeps a draft: an old attempt is read-only.
   const draft_id = is_review ? null : exercise_id;
   const opened_at = Date.now();
   let view = first_view;
   let attempt = reopened;
-  let phase: AttemptStatus | 'answering' = reopened?.status ?? 'answering';
+  let phase: Phase = 'answering';
+  if (reopened !== null) phase = phaseOf(reopened);
   let answer: Answer = reopened?.answer ?? template.empty(exercise);
-  if (draft_id !== null) answer = readDraft(draft_id, exercise.type, template.empty(exercise)) ?? answer;
+  // A draft written for an older version of the exercise is kept, with a note.
+  let is_draft_outdated = false;
+  if (draft_id !== null) {
+    const draft = readDraft(draft_id, version, template.empty(exercise));
+    if (draft !== null) {
+      answer = draft.answer;
+      is_draft_outdated = draft.is_outdated;
+    }
+  }
   let is_revealed = false;
   let is_sending = false;
   let is_following = false;
@@ -89,7 +138,7 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   const card = h('section', 'workspace');
   const evaluation = createEvaluation(model_picker.labelOf);
   page.main.append(toolbar, card, evaluation.element);
-  page.setTitle(kindOf(exercise));
+  page.setTitle(labelOf(exercise.content));
   signal.addEventListener('abort', () => { clearInterval(clock); evaluation.dispose(); });
 
   const makeView = (): View<ExerciseType> => ({
@@ -100,7 +149,7 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
       if (submit_button !== null) submit_button.disabled = !template.isReady(exercise, answer);
       if (draft_id === null) return;
       if (template.isBlank(exercise, answer)) clearDraft(draft_id);
-      else writeDraft(draft_id, exercise.type, answer);
+      else writeDraft(draft_id, version, answer);
     },
     submit: (chosen) => void send(chosen),
     reveal: () => { is_revealed = true; drawEvaluation(); },
@@ -118,14 +167,23 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     return projectToolbar(view, button('ghost-button', 'Delete exercise', () => void deleteThisExercise()));
   }
 
-  // Its old attempts stay: they keep their own copy of the exercise.
+  // Asks first. An exercise with answers asks a second time, because its answers are deleted with it (rule 8).
   async function deleteThisExercise(): Promise<void> {
-    if (!confirm('Delete this exercise? Your past answers to it are kept. This cannot be undone.')) return;
+    if (!confirm('Delete this exercise? This cannot be undone.')) return;
     try {
-      await deleteExercise(project_key, exercise_key, signal);
+      await deleteExercise(project_key, exercise_key, false, signal);
     } catch (error) {
-      if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(error)}`);
-      return;
+      if (!(error instanceof ApiError) || error.code !== 'has_attempts') {
+        if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(error)}`);
+        return;
+      }
+      if (!confirm('This exercise has answers you gave. Delete them too?')) return;
+      try {
+        await deleteExercise(project_key, exercise_key, true, signal);
+      } catch (second_error) {
+        if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(second_error)}`);
+        return;
+      }
     }
     if (draft_id !== null) clearDraft(draft_id);
     location.hash = `#/p/${project_key}`;
@@ -133,9 +191,8 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
 
   // The buttons in the answer side's header.
   function createAnswerActions(): HTMLElement[] {
-    if (is_review) {
-      const submitted = Object.assign(h('span', 'run-info', `Submitted ${formatDateTime(reopened.submitted_at)}`), { title: 'A saved copy: it cannot be edited' });
-      if (is_exercise_deleted) return [submitted, h('span', 'run-info', 'The exercise was deleted')];
+    if (reopened !== null) {
+      const submitted = Object.assign(h('span', 'run-info', `Submitted ${formatDateTime(reopened.createdAt)}`), { title: 'A saved copy: it cannot be edited' });
       return [submitted, link(retryHref, 'primary-button', 'Try again')];
     }
     if (phase !== 'answering' || template.submitLabel === undefined) return [];
@@ -148,6 +205,9 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   function createFooter(): HTMLElement {
     status_line = h('p', 'footer-note');
     submit_error = Object.assign(h('p', 'form-error'), { role: 'alert' });
+    if (phase === 'answering' && is_draft_outdated) {
+      submit_error.textContent = 'This exercise changed after you saved this draft. Check your answer before you submit it.';
+    }
     refreshStatus();
     return h('div', 'pane-footer', status_line, submit_error);
   }
@@ -182,20 +242,34 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   // The buttons in the Evaluation's header once it is final.
   function createEvaluationActions(): HTMLElement[] {
     if (is_review) return [];
-    const next = view.exercises.find((candidate) => !candidate.done && candidate.key !== exercise_key);
+    const next = view.exercises.find((candidate) => !candidate.isDone && candidate.key !== exercise_key);
     const next_href = next === undefined ? `#/p/${project_key}` : `#/p/${project_key}/x/${next.key}`;
     return [link(retryHref, 'ghost-button', 'Try again'), link(next_href, 'primary-button', 'Next exercise')];
+  }
+
+  function gradeAgainActions(): HTMLElement[] {
+    return [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())];
   }
 
   function drawEvaluation(): void {
     if (phase === 'answering' && !is_revealed) {
       evaluation.empty();
-    } else if (phase === 'failed') {
-      evaluation.failed(attempt?.error ?? 'Grading failed.', [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())]);
-    } else if (phase === 'graded' || phase === 'answering') {
+      return;
+    }
+    if (phase === 'failed') {
+      const latest = attempt === null ? null : latestGradingOf(attempt);
+      evaluation.failed(latest?.run.errorMessage ?? 'Grading failed.', gradeAgainActions());
+      return;
+    }
+    if (phase === 'graded' || phase === 'answering') {
       const own = template.evaluation?.(makeView());
-      if (own !== undefined) evaluation.answer(own.title, own.content, phase === 'graded' ? createEvaluationActions() : []);
-      else evaluation.graded(attempt!.result as AiResult, createEvaluationActions());
+      const actions = phase === 'graded' ? createEvaluationActions() : [];
+      if (own !== undefined) {
+        evaluation.answer(own.title, own.content, actions);
+        return;
+      }
+      const latest = latestGradingOf(attempt as AttemptDetail) as Grading;
+      evaluation.graded(latest, modelAnswerOf(exercise.content), actions);
     }
   }
 
@@ -231,16 +305,20 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     if (is_following) return;
     is_following = true;
     try {
-      while (attempt?.status === 'grading') {
+      while (attempt !== null && phaseOf(attempt) === 'grading') {
         await watchGrading(attempt.id, signal, evaluation.apply).catch((error: unknown) => { if (signal.aborted) throw error; });
         // The stream ended: the attempt says how. A read that fails is tried again at the next beat.
-        attempt = await readAttempt(attempt.id, signal).catch(() => attempt);
-        if (attempt!.status === 'grading') await sleep(FOLLOW_RETRY_MS, signal);
+        const current: AttemptDetail = attempt;
+        attempt = await readAttempt(current.id, signal).catch(() => current);
+        if (phaseOf(attempt) === 'grading') await sleep(FOLLOW_RETRY_MS, signal);
       }
     } catch {
       return;
+    } finally {
+      is_following = false;
     }
-    phase = attempt!.status;
+    if (attempt === null) return;
+    phase = phaseOf(attempt);
     await refreshDetail();
     if (signal.aborted) return;
     if (is_review) draw();
@@ -249,7 +327,7 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
 
   // The answer was saved: grading goes on (an AI type), or is already done.
   async function settle(): Promise<void> {
-    phase = attempt!.status;
+    phase = phaseOf(attempt as AttemptDetail);
     if (phase === 'grading') {
       draw();
       evaluation.grading();
@@ -267,9 +345,10 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     is_sending = true;
     answer = final_answer;
     if (submit_button !== null) submit_button.disabled = true;
+    let saved: AttemptDetail;
     try {
-      const target = { project: project_key, key: exercise_key, version };
-      attempt = await submitAttempt(target, answer, Date.now() - opened_at, model_picker.settings(), signal);
+      const target = { projectKey: project_key, key: exercise_key, version };
+      saved = await submitAttempt(target, answer, Date.now() - opened_at, gradingSettingsOf(model_picker), signal);
     } catch (error) {
       is_sending = false;
       if (signal.aborted) return;
@@ -281,17 +360,19 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
       }
       return;
     }
+    attempt = saved;
     if (draft_id !== null) clearDraft(draft_id);
     // A reload now shows this attempt, not an empty exercise.
-    history.replaceState(null, '', `#/a/${attempt.id}`);
+    history.replaceState(null, '', `#/a/${saved.id}`);
     await settle();
   }
 
   async function gradeAgain(): Promise<void> {
+    if (attempt === null) return;
     try {
-      attempt = await regrade(attempt!.id, model_picker.settings(), signal);
+      attempt = await regrade(attempt.id, gradingSettingsOf(model_picker), signal);
     } catch (error) {
-      if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())]);
+      if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, gradeAgainActions());
       return;
     }
     await settle();

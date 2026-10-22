@@ -3,7 +3,7 @@
 // "New exercise" and the latest attempt of each exercise, unsent drafts first. Outside one it lists the projects, so the page has
 // the same shape wherever you are. Also the row of chips under the masthead.
 import { createIcon, foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { Project } from '../api.ts';
+import type { ProjectSummary } from '../api.ts';
 import type { ProjectView } from './client.ts';
 import { h, link } from './dom.ts';
 import { listDrafts } from './drafts.ts';
@@ -25,14 +25,15 @@ export interface Current {
   draft_exercise_id?: number;
 }
 
-type Shown = { view: ProjectView; current: Current } | { projects: Project[] };
+type Shown = { view: ProjectView; current: Current } | { projects: ProjectSummary[] };
 let shown: Shown | null = null;
 const new_label = requiredElement('#new-exercise-button .row-label', HTMLElement);
 
 const isModal = (): boolean => sidebar.matches(':modal');
 
-function resultText(status_name: string, summary: string | null): string {
-  return status_name === 'graded' ? summary ?? '' : status_name === 'grading' ? 'Grading…' : 'Not graded';
+// When a project was last worked on: its newest attempt, or its creation before the first one.
+function activityTimeOf(project: ProjectSummary): string {
+  return project.lastActivityAt ?? project.createdAt;
 }
 
 function createItem(href: string, preview: string, meta: string, is_current: boolean): HTMLLIElement {
@@ -53,30 +54,32 @@ interface Row {
 
 function rowsOf(current_shown: Shown): { rows: Row[]; is_empty: boolean } {
   if ('projects' in current_shown) {
-    const rows = [...current_shown.projects].sort((a, b) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at)).map((project): Row => ({
-      href: `#/p/${project.key}`, preview: project.name, meta: `${pluralize(project.exercise_count, 'exercise')} · ${project.done_count} done`, is_current: false,
-      group: historyGroupOf(project.last_activity_at ?? project.created_at),
+    const projects = [...current_shown.projects];
+    projects.sort((a, b) => activityTimeOf(b).localeCompare(activityTimeOf(a)));
+    const rows = projects.map((project): Row => ({
+      href: `#/p/${project.key}`, preview: project.name, meta: `${pluralize(project.exerciseCount, 'exercise')} · ${project.doneCount} done`, is_current: false,
+      group: historyGroupOf(activityTimeOf(project)),
     }));
     return { rows, is_empty: rows.length === 0 };
   }
   const { view, current } = current_shown;
   const project_key = view.project.key;
   const exercises = new Map(view.exercises.map((exercise) => [exercise.id, exercise]));
-  const drafts = listDrafts(new Set(exercises.keys())).map(({ exercise_id }): Row => {
-    const exercise = exercises.get(exercise_id)!;
+  const drafts = listDrafts(new Set(exercises.keys())).map(({ exerciseId }): Row => {
+    const exercise = exercises.get(exerciseId)!;
     return {
-      href: `#/p/${project_key}/x/${exercise.key}`, preview: exercise.preview, meta: `${exercise.kind} · Draft`,
-      is_current: current.draft_exercise_id === exercise_id, group: 'Drafts',
+      href: `#/p/${project_key}/x/${exercise.key}`, preview: exercise.preview, meta: `${exercise.label} · Draft`,
+      is_current: current.draft_exercise_id === exerciseId, group: 'Drafts',
     };
   });
   // The History: the latest attempt of each exercise, newest first.
-  const tried = view.exercises.filter((exercise) => exercise.last_attempt !== null);
-  tried.sort((a, b) => b.last_attempt!.submitted_at.localeCompare(a.last_attempt!.submitted_at));
+  const tried = view.exercises.filter((exercise) => exercise.lastAttempt !== null);
+  tried.sort((a, b) => b.lastAttempt!.createdAt.localeCompare(a.lastAttempt!.createdAt));
   const attempts = tried.map((exercise): Row => {
-    const last = exercise.last_attempt!;
+    const last = exercise.lastAttempt!;
     return {
-      href: `#/a/${last.id}`, preview: exercise.preview, meta: `${exercise.kind} · ${resultText(last.status, last.summary)}`,
-      is_current: current.attempt_id === last.id, group: historyGroupOf(last.submitted_at),
+      href: `#/a/${last.id}`, preview: exercise.preview, meta: `${exercise.label} · ${last.historyLine}`,
+      is_current: current.attempt_id === last.id, group: historyGroupOf(last.createdAt),
     };
   });
   return { rows: [...drafts, ...attempts], is_empty: drafts.length + attempts.length === 0 };
@@ -131,7 +134,7 @@ function startNew(): void {
     location.hash = '#/new';
   } else {
     const project_key = shown.view.project.key;
-    const next = shown.view.exercises.find((exercise) => !exercise.done);
+    const next = shown.view.exercises.find((exercise) => !exercise.isDone);
     location.hash = next === undefined ? `#/p/${project_key}` : `#/p/${project_key}/x/${next.key}`;
   }
   if (isModal()) closeSidebar();
@@ -148,7 +151,7 @@ function show(next: Shown, new_text: string): void {
 }
 
 export const showSide = (view: ProjectView, current: Current): void => show({ view, current }, 'New exercise');
-export const showProjectsSide = (projects: Project[]): void => show({ projects }, 'New project');
+export const showProjectsSide = (projects: ProjectSummary[]): void => show({ projects }, 'New project');
 
 export function hideSide(): void {
   shown = null;
@@ -161,8 +164,8 @@ export function projectToolbar({ project }: ProjectView, ...actions: HTMLElement
   const back = link('#/', 'settings-chip', createIcon('back', 'chip-icon'), 'Projects');
   const name = link(`#/p/${project.key}`, 'settings-chip is-name', h('span', '', project.name));
   name.title = project.name;
-  const progress = h('span', 'settings-chip is-quiet', `${pluralize(project.exercise_count, 'exercise')} · ${project.done_count} done`);
-  const archived = project.archived ? [h('span', 'settings-chip is-quiet', 'Archived')] : [];
+  const progress = h('span', 'settings-chip is-quiet', `${pluralize(project.exerciseCount, 'exercise')} · ${project.doneCount} done`);
+  const archived = project.archivedAt !== null ? [h('span', 'settings-chip is-quiet', 'Archived')] : [];
   return h('div', 'settings-bar', back, name, progress, ...archived, h('span', 'grow'), ...actions);
 }
 

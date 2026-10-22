@@ -1,7 +1,15 @@
 // Small text helpers for what the page shows. Pure, so they are tested without a browser.
 import type { ExerciseType } from '../api.ts';
 
-const TYPE_NAMES: Record<ExerciseType, string> = { rewrite: 'Rewrite', write: 'Write', choice: 'Choice', fill: 'Fill', flashcard: 'Flashcard' };
+const TYPE_NAMES: Record<ExerciseType, string> = {
+  rewrite: 'Rewrite',
+  translation: 'Translation',
+  correction: 'Correction',
+  essay: 'Essay',
+  choice: 'Choice',
+  gap_fill: 'Gap fill',
+  flashcard: 'Flashcard',
+};
 const TYPE_ORDER = Object.keys(TYPE_NAMES);
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {

@@ -1,9 +1,9 @@
 // The Evaluation card under the problem: the AI's feedback streaming in as Markdown, its thinking summary above it (Claude
-// Translate's "Thought for 20s" disclosure), then the finished feedback with the model, effort and time in the header. Also a
-// flashcard's Answer. It only draws: the page decides when each state starts.
+// Translate's "Thought for 20s" disclosure), then the finished feedback with the model, effort and time in the header, and
+// the exercise's model answer under it. Also a flashcard's Answer. It only draws: the page decides when each state starts.
 import { renderDocument } from '../../../shared/web/markdown.ts';
 import { createIcon } from '../../../shared/web/ui.ts';
-import type { AiResult } from '../api.ts';
+import type { Grading } from '../api.ts';
 import type { GradingEvent } from './client.ts';
 import { h } from './dom.ts';
 
@@ -16,7 +16,8 @@ export interface Evaluation {
   // The AI started grading (or the page reattached to a grading); events follow through apply().
   grading(): void;
   apply(event: GradingEvent): void;
-  graded(result: AiResult, actions: HTMLElement[]): void;
+  // A succeeded grading. model_answer: the exercise's, shown after grading (null when it has none).
+  graded(grading: Grading, model_answer: string | null, actions: HTMLElement[]): void;
   failed(message: string, actions: HTMLElement[]): void;
   // Stops the clock; the card is not used again.
   dispose(): void;
@@ -25,6 +26,12 @@ export interface Evaluation {
 const COPY_RESET_MS = 1400;
 
 const seconds = (duration_ms: number): string => `${(duration_ms / 1000).toFixed(1)}s`;
+
+// How long a finished grading took: finishedAt - startedAt (never stored).
+function durationOf(grading: Grading): number {
+  const finished_at = grading.run.finishedAt ?? grading.run.startedAt;
+  return Date.parse(finished_at) - Date.parse(grading.run.startedAt);
+}
 
 // labelOf: "Sonnet 5.5 · High" for a model and effort (the picker's wording).
 export function createEvaluation(labelOf: (model_id: string, effort: string | null) => string): Evaluation {
@@ -125,24 +132,24 @@ export function createEvaluation(labelOf: (model_id: string, effort: string | nu
     },
     apply([name, data]) {
       if (name === 'snapshot') {
-        thinking_text = data.thinking_text;
-        thinking_ms = data.thinking_ms;
+        thinking_text = data.thinkingText;
+        thinking_ms = data.thinkingMs;
         text = data.text;
-        started_at = Date.now() - data.elapsed_ms;
+        started_at = Date.now() - data.elapsedMs;
         setThinking(thinking_text, thinking_ms, thinking_ms === null && text === '');
       } else if (name === 'thinking_delta') {
         // Opens as the summary starts arriving; a click to close it while thinking is kept.
         thinking_text += data.text;
         setThinking(thinking_text, null, thinking_text === data.text || thinking.open);
       } else if (name === 'thinking_done') {
-        thinking_ms = data.duration_ms;
+        thinking_ms = data.durationMs;
         setThinking(thinking_text, thinking_ms, false);
       } else if (name === 'text_delta') {
         text += data.text;
       } else if (name === 'retry') {
-        note = `API busy (${data.error}), retry ${data.attempt}/${data.max_retries}…`;
+        note = `API busy (${data.error}), retry ${data.attempt}/${data.maxRetries}…`;
       } else if (name === 'fallback') {
-        note = `${labelOf(data.from_model_id, null)} is slow, switched to ${labelOf(data.to_model_id, null)}…`;
+        note = `${labelOf(data.fromModelId, null)} is slow, switched to ${labelOf(data.toModelId, null)}…`;
       } else {
         return;
       }
@@ -150,17 +157,21 @@ export function createEvaluation(labelOf: (model_id: string, effort: string | nu
       drawStream();
       drawProgress();
     },
-    graded(result, actions) {
+    graded(grading, model_answer, actions) {
       reset('Evaluation');
+      const feedback_text = grading.feedbackMarkdown ?? '';
+      const { run } = grading;
       const copy_label = h('span', '', 'Copy');
       const copy_button = Object.assign(h('button', 'ghost-button', createIcon('copy'), copy_label), { type: 'button' as const });
-      copy_button.addEventListener('click', () => void copy(copy_button, copy_label, result.text));
-      info.textContent = `${labelOf(result.model, result.effort)} · ${seconds(result.ms)}`;
+      copy_button.addEventListener('click', () => void copy(copy_button, copy_label, feedback_text));
+      const model_id = run.servedModelId ?? run.requestedModelId ?? '';
+      info.textContent = `${labelOf(model_id, run.effort)} · ${seconds(durationOf(grading))}`;
       setActions([copy_button, ...actions]);
-      setThinking(result.thinking_text, result.thinking_ms, false);
+      setThinking(run.thinkingText ?? '', run.thinkingMs, false);
       skeleton.hidden = true;
-      renderDocument(feedback, result.text);
+      renderDocument(feedback, feedback_text);
       body.replaceChildren(thinking, feedback);
+      if (model_answer !== null) body.append(h('p', 'label', 'Model answer'), h('p', 'read', model_answer));
     },
     failed(message, actions) {
       reset('Not graded');

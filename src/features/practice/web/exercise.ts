@@ -241,8 +241,15 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
     return [link(retryHref, 'ghost-button', 'Try again'), link(nextHref, 'primary-button', 'Next exercise')];
   }
 
-  function gradeAgainActions(): HTMLElement[] {
-    return [modelPicker.chip, button('primary-button', 'Grade again', () => void gradeAgain())];
+  // The model chip and Grade again. buttonClass: primary when the grading failed, ghost next to Next exercise.
+  function gradeAgainActions(buttonClass: string): HTMLElement[] {
+    return [modelPicker.chip, button(buttonClass, 'Grade again', () => void gradeAgain())];
+  }
+
+  // Every grading of the attempt but its latest, oldest first.
+  function earlierGradings(): Grading[] {
+    if (attempt === null) return [];
+    return attempt.gradings.slice(0, -1);
   }
 
   function drawEvaluation(): void {
@@ -252,7 +259,7 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
     }
     if (phase === 'failed') {
       const latest = attempt === null ? null : latestGradingOf(attempt);
-      evaluation.failed(latest?.run.errorMessage ?? 'Grading failed.', gradeAgainActions());
+      evaluation.failed(latest?.run.errorMessage ?? 'Grading failed.', gradeAgainActions('primary-button'), earlierGradings());
       return;
     }
     if (phase === 'graded' || phase === 'answering') {
@@ -262,8 +269,9 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
         evaluation.answer(own.title, own.content, actions);
         return;
       }
+      // An AI-graded attempt whose grading is finished: it can be graded again (rule 7).
       const latest = latestGradingOf(attempt as AttemptDetail) as Grading;
-      evaluation.graded(latest, modelAnswerOf(exercise.content), actions);
+      evaluation.graded(latest, modelAnswerOf(exercise.content), [...gradeAgainActions('ghost-button'), ...actions], earlierGradings());
     }
   }
 
@@ -362,13 +370,19 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
   }
 
   async function gradeAgain(): Promise<void> {
-    if (attempt === null) return;
+    if (attempt === null || isSending) return;
+    // A second click before the answer comes back starts nothing.
+    isSending = true;
+    const graded = attempt;
     try {
-      attempt = await regrade(attempt.id, gradingSettingsOf(modelPicker), signal);
+      attempt = await regrade(graded.id, gradingSettingsOf(modelPicker), signal);
     } catch (error) {
-      if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, gradeAgainActions());
+      isSending = false;
+      // No new grading was made, so every grading the attempt has is an earlier one.
+      if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, gradeAgainActions('primary-button'), graded.gradings);
       return;
     }
+    isSending = false;
     await settle();
   }
 

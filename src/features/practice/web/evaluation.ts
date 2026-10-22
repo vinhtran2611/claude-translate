@@ -6,6 +6,7 @@ import { createIcon } from '../../../shared/web/ui.ts';
 import type { Grading } from '../api-types.ts';
 import type { GradingEvent } from './client.ts';
 import { h } from './dom.ts';
+import { formatDateTime } from './format.ts';
 
 interface Evaluation {
   element: HTMLElement;
@@ -17,8 +18,9 @@ interface Evaluation {
   grading(): void;
   apply(event: GradingEvent): void;
   // A succeeded grading. modelAnswer: the exercise's, shown after grading (null when it has none).
-  graded(grading: Grading, modelAnswer: string | null, actions: HTMLElement[]): void;
-  failed(message: string, actions: HTMLElement[]): void;
+  // earlier: the attempt's older gradings, oldest first; shown folded under the latest.
+  graded(grading: Grading, modelAnswer: string | null, actions: HTMLElement[], earlier: Grading[]): void;
+  failed(message: string, actions: HTMLElement[], earlier: Grading[]): void;
   // Stops the clock; the card is not used again.
   dispose(): void;
 }
@@ -93,6 +95,33 @@ export function createEvaluation(labelOf: (modelId: string, effort: string | nul
     renderDocument(feedback, text, true);
   }
 
+  // "Sonnet 5.5 · High · 12.3s": the model that answered, the effort and how long it took.
+  function runLabelOf(grading: Grading): string {
+    const { run } = grading;
+    const modelId = run.servedModelId ?? run.requestedModelId ?? '';
+    return `${labelOf(modelId, run.effort)} · ${seconds(durationOf(grading))}`;
+  }
+
+  // The older gradings, newest first, folded: each one's model, time and feedback (or why it failed).
+  // null when there are none.
+  function earlierGradingsOf(earlier: Grading[]): HTMLElement | null {
+    if (earlier.length === 0) return null;
+    const list = h('details', 'earlier-gradings');
+    list.append(h('summary', 'earlier-toggle', `Earlier gradings (${earlier.length})`));
+    for (const grading of [...earlier].reverse()) {
+      const heading = h('p', 'label', `${formatDateTime(grading.createdAt)} · ${runLabelOf(grading)}`);
+      list.append(heading);
+      if (grading.run.status === 'succeeded') {
+        const feedbackText = h('div', 'eval-text doc-content');
+        renderDocument(feedbackText, grading.feedbackMarkdown ?? '');
+        list.append(feedbackText);
+      } else {
+        list.append(h('p', 'is-error-text', grading.run.errorMessage ?? 'Grading failed.'));
+      }
+    }
+    return list;
+  }
+
   async function copy(copyButton: HTMLButtonElement, label: HTMLElement, copiedText: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(copiedText);
@@ -157,27 +186,30 @@ export function createEvaluation(labelOf: (modelId: string, effort: string | nul
       drawStream();
       drawProgress();
     },
-    graded(grading, modelAnswer, actions) {
+    graded(grading, modelAnswer, actions, earlier) {
       reset('Evaluation');
       const feedbackText = grading.feedbackMarkdown ?? '';
       const { run } = grading;
       const copyLabel = h('span', '', 'Copy');
       const copyButton = Object.assign(h('button', 'ghost-button', createIcon('copy'), copyLabel), { type: 'button' as const });
       copyButton.addEventListener('click', () => void copy(copyButton, copyLabel, feedbackText));
-      const modelId = run.servedModelId ?? run.requestedModelId ?? '';
-      info.textContent = `${labelOf(modelId, run.effort)} · ${seconds(durationOf(grading))}`;
+      info.textContent = runLabelOf(grading);
       setActions([copyButton, ...actions]);
       setThinking(run.thinkingText ?? '', run.thinkingMs, false);
       skeleton.hidden = true;
       renderDocument(feedback, feedbackText);
       body.replaceChildren(thinking, feedback);
       if (modelAnswer !== null) body.append(h('p', 'label', 'Model answer'), h('p', 'read', modelAnswer));
+      const earlierList = earlierGradingsOf(earlier);
+      if (earlierList !== null) body.append(earlierList);
     },
-    failed(message, actions) {
+    failed(message, actions, earlier) {
       reset('Not graded');
       setActions(actions);
       element.setAttribute('role', 'alert');
       body.replaceChildren(h('p', 'is-error-text', message));
+      const earlierList = earlierGradingsOf(earlier);
+      if (earlierList !== null) body.append(earlierList);
     },
     dispose: () => clearInterval(clock),
   };

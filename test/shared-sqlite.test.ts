@@ -13,28 +13,52 @@ function scratchDirectory(): string {
   return mkdtempSync(join(tmpdir(), 'shared-sqlite-'));
 }
 
-test('a database file is renamed once, after a backup, and never over an existing file', () => {
+// A scratch database with one row of text, at a schema version.
+function makeDatabase(database_path: string, text: string, user_version: number): void {
+  const database = new DatabaseSync(database_path);
+  database.exec(`CREATE TABLE notes (text TEXT); PRAGMA user_version = ${user_version}`);
+  database.prepare('INSERT INTO notes VALUES (?)').run(text);
+  database.close();
+}
+
+function noteIn(database_path: string): unknown {
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  const row = { ...database.prepare('SELECT text FROM notes').get() };
+  database.close();
+  return row.text;
+}
+
+test('a database file is renamed once, after a backup; a file already migrated is never replaced', () => {
   const directory = scratchDirectory();
   const old_path = join(directory, 'history.sqlite');
   const new_path = join(directory, 'translate.sqlite');
-  const database = new DatabaseSync(old_path);
-  database.exec('CREATE TABLE notes (text TEXT); INSERT INTO notes VALUES (\'kept\')');
-  database.close();
+  makeDatabase(old_path, 'kept', 4);
 
-  assert.equal(renameDatabaseOnce(old_path, new_path), true);
+  assert.equal(renameDatabaseOnce(old_path, new_path, 5), 'renamed');
   assert.equal(existsSync(old_path), false);
-  const renamed = new DatabaseSync(new_path, { readOnly: true });
-  assert.deepEqual({ ...renamed.prepare('SELECT text FROM notes').get() }, { text: 'kept' });
-  renamed.close();
-  const backup = new DatabaseSync(join(directory, 'backups', 'history-before-rename.sqlite'), { readOnly: true });
-  assert.deepEqual({ ...backup.prepare('SELECT text FROM notes').get() }, { text: 'kept' });
-  backup.close();
+  assert.equal(noteIn(new_path), 'kept');
+  assert.equal(noteIn(join(directory, 'backups', 'history-before-rename.sqlite')), 'kept');
 
-  // Nothing to rename now; and a new file is never replaced by an old one.
-  assert.equal(renameDatabaseOnce(old_path, new_path), false);
-  new DatabaseSync(old_path).close();
-  assert.equal(renameDatabaseOnce(old_path, new_path), false);
-  assert.equal(existsSync(old_path), true);
+  // Nothing to rename now. An old file showing up again never replaces one at the new schema.
+  assert.equal(renameDatabaseOnce(old_path, new_path, 5), 'nothing');
+  const database = new DatabaseSync(new_path);
+  database.exec('PRAGMA user_version = 5');
+  database.close();
+  makeDatabase(old_path, 'stray', 4);
+  assert.equal(renameDatabaseOnce(old_path, new_path, 5), 'nothing');
+  assert.equal(noteIn(new_path), 'kept');
+});
+
+test('an older file left at the new name (before practice-v2) is moved to backups/, then the rename is done', () => {
+  const directory = scratchDirectory();
+  const old_path = join(directory, 'practice-v2.sqlite');
+  const new_path = join(directory, 'practice.sqlite');
+  makeDatabase(old_path, 'current', 2);
+  makeDatabase(new_path, 'very old', 0);
+
+  assert.equal(renameDatabaseOnce(old_path, new_path, 3), 'renamed_after_set_aside');
+  assert.equal(noteIn(new_path), 'current');
+  assert.equal(noteIn(join(directory, 'backups', 'practice-set-aside.sqlite')), 'very old');
 });
 
 // A table that holds only a run, to check the run rules the CHECKs enforce.

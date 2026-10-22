@@ -7,7 +7,7 @@ import {
 } from '../shared/server/model-run.ts';
 import { openDatabase } from '../shared/server/sqlite.ts';
 
-const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 5;
 const HISTORY_LIST_LIMIT = 200;
 const PREVIEW_CHARS = { source: 200, output: 160 };
 const INTERRUPTED_MESSAGE = 'The server stopped during the translation.';

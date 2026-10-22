@@ -13,7 +13,8 @@ import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature }
 import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../shared/server/log.ts';
 import { backupDaily, renameDatabaseOnce } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
-import { openHistoryStore, type HistoryStore } from './history-store.ts';
+import { SCHEMA_VERSION as PRACTICE_SCHEMA_VERSION } from '../features/practice/server/store-schema.ts';
+import { openHistoryStore, SCHEMA_VERSION as TRANSLATE_SCHEMA_VERSION, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { DEFAULT_MODE, isMode, MODE_OPTIONS, PROMPT_PATHS, systemPromptOf } from './translate-prompt.ts';
 
@@ -27,10 +28,21 @@ const DATA_DIRECTORY = join(APP_DIRECTORY, 'data');
 const TRANSLATE_DATABASE_PATH = process.env.TRANSLATE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'translate.sqlite');
 const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'practice.sqlite');
 // The names the files had before the schema version lived only in PRAGMA user_version (the spec's §4 and §5). Each is
-// renamed once, after a backup, when the server uses the default path.
+// renamed once, after a backup, when the server uses the default path. An old data/practice.sqlite from before
+// practice-v2 (never read since) is moved to backups/ first.
 const RENAMED_DATABASES = [
-  { old_path: join(DATA_DIRECTORY, 'history.sqlite'), new_path: TRANSLATE_DATABASE_PATH, is_default: process.env.TRANSLATE_DATABASE_PATH === undefined },
-  { old_path: join(DATA_DIRECTORY, 'practice-v2.sqlite'), new_path: PRACTICE_DATABASE_PATH, is_default: process.env.PRACTICE_DATABASE_PATH === undefined },
+  {
+    old_path: join(DATA_DIRECTORY, 'history.sqlite'),
+    new_path: TRANSLATE_DATABASE_PATH,
+    schema_version: TRANSLATE_SCHEMA_VERSION,
+    is_default: process.env.TRANSLATE_DATABASE_PATH === undefined,
+  },
+  {
+    old_path: join(DATA_DIRECTORY, 'practice-v2.sqlite'),
+    new_path: PRACTICE_DATABASE_PATH,
+    schema_version: PRACTICE_SCHEMA_VERSION,
+    is_default: process.env.PRACTICE_DATABASE_PATH === undefined,
+  },
 ];
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
 const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(TRANSLATE_DATABASE_PATH), 'server.log');
@@ -378,8 +390,11 @@ function translationOptionsResponse(): TranslationOptions {
 // Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
 mkdirSync(dirname(SERVER_LOG_PATH), { recursive: true });
 configureLogFile(SERVER_LOG_PATH);
-for (const { old_path, new_path, is_default } of RENAMED_DATABASES) {
-  if (is_default && renameDatabaseOnce(old_path, new_path)) log('info', null, 'data', `${basename(old_path)} renamed to ${basename(new_path)}`);
+for (const { old_path, new_path, schema_version, is_default } of RENAMED_DATABASES) {
+  if (!is_default) continue;
+  const renamed = renameDatabaseOnce(old_path, new_path, schema_version);
+  if (renamed === 'renamed_after_set_aside') log('warn', null, 'data', `an older ${basename(new_path)} was moved to backups/`);
+  if (renamed !== 'nothing') log('info', null, 'data', `${basename(old_path)} renamed to ${basename(new_path)}`);
 }
 const history_store = openHistoryStore(TRANSLATE_DATABASE_PATH);
 const interrupted_count = history_store.failInterruptedTranslations();

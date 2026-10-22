@@ -44,11 +44,42 @@ export function openDatabase(database_path: string, schema_version: number, migr
   return database;
 }
 
-// Gives a database file its new name, once: only when old_path exists and new_path does not. The file is first copied
-// to backups/<old name>-before-rename.sqlite next to it, so the rename can always be undone. Returns true when it renamed.
-// Opening the file for the copy also finishes a transaction a crash left in its journal, so nothing is left behind.
-export function renameDatabaseOnce(old_path: string, new_path: string): boolean {
-  if (!existsSync(old_path) || existsSync(new_path)) return false;
+function userVersionOf(database_path: string): number {
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  try {
+    const { user_version } = database.prepare('PRAGMA user_version').get() as { user_version: number };
+    return user_version;
+  } finally {
+    database.close();
+  }
+}
+
+// The first free path backups/<name>-<label>.sqlite, backups/<name>-<label>-2.sqlite... next to database_path.
+function freeBackupPath(database_path: string, label: string): string {
+  const name = basename(database_path, extname(database_path));
+  const backups_directory = join(dirname(database_path), 'backups');
+  let candidate = join(backups_directory, `${name}-${label}.sqlite`);
+  for (let count = 2; existsSync(candidate); count++) candidate = join(backups_directory, `${name}-${label}-${count}.sqlite`);
+  return candidate;
+}
+
+// Gives a database file its new name, once: only when old_path exists. The file is first copied to
+// backups/<old name>-before-rename.sqlite next to it, so the rename can always be undone. Opening the file for the copy
+// also finishes a transaction a crash left in its journal, so nothing is left behind.
+// A file already at new_path is the result of an earlier rename when its schema is at least new_schema_version: then
+// nothing is done. An older one is a leftover of an even earlier version of the app; it is moved to
+// backups/<new name>-set-aside.sqlite first, never deleted.
+// Returns what it did, for the log.
+export function renameDatabaseOnce(old_path: string, new_path: string, new_schema_version: number): 'nothing' | 'renamed' | 'renamed_after_set_aside' {
+  if (!existsSync(old_path)) return 'nothing';
+  let is_set_aside = false;
+  if (existsSync(new_path)) {
+    if (userVersionOf(new_path) >= new_schema_version) return 'nothing';
+    const set_aside_path = freeBackupPath(new_path, 'set-aside');
+    mkdirSync(dirname(set_aside_path), { recursive: true });
+    renameSync(new_path, set_aside_path);
+    is_set_aside = true;
+  }
   const backup_path = join(dirname(old_path), 'backups', `${basename(old_path, extname(old_path))}-before-rename.sqlite`);
   mkdirSync(dirname(backup_path), { recursive: true });
   const database = new DatabaseSync(old_path);
@@ -58,7 +89,8 @@ export function renameDatabaseOnce(old_path: string, new_path: string): boolean 
     database.close();
   }
   renameSync(old_path, new_path);
-  return true;
+  if (is_set_aside) return 'renamed_after_set_aside';
+  return 'renamed';
 }
 
 // Runs fn in one transaction: all of its writes land, or none do. A dry run rolls them all back after fn, so fn's result

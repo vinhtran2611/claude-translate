@@ -60,23 +60,23 @@ export async function showImport(page: Page): Promise<void> {
   page.setTitle('Import a file');
 
   let state: State = { kind: 'empty' };
-  let file_label: { name: string; size: number } | null = null;
-  let paste_timer: ReturnType<typeof setTimeout> | undefined;
-  page.signal.addEventListener('abort', () => clearTimeout(paste_timer));
+  let fileLabel: { name: string; size: number } | null = null;
+  let pasteTimer: ReturnType<typeof setTimeout> | undefined;
+  page.signal.addEventListener('abort', () => clearTimeout(pasteTimer));
 
   const paste = Object.assign(h('textarea', 'field'), { id: 'paste-json', rows: 10, spellcheck: false, hidden: true });
-  const paste_label = Object.assign(h('label', 'field-label', 'Paste JSON'), { htmlFor: 'paste-json', hidden: true });
-  const paste_toggle = h('button', 'link-button', 'paste JSON');
+  const pasteLabel = Object.assign(h('label', 'field-label', 'Paste JSON'), { htmlFor: 'paste-json', hidden: true });
+  const pasteToggle = h('button', 'link-button', 'paste JSON');
   const picker = Object.assign(h('input'), { type: 'file', accept: '.json,application/json', hidden: true });
   const zone = h('div', 'drop-zone');
   const result = h('div');
   const submit = Object.assign(h('button', 'primary-button', 'Import'), { type: 'button' as const });
 
   function draw(): void {
-    const choose = button('secondary-button', file_label === null ? 'Choose file' : 'Choose another file', () => picker.click());
-    const label = file_label === null
+    const choose = button('secondary-button', fileLabel === null ? 'Choose file' : 'Choose another file', () => picker.click());
+    const label = fileLabel === null
       ? [h('span', '', 'No file chosen')]
-      : [h('strong', '', file_label.name), h('span', '', ` · ${Math.max(1, Math.round(file_label.size / 1024))} KB`)];
+      : [h('strong', '', fileLabel.name), h('span', '', ` · ${Math.max(1, Math.round(fileLabel.size / 1024))} KB`)];
     zone.replaceChildren(h('div', 'grow', ...label), choose);
 
     if (state.kind === 'empty') result.replaceChildren();
@@ -87,26 +87,26 @@ export async function showImport(page: Page): Promise<void> {
     submit.textContent = state.kind === 'ready' ? `Import ${pluralize(state.file.exercises.length, 'exercise')}` : 'Import';
   }
 
-  function check(text: string, label: typeof file_label): void {
-    file_label = label;
+  function check(text: string, label: typeof fileLabel): void {
+    fileLabel = label;
     const checked = checkProjectFile(text);
     state = checked.file === null ? { kind: 'problems', problems: checked.problems, text } : { kind: 'ready', file: checked.file, text };
     draw();
   }
 
   // Each new file or paste counts; an older read that ends late is dropped.
-  let load_count = 0;
+  let loadCount = 0;
   async function loadFile(chosen: File): Promise<void> {
-    const own = ++load_count;
+    const own = ++loadCount;
     paste.value = '';
     if (chosen.size > MAX_FILE_CHARS) {
-      file_label = { name: chosen.name, size: chosen.size };
+      fileLabel = { name: chosen.name, size: chosen.size };
       state = { kind: 'problems', problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }], text: '' };
       draw();
       return;
     }
     const text = await chosen.text();
-    if (own === load_count && !page.signal.aborted) check(text, { name: chosen.name, size: chosen.size });
+    if (own === loadCount && !page.signal.aborted) check(text, { name: chosen.name, size: chosen.size });
   }
 
   async function send(): Promise<void> {
@@ -128,15 +128,15 @@ export async function showImport(page: Page): Promise<void> {
     if (picker.files?.[0]) void loadFile(picker.files[0]);
     picker.value = '';
   });
-  paste_toggle.addEventListener('click', () => {
+  pasteToggle.addEventListener('click', () => {
     paste.hidden = false;
-    paste_label.hidden = false;
+    pasteLabel.hidden = false;
     paste.focus();
   });
   paste.addEventListener('input', () => {
-    clearTimeout(paste_timer);
-    load_count++;
-    paste_timer = setTimeout(() => check(paste.value, null), PASTE_CHECK_DELAY_MS);
+    clearTimeout(pasteTimer);
+    loadCount++;
+    pasteTimer = setTimeout(() => check(paste.value, null), PASTE_CHECK_DELAY_MS);
   });
   submit.addEventListener('click', () => void send());
 
@@ -154,13 +154,13 @@ export async function showImport(page: Page): Promise<void> {
 
   const guide = Object.assign(link('/features/practice/static/import-format.md', '', 'File format guide'), { target: '_blank', rel: 'noopener' });
   const example = Object.assign(link('/features/practice/static/example-project.json', '', 'Download an example file'), { download: 'example-project.json' });
-  const hint = h('p', 'drop-hint', 'Drop a .json file here, or ', paste_toggle, '. Importing a file again updates its project.');
-  const file_pane = h('div', 'pane', h('div', 'pane-body',
-    h('p', 'field-label', 'Exercises file'), zone, picker, hint, paste_label, paste, result, h('div', 'links', guide, example)));
+  const hint = h('p', 'drop-hint', 'Drop a .json file here, or ', pasteToggle, '. Importing a file again updates its project.');
+  const filePane = h('div', 'pane', h('div', 'pane-body',
+    h('p', 'field-label', 'Exercises file'), zone, picker, hint, pasteLabel, paste, result, h('div', 'links', guide, example)));
 
   const heading = h('div', 'direction-label', h('span', 'direction-role', 'Import'), h('span', 'language-name', 'a project file'));
   const actions = h('div', 'bar-actions', link('#/', 'ghost-button', 'Cancel'), submit);
-  card.append(h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', heading, actions)), h('div', 'panes is-single', file_pane));
+  card.append(h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', heading, actions)), h('div', 'panes is-single', filePane));
 
   const back = link('#/', 'settings-chip', createIcon('back', 'chip-icon'), 'Projects');
   page.main.append(h('nav', 'settings-bar', back), card);

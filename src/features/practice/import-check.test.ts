@@ -138,7 +138,7 @@ test('the rules a field list cannot say (spec 3.9): languages differ, mistakes a
   ]);
 
   const gaps = [{ acceptedAnswers: ['a'] }, { acceptedAnswers: ['b', 'c'] }];
-  const gapFill = (textWithGaps: string, gap_list: object[] = gaps) => fileWith(exercise('f', { type: 'gap_fill', textWithGaps, gaps: gap_list }));
+  const gapFill = (textWithGaps: string, gapList: object[] = gaps) => fileWith(exercise('f', { type: 'gap_fill', textWithGaps, gaps: gapList }));
   assert.equal(problemsOf(gapFill('A {{1}} B {{2}}.')), null);
   assert.deepEqual(problemsOf(gapFill('A {{1}} B {{3}}.')),
     ['Exercise 1 (gap_fill, f): content.textWithGaps: the markers must be {{1}} to {{2}} in order, one per gap (found {{1}} {{3}}).']);

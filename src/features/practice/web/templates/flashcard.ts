@@ -18,8 +18,8 @@ export const flashcard: Template<'flashcard'> = {
     const note = h('p', 'card-note');
     const rate = (): void => {
       const buttons = RATINGS.map((rating) => {
-        const class_name = rating === 'knew' ? 'primary-button' : 'secondary-button';
-        return button(class_name, RATING_LABELS[rating], () => submit({ type: 'flashcard', rating }));
+        const className = rating === 'knew' ? 'primary-button' : 'secondary-button';
+        return button(className, RATING_LABELS[rating], () => submit({ type: 'flashcard', rating }));
       });
       actions.replaceChildren(...buttons);
       note.textContent = 'How well did you know it? The answer is below.';

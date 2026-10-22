@@ -7,9 +7,9 @@ export function tagList(tags: string[]): HTMLElement[] {
 }
 
 // The box an answer is typed in, filling its pane.
-export function answerBox(text: string, is_editable: boolean, is_long: boolean, change: (text: string) => void): HTMLTextAreaElement {
-  const box = Object.assign(h('textarea', is_long ? 'answer-box is-long' : 'answer-box'), {
-    value: text, readOnly: !is_editable, spellcheck: false, autocomplete: 'off', lang: 'en', placeholder: is_editable ? 'Type your answer here…' : '',
+export function answerBox(text: string, isEditable: boolean, isLong: boolean, change: (text: string) => void): HTMLTextAreaElement {
+  const box = Object.assign(h('textarea', isLong ? 'answer-box is-long' : 'answer-box'), {
+    value: text, readOnly: !isEditable, spellcheck: false, autocomplete: 'off', lang: 'en', placeholder: isEditable ? 'Type your answer here…' : '',
   });
   box.setAttribute('aria-label', 'Your answer');
   box.setAttribute('autocorrect', 'off');

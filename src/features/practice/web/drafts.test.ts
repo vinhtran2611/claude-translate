@@ -23,7 +23,7 @@ test('a draft is stored with its schema version, and comes back only for the sam
   assert.equal(stored.exerciseId, 1);
   assert.equal(stored.exerciseVersion, 3);
   assert.match(stored.createdAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
-  assert.deepEqual(readDraft(1, 3, empty), { answer: { type: 'rewrite', text: 'one' }, is_outdated: false });
+  assert.deepEqual(readDraft(1, 3, empty), { answer: { type: 'rewrite', text: 'one' }, isOutdated: false });
   assert.equal(readDraft(1, 3, { type: 'essay', text: '' }), null);
   assert.equal(readDraft(3, 1, empty), null);
   storage.clear();
@@ -31,16 +31,16 @@ test('a draft is stored with its schema version, and comes back only for the sam
 
 test('a draft written for an older version of the exercise says so; writing again keeps its createdAt', () => {
   writeDraft(1, 1, { type: 'essay', text: 'first' });
-  const created_at = JSON.parse(storage.get('practice.draft.1')!).createdAt;
+  const createdAt = JSON.parse(storage.get('practice.draft.1')!).createdAt;
   writeDraft(1, 1, { type: 'essay', text: 'second' });
-  assert.equal(JSON.parse(storage.get('practice.draft.1')!).createdAt, created_at);
-  assert.equal(readDraft(1, 2, { type: 'essay', text: '' })?.is_outdated, true);
+  assert.equal(JSON.parse(storage.get('practice.draft.1')!).createdAt, createdAt);
+  assert.equal(readDraft(1, 2, { type: 'essay', text: '' })?.isOutdated, true);
   storage.clear();
 });
 
 test('a draft saved before drafts had a version is read; an unknown version or broken one is dropped', () => {
   storage.set('practice.draft.4', '{"type":"rewrite","answer":{"chosen":[2]},"saved_at":1760000000000}');
-  assert.deepEqual(readDraft(4, 1, { type: 'choice', chosenOptionIndexes: [] }), { answer: { type: 'choice', chosenOptionIndexes: [2] }, is_outdated: false });
+  assert.deepEqual(readDraft(4, 1, { type: 'choice', chosenOptionIndexes: [] }), { answer: { type: 'choice', chosenOptionIndexes: [2] }, isOutdated: false });
   storage.set('practice.draft.5', '{"schemaVersion":2,"answer":{}}');
   storage.set('practice.draft.6', 'not json');
   storage.set('practice.draft.7', '{"type":"rewrite","answer":{"text":5},"saved_at":1}');

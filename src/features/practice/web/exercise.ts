@@ -26,9 +26,9 @@ const PICKER_STORAGE_KEY = 'practice.grading';
 type Phase = 'answering' | 'grading' | 'graded' | 'failed';
 
 interface Start {
-  exercise_key: string;
+  exerciseKey: string;
   // Drafts in the browser are kept under it.
-  exercise_id: number;
+  exerciseId: number;
   // What the page shows: the exercise as it is now, or as the attempt saw it.
   exercise: ShownExercise<ExerciseType>;
   // The version shown. It is sent with the answer, so a change made meanwhile is caught (409 exercise_changed).
@@ -68,69 +68,69 @@ async function gradingPicker(signal: AbortSignal): Promise<ModelPicker> {
 }
 
 // The picker's choice, as the API names it.
-function gradingSettingsOf(model_picker: ModelPicker): GradingSettings {
-  const { modelId, effort } = model_picker.settings();
+function gradingSettingsOf(modelPicker: ModelPicker): GradingSettings {
+  const { modelId, effort } = modelPicker.settings();
   return { modelId, effort };
 }
 
-export async function showExercise(page: Page, project_key: string, exercise_key: string): Promise<void> {
-  const [view, exercise, model_picker] = await Promise.all([
-    readProjectView(project_key, page.signal),
-    readExercise(project_key, exercise_key, page.signal),
+export async function showExercise(page: Page, projectKey: string, exerciseKey: string): Promise<void> {
+  const [view, exercise, modelPicker] = await Promise.all([
+    readProjectView(projectKey, page.signal),
+    readExercise(projectKey, exerciseKey, page.signal),
     gradingPicker(page.signal),
   ]);
   const shown = { topic: exercise.topic, tags: exercise.tags, content: exercise.content };
-  const start: Start = { exercise_key, exercise_id: exercise.id, exercise: shown, version: exercise.version, attempt: null };
-  openScreen(page, view, start, model_picker);
+  const start: Start = { exerciseKey, exerciseId: exercise.id, exercise: shown, version: exercise.version, attempt: null };
+  openScreen(page, view, start, modelPicker);
 }
 
-export async function showAttempt(page: Page, attempt_id_text: string): Promise<void> {
-  const attempt = await readAttempt(Number(attempt_id_text), page.signal);
-  const [view, model_picker] = await Promise.all([readProjectView(attempt.projectKey, page.signal), gradingPicker(page.signal)]);
+export async function showAttempt(page: Page, attemptIdText: string): Promise<void> {
+  const attempt = await readAttempt(Number(attemptIdText), page.signal);
+  const [view, modelPicker] = await Promise.all([readProjectView(attempt.projectKey, page.signal), gradingPicker(page.signal)]);
   const start: Start = {
-    exercise_key: attempt.exerciseKey,
-    exercise_id: attempt.exerciseId,
+    exerciseKey: attempt.exerciseKey,
+    exerciseId: attempt.exerciseId,
     exercise: attempt.exerciseSnapshot,
     version: attempt.exerciseVersion,
     attempt,
   };
-  openScreen(page, view, start, model_picker);
+  openScreen(page, view, start, modelPicker);
 }
 
-function openScreen(page: Page, first_view: ProjectView, start: Start, model_picker: ModelPicker): void {
+function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicker: ModelPicker): void {
   const { signal } = page;
-  const { exercise_key, exercise_id, exercise, version, attempt: reopened } = start;
+  const { exerciseKey, exerciseId, exercise, version, attempt: reopened } = start;
   const template = templateOf(exercise.content.type);
-  const project_key = first_view.project.key;
-  const is_review = reopened !== null;
+  const projectKey = firstView.project.key;
+  const isReview = reopened !== null;
   // Only a new answer keeps a draft: an old attempt is read-only.
-  const draft_id = is_review ? null : exercise_id;
-  const opened_at = Date.now();
-  let view = first_view;
+  const draftId = isReview ? null : exerciseId;
+  const openedAt = Date.now();
+  let view = firstView;
   let attempt = reopened;
   let phase: Phase = 'answering';
   if (reopened !== null) phase = phaseOf(reopened);
   let answer: Answer = reopened?.answer ?? template.empty(exercise);
   // A draft written for an older version of the exercise is kept, with a note.
-  let is_draft_outdated = false;
-  if (draft_id !== null) {
-    const draft = readDraft(draft_id, version, template.empty(exercise));
+  let isDraftOutdated = false;
+  if (draftId !== null) {
+    const draft = readDraft(draftId, version, template.empty(exercise));
     if (draft !== null) {
       answer = draft.answer;
-      is_draft_outdated = draft.is_outdated;
+      isDraftOutdated = draft.isOutdated;
     }
   }
-  let is_revealed = false;
-  let is_sending = false;
-  let is_following = false;
+  let isRevealed = false;
+  let isSending = false;
+  let isFollowing = false;
   let clock: ReturnType<typeof setInterval> | undefined;
-  let status_line = h('p', 'footer-note');
-  let submit_button: HTMLButtonElement | null = null;
-  let submit_error = h('p', 'form-error');
+  let statusLine = h('p', 'footer-note');
+  let submitButton: HTMLButtonElement | null = null;
+  let submitError = h('p', 'form-error');
 
   let toolbar = createToolbar();
   const card = h('section', 'workspace');
-  const evaluation = createEvaluation(model_picker.labelOf);
+  const evaluation = createEvaluation(modelPicker.labelOf);
   page.main.append(toolbar, card, evaluation.element);
   page.setTitle(labelOf(exercise.content));
   signal.addEventListener('abort', () => { clearInterval(clock); evaluation.dispose(); });
@@ -140,24 +140,24 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     change: (changed) => {
       answer = changed;
       refreshStatus();
-      if (submit_button !== null) submit_button.disabled = !template.isReady(exercise, answer);
-      if (draft_id === null) return;
-      if (template.isBlank(exercise, answer)) clearDraft(draft_id);
-      else writeDraft(draft_id, version, answer);
+      if (submitButton !== null) submitButton.disabled = !template.isReady(exercise, answer);
+      if (draftId === null) return;
+      if (template.isBlank(exercise, answer)) clearDraft(draftId);
+      else writeDraft(draftId, version, answer);
     },
     submit: (chosen) => void send(chosen),
-    reveal: () => { is_revealed = true; drawEvaluation(); },
+    reveal: () => { isRevealed = true; drawEvaluation(); },
   });
 
   function refreshStatus(): void {
-    status_line.replaceChildren(...(template.status?.(makeView(), Date.now() - opened_at) ?? []));
+    statusLine.replaceChildren(...(template.status?.(makeView(), Date.now() - openedAt) ?? []));
   }
 
-  const retryHref = `#/p/${project_key}/x/${exercise_key}`;
+  const retryHref = `#/p/${projectKey}/x/${exerciseKey}`;
 
   // The chips; while answering, also Delete for this exercise.
   function createToolbar(): HTMLElement {
-    if (is_review) return projectToolbar(view);
+    if (isReview) return projectToolbar(view);
     return projectToolbar(view, button('ghost-button', 'Delete exercise', () => void deleteThisExercise()));
   }
 
@@ -165,7 +165,7 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   async function deleteThisExercise(): Promise<void> {
     if (!confirm('Delete this exercise? This cannot be undone.')) return;
     try {
-      await deleteExercise(project_key, exercise_key, false, signal);
+      await deleteExercise(projectKey, exerciseKey, false, signal);
     } catch (error) {
       if (!(error instanceof ApiError) || error.code !== 'has_attempts') {
         if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(error)}`);
@@ -173,14 +173,14 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
       }
       if (!confirm('This exercise has answers you gave. Delete them too?')) return;
       try {
-        await deleteExercise(project_key, exercise_key, true, signal);
-      } catch (second_error) {
-        if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(second_error)}`);
+        await deleteExercise(projectKey, exerciseKey, true, signal);
+      } catch (secondError) {
+        if (!signal.aborted) alert(`Could not delete the exercise: ${errorText(secondError)}`);
         return;
       }
     }
-    if (draft_id !== null) clearDraft(draft_id);
-    location.hash = `#/p/${project_key}`;
+    if (draftId !== null) clearDraft(draftId);
+    location.hash = `#/p/${projectKey}`;
   }
 
   // The buttons in the answer side's header.
@@ -190,44 +190,44 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
       return [submitted, link(retryHref, 'primary-button', 'Try again')];
     }
     if (phase !== 'answering' || template.submitLabel === undefined) return [];
-    submit_button = Object.assign(h('button', 'primary-button', template.submitLabel, h('span', 'shortcut-hint', '⌘↵')), { type: 'button' as const });
-    submit_button.addEventListener('click', () => void send(answer));
-    submit_button.disabled = !template.isReady(exercise, answer);
-    return [model_picker.chip, submit_button];
+    submitButton = Object.assign(h('button', 'primary-button', template.submitLabel, h('span', 'shortcut-hint', '⌘↵')), { type: 'button' as const });
+    submitButton.addEventListener('click', () => void send(answer));
+    submitButton.disabled = !template.isReady(exercise, answer);
+    return [modelPicker.chip, submitButton];
   }
 
   function createFooter(): HTMLElement {
-    status_line = h('p', 'footer-note');
-    submit_error = Object.assign(h('p', 'form-error'), { role: 'alert' });
-    if (phase === 'answering' && is_draft_outdated) {
-      submit_error.textContent = 'This exercise changed after you saved this draft. Check your answer before you submit it.';
+    statusLine = h('p', 'footer-note');
+    submitError = Object.assign(h('p', 'form-error'), { role: 'alert' });
+    if (phase === 'answering' && isDraftOutdated) {
+      submitError.textContent = 'This exercise changed after you saved this draft. Check your answer before you submit it.';
     }
     refreshStatus();
-    return h('div', 'pane-footer', status_line, submit_error);
+    return h('div', 'pane-footer', statusLine, submitError);
   }
 
   function draw(): void {
     clearInterval(clock);
-    submit_button = null;
+    submitButton = null;
     const view = makeView();
     const problem = template.problem(view);
-    const is_single = template.single === true;
-    const answer_content = template.answer?.(view);
+    const isSingle = template.single === true;
+    const answerContent = template.answer?.(view);
     const actions = createAnswerActions();
-    const problem_label = h('div', 'direction-label', h('span', 'direction-role', 'Problem'), h('span', 'language-name', problem.kind));
-    const problem_pane = h('div', 'pane is-problem', h('div', 'pane-body', ...problem.content));
-    if (is_single) {
-      problem_pane.append(createFooter());
+    const problemLabel = h('div', 'direction-label', h('span', 'direction-role', 'Problem'), h('span', 'language-name', problem.kind));
+    const problemPane = h('div', 'pane is-problem', h('div', 'pane-body', ...problem.content));
+    if (isSingle) {
+      problemPane.append(createFooter());
       card.replaceChildren(
-        h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', problem_label, h('div', 'bar-actions', ...actions))),
-        h('div', 'panes is-single', problem_pane));
+        h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', problemLabel, h('div', 'bar-actions', ...actions))),
+        h('div', 'panes is-single', problemPane));
     } else {
-      const answer_pane = h('div', 'pane', ...answer_content!, createFooter());
+      const answerPane = h('div', 'pane', ...answerContent!, createFooter());
       card.replaceChildren(
         h('div', 'direction-bar',
-          h('div', 'bar-half is-tinted', problem_label),
+          h('div', 'bar-half is-tinted', problemLabel),
           h('div', 'bar-half is-actions', h('div', 'direction-label', h('span', 'language-name', 'Your answer')), h('div', 'bar-actions', ...actions))),
-        h('div', 'panes', problem_pane, answer_pane));
+        h('div', 'panes', problemPane, answerPane));
     }
     drawEvaluation();
     if (phase === 'answering' && template.timed === true) clock = setInterval(refreshStatus, 1_000);
@@ -235,18 +235,18 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
 
   // The buttons in the Evaluation's header once it is final.
   function createEvaluationActions(): HTMLElement[] {
-    if (is_review) return [];
-    const next = view.exercises.find((candidate) => !candidate.isDone && candidate.key !== exercise_key);
-    const next_href = next === undefined ? `#/p/${project_key}` : `#/p/${project_key}/x/${next.key}`;
-    return [link(retryHref, 'ghost-button', 'Try again'), link(next_href, 'primary-button', 'Next exercise')];
+    if (isReview) return [];
+    const next = view.exercises.find((candidate) => !candidate.isDone && candidate.key !== exerciseKey);
+    const nextHref = next === undefined ? `#/p/${projectKey}` : `#/p/${projectKey}/x/${next.key}`;
+    return [link(retryHref, 'ghost-button', 'Try again'), link(nextHref, 'primary-button', 'Next exercise')];
   }
 
   function gradeAgainActions(): HTMLElement[] {
-    return [model_picker.chip, button('primary-button', 'Grade again', () => void gradeAgain())];
+    return [modelPicker.chip, button('primary-button', 'Grade again', () => void gradeAgain())];
   }
 
   function drawEvaluation(): void {
-    if (phase === 'answering' && !is_revealed) {
+    if (phase === 'answering' && !isRevealed) {
       evaluation.empty();
       return;
     }
@@ -281,14 +281,14 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   // The sidebar and the toolbar follow what was done. A failed read keeps what the page already has.
   async function refreshDetail(): Promise<void> {
     try {
-      view = await readProjectView(project_key, signal);
+      view = await readProjectView(projectKey, signal);
     } catch {
       return;
     }
     if (signal.aborted) return;
     // The sidebar marks the attempt once there is one, the draft before.
-    if (attempt === null) showSide(view, { draft_exercise_id: draft_id ?? undefined });
-    else showSide(view, { attempt_id: attempt.id });
+    if (attempt === null) showSide(view, { draftExerciseId: draftId ?? undefined });
+    else showSide(view, { attemptId: attempt.id });
     const fresh = createToolbar();
     toolbar.replaceWith(fresh);
     toolbar = fresh;
@@ -296,8 +296,8 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
 
   // Follows the grading as it streams in, and again if the stream breaks while it is still going; then shows how it ended.
   async function follow(): Promise<void> {
-    if (is_following) return;
-    is_following = true;
+    if (isFollowing) return;
+    isFollowing = true;
     try {
       while (attempt !== null && phaseOf(attempt) === 'grading') {
         await watchGrading(attempt.id, signal, evaluation.apply).catch((error: unknown) => { if (signal.aborted) throw error; });
@@ -309,13 +309,13 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     } catch {
       return;
     } finally {
-      is_following = false;
+      isFollowing = false;
     }
     if (attempt === null) return;
     phase = phaseOf(attempt);
     await refreshDetail();
     if (signal.aborted) return;
-    if (is_review) draw();
+    if (isReview) draw();
     else showPhase();
   }
 
@@ -334,28 +334,28 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
     if (!signal.aborted) showPhase();
   }
 
-  async function send(final_answer: Answer): Promise<void> {
-    if (is_sending) return;
-    is_sending = true;
-    answer = final_answer;
-    if (submit_button !== null) submit_button.disabled = true;
+  async function send(finalAnswer: Answer): Promise<void> {
+    if (isSending) return;
+    isSending = true;
+    answer = finalAnswer;
+    if (submitButton !== null) submitButton.disabled = true;
     let saved: AttemptDetail;
     try {
-      const target = { projectKey: project_key, key: exercise_key, version };
-      saved = await submitAttempt(target, answer, Date.now() - opened_at, gradingSettingsOf(model_picker), signal);
+      const target = { projectKey, key: exerciseKey, version };
+      saved = await submitAttempt(target, answer, Date.now() - openedAt, gradingSettingsOf(modelPicker), signal);
     } catch (error) {
-      is_sending = false;
+      isSending = false;
       if (signal.aborted) return;
-      if (submit_button !== null) submit_button.disabled = false;
+      if (submitButton !== null) submitButton.disabled = false;
       if (error instanceof ApiError && error.code === 'exercise_changed') {
-        submit_error.textContent = 'This exercise was changed while you answered. Your answer is kept as a draft: reload the page to see the new version.';
+        submitError.textContent = 'This exercise was changed while you answered. Your answer is kept as a draft: reload the page to see the new version.';
       } else {
-        submit_error.textContent = `Could not submit: ${errorText(error)} Your answer is still here.`;
+        submitError.textContent = `Could not submit: ${errorText(error)} Your answer is still here.`;
       }
       return;
     }
     attempt = saved;
-    if (draft_id !== null) clearDraft(draft_id);
+    if (draftId !== null) clearDraft(draftId);
     // A reload now shows this attempt, not an empty exercise.
     history.replaceState(null, '', `#/a/${saved.id}`);
     await settle();
@@ -364,7 +364,7 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
   async function gradeAgain(): Promise<void> {
     if (attempt === null) return;
     try {
-      attempt = await regrade(attempt.id, gradingSettingsOf(model_picker), signal);
+      attempt = await regrade(attempt.id, gradingSettingsOf(modelPicker), signal);
     } catch (error) {
       if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, gradeAgainActions());
       return;
@@ -374,13 +374,13 @@ function openScreen(page: Page, first_view: ProjectView, start: Start, model_pic
 
   // ⌘↵ submits, as it translates in Claude Translate.
   document.addEventListener('keydown', (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submit_button !== null && !submit_button.disabled) {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submitButton !== null && !submitButton.disabled) {
       event.preventDefault();
-      submit_button.click();
+      submitButton.click();
     }
   }, { signal });
 
-  showSide(view, { attempt_id: reopened?.id, draft_exercise_id: draft_id ?? undefined });
+  showSide(view, { attemptId: reopened?.id, draftExerciseId: draftId ?? undefined });
   draw();
   if (phase === 'grading') {
     evaluation.grading();

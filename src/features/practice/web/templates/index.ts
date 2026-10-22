@@ -10,12 +10,12 @@ import { essay } from './write.ts';
 
 // One template draws all three text types; it switches on content.type. TypeScript cannot see that a template for the
 // three fits each one (a callback in View makes Template invariant), so it is said here once.
-const text_template = rewrite as unknown as Template<'rewrite'> & Template<'translation'> & Template<'correction'>;
+const textTemplate = rewrite as unknown as Template<'rewrite'> & Template<'translation'> & Template<'correction'>;
 
 const TEMPLATES = {
-  rewrite: text_template,
-  translation: text_template,
-  correction: text_template,
+  rewrite: textTemplate,
+  translation: textTemplate,
+  correction: textTemplate,
   essay,
   choice,
   gap_fill: fill,

@@ -46,7 +46,7 @@ export interface Template<Type extends ExerciseType> {
   // The inside of the answer pane; the shell adds its header and its footer.
   answer?(view: View<Type>): HTMLElement[];
   // The line beside the buttons: a word count, a clock.
-  status?(view: View<Type>, elapsed_ms: number): (Node | string)[];
+  status?(view: View<Type>, elapsedMs: number): (Node | string)[];
   // The Evaluation card's title and inside, for a type the AI does not grade (a flashcard's Answer). Without it the AI's feedback is shown.
   evaluation?(view: View<Type>): { title: string; content: HTMLElement[] };
 }

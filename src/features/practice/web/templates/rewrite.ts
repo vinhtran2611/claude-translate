@@ -35,9 +35,9 @@ export const rewrite: Template<TextType> = {
   isReady: (_exercise, answer) => answer.text.trim() !== '',
 
   problem({ exercise: { content, tags } }) {
-    const is_long = content.length === 'multi_paragraph';
+    const isLong = content.length === 'multi_paragraph';
     let label = sourceLabelOf(content);
-    if (is_long) label = `${label} · ${countWords(content.sourceText)} words`;
+    if (isLong) label = `${label} · ${countWords(content.sourceText)} words`;
     return {
       kind: `${VERBS[content.type]} ${NOUNS[content.length]}`,
       content: [
@@ -50,8 +50,8 @@ export const rewrite: Template<TextType> = {
   },
 
   answer({ exercise: { content }, answer, editable, change }) {
-    const is_long = content.length === 'multi_paragraph';
-    return [answerBox(answer.text, editable, is_long, (text) => change({ type: content.type, text }))];
+    const isLong = content.length === 'multi_paragraph';
+    return [answerBox(answer.text, editable, isLong, (text) => change({ type: content.type, text }))];
   },
 
   status({ exercise: { content }, answer }) {

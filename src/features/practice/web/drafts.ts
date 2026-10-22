@@ -1,7 +1,7 @@
 // Unsent answers, kept in the browser so a closed tab never loses what you wrote: one Draft per exercise under the key
 // practice.draft.{exerciseId} (docs/data-model-proposal.md §3.7), removed once the server has the answer. Another tab may
 // change them at any time, so every read checks what it gets. A draft with an unknown schemaVersion is dropped; a draft
-// saved before Drafts had one ({ type, answer, saved_at }) is still read.
+// saved before Drafts had one ({ type, answer, savedAt }) is still read.
 import type { Timestamp } from '../../../shared/api-types.ts';
 import { readStored, removeStored, writeStored } from '../../../shared/web/ui.ts';
 import type { Answer } from '../api-types.ts';
@@ -26,12 +26,12 @@ interface StoredDraft {
   exerciseVersion: number | null;
   // As stored: a Draft's answer, or an answer in the shape of format 3 (format-3.ts).
   answer: unknown;
-  is_old_shape: boolean;
+  isOldShape: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-const keyOf = (exercise_id: number): string => `${PREFIX}${exercise_id}`;
+const keyOf = (exerciseId: number): string => `${PREFIX}${exerciseId}`;
 
 // Whether `value` has the shape of `model`: an object with the same keys, each holding the same kind of value.
 function sameShape(value: unknown, model: object): boolean {
@@ -41,9 +41,9 @@ function sameShape(value: unknown, model: object): boolean {
   if (Object.keys(fields).length !== entries.length) return false;
   return entries.every(([key, expected]) => {
     if (!Object.hasOwn(fields, key)) return false;
-    const is_same_kind = typeof fields[key] === typeof expected;
-    const is_same_array = Array.isArray(fields[key]) === Array.isArray(expected);
-    return is_same_kind && is_same_array;
+    const isSameKind = typeof fields[key] === typeof expected;
+    const isSameArray = Array.isArray(fields[key]) === Array.isArray(expected);
+    return isSameKind && isSameArray;
   });
 }
 
@@ -63,20 +63,20 @@ function readStoredDraft(key: string): StoredDraft | null {
   if (stored === null) return null;
   if (stored.schemaVersion === 1) {
     if (typeof stored.updatedAt !== 'string' || typeof stored.createdAt !== 'string') return null;
-    let exercise_version: number | null = null;
-    if (typeof stored.exerciseVersion === 'number') exercise_version = stored.exerciseVersion;
-    return { exerciseVersion: exercise_version, answer: stored.answer, is_old_shape: false, createdAt: stored.createdAt, updatedAt: stored.updatedAt };
+    let exerciseVersion: number | null = null;
+    if (typeof stored.exerciseVersion === 'number') exerciseVersion = stored.exerciseVersion;
+    return { exerciseVersion, answer: stored.answer, isOldShape: false, createdAt: stored.createdAt, updatedAt: stored.updatedAt };
   }
-  const is_old_shape = stored.schemaVersion === undefined && typeof stored.saved_at === 'number';
-  if (!is_old_shape) return null;
-  const saved_at = new Date(stored.saved_at as number).toISOString();
-  return { exerciseVersion: null, answer: stored.answer, is_old_shape: true, createdAt: saved_at, updatedAt: saved_at };
+  const isOldShape = stored.schemaVersion === undefined && typeof stored.saved_at === 'number';
+  if (!isOldShape) return null;
+  const savedAt = new Date(stored.saved_at as number).toISOString();
+  return { exerciseVersion: null, answer: stored.answer, isOldShape: true, createdAt: savedAt, updatedAt: savedAt };
 }
 
 // The draft of an exercise, if it fits `empty` (an empty answer of the exercise's type); null when there is none or it
-// does not fit. is_outdated: the exercise changed after the draft was written.
-export function readDraft(exercise_id: number, exercise_version: number, empty: Answer): { answer: Answer; is_outdated: boolean } | null {
-  const key = keyOf(exercise_id);
+// does not fit. isOutdated: the exercise changed after the draft was written.
+export function readDraft(exerciseId: number, exerciseVersion: number, empty: Answer): { answer: Answer; isOutdated: boolean } | null {
+  const key = keyOf(exerciseId);
   const stored = readStoredDraft(key);
   if (stored === null) {
     // Something that is not a draft we can read (an unknown schemaVersion, broken JSON) is dropped.
@@ -84,43 +84,43 @@ export function readDraft(exercise_id: number, exercise_version: number, empty: 
     return null;
   }
   let answer = stored.answer;
-  if (stored.is_old_shape) answer = answerFromFormat3(empty.type, stored.answer);
+  if (stored.isOldShape) answer = answerFromFormat3(empty.type, stored.answer);
   if (!sameShape(answer, empty)) return null;
   if ((answer as Answer).type !== empty.type) return null;
-  const is_outdated = stored.exerciseVersion !== null && stored.exerciseVersion !== exercise_version;
-  return { answer: answer as Answer, is_outdated };
+  const isOutdated = stored.exerciseVersion !== null && stored.exerciseVersion !== exerciseVersion;
+  return { answer: answer as Answer, isOutdated };
 }
 
 // Keeps when the draft was first written.
-export function writeDraft(exercise_id: number, exercise_version: number, answer: Answer): void {
+export function writeDraft(exerciseId: number, exerciseVersion: number, answer: Answer): void {
   const now = new Date().toISOString();
-  const earlier = readStoredDraft(keyOf(exercise_id));
+  const earlier = readStoredDraft(keyOf(exerciseId));
   const draft: Draft = {
     schemaVersion: 1,
-    exerciseId: exercise_id,
-    exerciseVersion: exercise_version,
+    exerciseId,
+    exerciseVersion,
     answer,
     createdAt: earlier?.createdAt ?? now,
     updatedAt: now,
   };
-  writeStored(keyOf(exercise_id), JSON.stringify(draft));
+  writeStored(keyOf(exerciseId), JSON.stringify(draft));
 }
 
-export function clearDraft(exercise_id: number): void {
-  removeStored(keyOf(exercise_id));
+export function clearDraft(exerciseId: number): void {
+  removeStored(keyOf(exerciseId));
 }
 
 // The drafts of these exercises, newest first.
-export function listDrafts(exercise_ids: Set<number>): { exerciseId: number; updatedAt: Timestamp }[] {
+export function listDrafts(exerciseIds: Set<number>): { exerciseId: number; updatedAt: Timestamp }[] {
   const drafts: { exerciseId: number; updatedAt: Timestamp }[] = [];
   try {
     for (let index = 0; index < localStorage.length; index++) {
       const match = KEY_PATTERN.exec(localStorage.key(index) ?? '');
       if (match === null) continue;
-      const exercise_id = Number(match[1]);
-      if (!exercise_ids.has(exercise_id)) continue;
+      const exerciseId = Number(match[1]);
+      if (!exerciseIds.has(exerciseId)) continue;
       const stored = readStoredDraft(match[0]);
-      if (stored !== null) drafts.push({ exerciseId: exercise_id, updatedAt: stored.updatedAt });
+      if (stored !== null) drafts.push({ exerciseId, updatedAt: stored.updatedAt });
     }
   } catch {
     // Storage is blocked: there are no drafts to list.

@@ -29,12 +29,12 @@ function checkText(max: number, value: Record<string, unknown>, type: TextAnswer
 }
 
 // Indexes of options: whole numbers in range, no repeats. With one correct option, exactly one (rule 4).
-function checkChosen(option_count: number, correct_count: number, chosen: unknown): number[] | null {
+function checkChosen(optionCount: number, correctCount: number, chosen: unknown): number[] | null {
   if (!Array.isArray(chosen) || chosen.length === 0) return null;
   if (new Set(chosen).size !== chosen.length) return null;
-  const is_each_an_option = chosen.every((index) => Number.isInteger(index) && index >= 0 && index < option_count);
-  if (!is_each_an_option) return null;
-  if (correct_count === 1 && chosen.length !== 1) return null;
+  const isEachAnOption = chosen.every((index) => Number.isInteger(index) && index >= 0 && index < optionCount);
+  if (!isEachAnOption) return null;
+  if (correctCount === 1 && chosen.length !== 1) return null;
   return [...chosen].sort((a, b) => a - b);
 }
 
@@ -50,24 +50,24 @@ export function checkAnswer(content: ExerciseContent, value: unknown): AnswerChe
     case 'essay':
       return checkText(MAX_ESSAY_CHARS, value, content.type);
     case 'choice': {
-      const correct_count = content.options.filter((option) => option.isCorrect).length;
-      const chosen = checkChosen(content.options.length, correct_count, value.chosenOptionIndexes);
+      const correctCount = content.options.filter((option) => option.isCorrect).length;
+      const chosen = checkChosen(content.options.length, correctCount, value.chosenOptionIndexes);
       if (chosen === null) return reject('answer.chosenOptionIndexes must list the picked options, each once (one when one option is correct)');
       return { answer: { type: 'choice', chosenOptionIndexes: chosen }, problem: null };
     }
     case 'gap_fill': {
       const { gaps } = content;
       const typed = value.gapAnswers;
-      const is_valid = Array.isArray(typed) && typed.length === gaps.length
+      const isValid = Array.isArray(typed) && typed.length === gaps.length
         && typed.every((gap) => typeof gap === 'string' && gap.length <= MAX_GAP_CHARS);
-      if (!is_valid) return reject(`answer.gapAnswers must be ${gaps.length} texts of at most ${MAX_GAP_CHARS} characters`);
-      const gap_answers = typed.map((gap: string) => gap.trim().normalize('NFC'));
-      return { answer: { type: 'gap_fill', gapAnswers: gap_answers }, problem: null };
+      if (!isValid) return reject(`answer.gapAnswers must be ${gaps.length} texts of at most ${MAX_GAP_CHARS} characters`);
+      const gapAnswers = typed.map((gap: string) => gap.trim().normalize('NFC'));
+      return { answer: { type: 'gap_fill', gapAnswers }, problem: null };
     }
     case 'flashcard': {
       const rating = value.rating;
-      const is_rating = typeof rating === 'string' && Object.hasOwn(RATING_LABELS, rating);
-      if (!is_rating) return reject('answer.rating must be didnt_know, almost or knew');
+      const isRating = typeof rating === 'string' && Object.hasOwn(RATING_LABELS, rating);
+      if (!isRating) return reject('answer.rating must be didnt_know, almost or knew');
       return { answer: { type: 'flashcard', rating: rating as keyof typeof RATING_LABELS }, problem: null };
     }
   }

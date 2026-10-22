@@ -17,8 +17,8 @@ test('templates know an empty answer from one worth keeping, and when Submit is 
   const none = { type: 'choice' as const, chosenOptionIndexes: [] };
   const one = { type: 'choice' as const, chosenOptionIndexes: [1] };
   assert.deepEqual([choice.isReady({} as never, none), choice.isReady({} as never, one)], [false, true]);
-  const gap_content = { type: 'gap_fill' as const, instruction: null, textWithGaps: '{{1}} {{2}}', gaps: [{ acceptedAnswers: ['a'], hint: null, explanationMarkdown: null }, { acceptedAnswers: ['b'], hint: null, explanationMarkdown: null }] };
-  const gaps = { topic: null, tags: [], content: gap_content };
+  const gapContent = { type: 'gap_fill' as const, instruction: null, textWithGaps: '{{1}} {{2}}', gaps: [{ acceptedAnswers: ['a'], hint: null, explanationMarkdown: null }, { acceptedAnswers: ['b'], hint: null, explanationMarkdown: null }] };
+  const gaps = { topic: null, tags: [], content: gapContent };
   assert.deepEqual(fill.empty(gaps), { type: 'gap_fill', gapAnswers: ['', ''] });
   const blank = { type: 'gap_fill' as const, gapAnswers: ['', ' '] };
   const typed = { type: 'gap_fill' as const, gapAnswers: ['', 'x'] };

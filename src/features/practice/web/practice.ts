@@ -30,7 +30,7 @@ const ROUTES: { pattern: RegExp; view: View }[] = [
 
 const main = requiredElement('#main', HTMLElement);
 let navigation: AbortController | null = null;
-let is_first_page = true;
+let isFirstPage = true;
 
 function showMessage(title: string, ...children: (Node | string)[]): void {
   hideSide();
@@ -51,8 +51,8 @@ async function navigate(): Promise<void> {
   try {
     const params = route.match!.slice(1);
     await route.view(page, ...params);
-    if (!own.signal.aborted && !is_first_page) main.focus({ preventScroll: true });
-    is_first_page = false;
+    if (!own.signal.aborted && !isFirstPage) main.focus({ preventScroll: true });
+    isFirstPage = false;
   } catch (error) {
     if (own.signal.aborted) return;
     if (error instanceof ApiError && error.status === 404) {

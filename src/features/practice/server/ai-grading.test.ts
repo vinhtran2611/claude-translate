@@ -46,8 +46,8 @@ const FLASHCARD: ExerciseContent = { type: 'flashcard', front: 'mitigate', back:
 
 test('only a flashcard is not graded by the AI', () => {
   const types = ['rewrite', 'translation', 'correction', 'essay', 'choice', 'gap_fill', 'flashcard'] as const;
-  const graded_by_ai = types.map((type) => isGradedByAi(type));
-  assert.deepEqual(graded_by_ai, [true, true, true, true, true, true, false]);
+  const gradedByAi = types.map((type) => isGradedByAi(type));
+  assert.deepEqual(gradedByAi, [true, true, true, true, true, true, false]);
 });
 
 test('a text answer is checked against its exercise, and must name its type', () => {
@@ -122,5 +122,5 @@ test('one common prompt serves every type, and names the fields the exercise JSO
   assert.equal(prompt, `${readFileSync(new URL('../prompts/grade.md', import.meta.url), 'utf8').trim()}\n`);
   for (const section of ['<role>', '<context>', '<input_handling>', '<how_to_evaluate>', '<output_structure>']) assert.ok(prompt.includes(section), section);
   for (const field of ['sourceText', 'plantedMistakes', 'modelAnswer', 'isCorrect', 'acceptedAnswers', 'minWords']) assert.ok(prompt.includes(field), field);
-  for (const old_name of ['source_lang', 'min_words', 'correct: true', 'content.reference']) assert.ok(!prompt.includes(old_name), old_name);
+  for (const oldName of ['source_lang', 'min_words', 'correct: true', 'content.reference']) assert.ok(!prompt.includes(oldName), oldName);
 });

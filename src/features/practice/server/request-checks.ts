@@ -34,17 +34,17 @@ export function keyTaken(res: ServerResponse, message: string): void {
 
 // The body as an object, or null with the error already sent. fields: the ones it may have; any other is a problem.
 export async function readObjectBody(
-  req: IncomingMessage, res: ServerResponse, max_bytes: number, fields?: string[],
+  req: IncomingMessage, res: ServerResponse, maxBytes: number, fields?: string[],
 ): Promise<Record<string, unknown> | null> {
-  const body = await readRequestJson(req, res, max_bytes);
+  const body = await readRequestJson(req, res, maxBytes);
   if (body === undefined) return null;
   if (!isObject(body)) {
     sendProblems(res, [{ path: '', code: 'wrong_type', message: 'The body must be a JSON object.' }]);
     return null;
   }
-  const unknown_fields = fields === undefined ? [] : Object.keys(body).filter((key) => !fields.includes(key));
-  if (unknown_fields.length === 0) return body;
-  const problems = unknown_fields.map((key) => ({ path: `/${key}`, code: 'unknown_field', message: `${key} is not a known field.` }));
+  const unknownFields = fields === undefined ? [] : Object.keys(body).filter((key) => !fields.includes(key));
+  if (unknownFields.length === 0) return body;
+  const problems = unknownFields.map((key) => ({ path: `/${key}`, code: 'unknown_field', message: `${key} is not a known field.` }));
   sendProblems(res, problems);
   return null;
 }
@@ -81,9 +81,9 @@ export function choiceParam<Value extends string>(query: URLSearchParams, name: 
 // Every query parameter the route does not take, as a problem: an agent's typo is never silently ignored.
 export function unknownParameterProblems(query: URLSearchParams, parameters: string[]): Problem[] {
   const names = new Set(query.keys());
-  const unknown_names = [...names].filter((name) => !parameters.includes(name));
+  const unknownNames = [...names].filter((name) => !parameters.includes(name));
   const takes = parameters.length > 0 ? ` (it takes ${parameters.join(', ')})` : '';
-  return unknown_names.map((name) => ({ path: `?${name}`, code: 'unknown_parameter', message: `${name} is not a parameter here${takes}.` }));
+  return unknownNames.map((name) => ({ path: `?${name}`, code: 'unknown_parameter', message: `${name} is not a parameter here${takes}.` }));
 }
 
 // ?name as a whole number from min to max; null when it is left out. A problem otherwise.

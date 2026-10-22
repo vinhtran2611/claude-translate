@@ -57,13 +57,13 @@ function objectSchema(fields: Fields, extra: Record<string, unknown> = {}): Reco
 
 // One exercise type as a schema: its own content fields, with content.type fixed to it.
 function exerciseTypeSchema(type: (typeof EXERCISE_TYPES)[number]): Record<string, unknown> {
-  const content_schema = objectSchema(CONTENT_FIELDS[type]);
-  const content_properties = content_schema.properties as Record<string, unknown>;
+  const contentSchema = objectSchema(CONTENT_FIELDS[type]);
+  const contentProperties = contentSchema.properties as Record<string, unknown>;
   const content = {
-    ...content_schema,
-    required: ['type', ...(content_schema.required as string[])],
+    ...contentSchema,
+    required: ['type', ...(contentSchema.required as string[])],
     // type comes first, as people write it.
-    properties: { type: { const: type }, ...content_properties },
+    properties: { type: { const: type }, ...contentProperties },
   };
   const schema = objectSchema(exerciseFields(true), { description: TYPE_RULES[type] });
   const properties = schema.properties as Record<string, unknown>;

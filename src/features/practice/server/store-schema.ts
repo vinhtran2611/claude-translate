@@ -121,22 +121,22 @@ const SCHEMA_2_TABLES = [
 
 // A key made from a name: "Day 1 - 19/10/2026" -> "day-1-19-10-2026". When it is taken (or the name has no letters
 // or digits), "-{id}" is added, so the key is unique without asking anyone.
-export function keyFromName(name: string, id: number, is_taken: (key: string) => boolean): string {
-  const ascii_name = name
+export function keyFromName(name: string, id: number, isTaken: (key: string) => boolean): string {
+  const asciiName = name
     .toLowerCase()
     .replaceAll('đ', 'd')
     // Splits each accented letter into the letter and its accents, then drops the accents: "ế" -> "e".
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '');
-  const base = ascii_name
+  const base = asciiName
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+/, '')
     .slice(0, 64)
     .replace(/-+$/, '');
-  if (base !== '' && !is_taken(base)) return base;
+  if (base !== '' && !isTaken(base)) return base;
   const suffix = `-${id}`;
-  const shortened_base = (base || 'project').slice(0, 64 - suffix.length).replace(/-+$/, '');
-  return `${shortened_base}${suffix}`;
+  const shortenedBase = (base || 'project').slice(0, 64 - suffix.length).replace(/-+$/, '');
+  return `${shortenedBase}${suffix}`;
 }
 
 function rowCount(database: DatabaseSync, table: string): number {
@@ -155,17 +155,17 @@ export function migrateFrom1(database: DatabaseSync): void {
   for (const statement of SCHEMA_2_TABLES) database.exec(statement);
 
   // Projects get a key made from their name.
-  const insert_project = database.prepare(`
+  const insertProject = database.prepare(`
     INSERT INTO projects (id, key, name, description, created_at, updated_at, last_activity_at)
     VALUES ($id, $key, $name, $description, $created_at, $created_at, $last_activity_at)`);
-  const old_projects = database
+  const oldProjects = database
     .prepare('SELECT id, name, description, created_at, last_activity_at FROM projects_v1 ORDER BY id')
     .all() as Record<string, string | number | null>[];
   const keys = new Set<string>();
-  for (const row of old_projects) {
+  for (const row of oldProjects) {
     const key = keyFromName(row.name as string, row.id as number, (candidate) => keys.has(candidate));
     keys.add(key);
-    insert_project.run({ ...row, key });
+    insertProject.run({ ...row, key });
   }
 
   // Exercises start at version 1, created and updated when their project was created.
@@ -186,9 +186,9 @@ export function migrateFrom1(database: DatabaseSync): void {
     FROM attempts_v1 AS attempt JOIN exercises_v1 AS exercise ON exercise.id = attempt.exercise_id`);
 
   for (const table of TABLES) {
-    const old_count = rowCount(database, `${table}_v1`);
-    const new_count = rowCount(database, table);
-    if (new_count !== old_count) throw new Error(`migrating ${table} would lose rows (${old_count} -> ${new_count})`);
+    const oldCount = rowCount(database, `${table}_v1`);
+    const newCount = rowCount(database, table);
+    if (newCount !== oldCount) throw new Error(`migrating ${table} would lose rows (${oldCount} -> ${newCount})`);
     // The new table's counter starts where the old one was, so no id is ever given twice.
     database.exec(`
       INSERT INTO sqlite_sequence (name, seq) SELECT '${table}', seq FROM sqlite_sequence
@@ -269,19 +269,19 @@ function shiftTime(time: string, milliseconds: number): string {
 
 // A stored exercise's content in the new model. A row that cannot be read stops the migration, naming the row: the
 // caller rolls everything back, and the backup is there.
-function contentOf(what: string, type: Format3Type, content_json: string): ExerciseContent {
+function contentOf(what: string, type: Format3Type, contentJson: string): ExerciseContent {
   try {
-    return contentFromFormat3(type, JSON.parse(content_json) as Format3Content);
+    return contentFromFormat3(type, JSON.parse(contentJson) as Format3Content);
   } catch (error) {
     throw new Error(`migrating ${what} to schema 3: its content cannot be read (${(error as Error).message})`);
   }
 }
 
 function snapshotOf(attempt: Schema2Attempt): ExerciseSnapshot {
-  const old_snapshot = JSON.parse(attempt.exercise_snapshot_json) as { type: Format3Type; topic: string | null; tags: string[]; content: Format3Content };
-  const content_json = JSON.stringify(old_snapshot.content);
-  const content = contentOf(`the snapshot of attempt ${attempt.id}`, old_snapshot.type, content_json);
-  return { topic: emptyAsNull(old_snapshot.topic), tags: old_snapshot.tags ?? [], content };
+  const oldSnapshot = JSON.parse(attempt.exercise_snapshot_json) as { type: Format3Type; topic: string | null; tags: string[]; content: Format3Content };
+  const contentJson = JSON.stringify(oldSnapshot.content);
+  const content = contentOf(`the snapshot of attempt ${attempt.id}`, oldSnapshot.type, contentJson);
+  return { topic: emptyAsNull(oldSnapshot.topic), tags: oldSnapshot.tags ?? [], content };
 }
 
 function answerOf(attempt: Schema2Attempt, snapshot: ExerciseSnapshot): Answer {
@@ -303,7 +303,7 @@ function effortOf(effort: string | null): Effort | null {
 function gradingOf(attempt: Schema2Attempt): { run: ModelRun; feedback_markdown: string | null } {
   let result: Schema2AiResult = {};
   if (attempt.result_json !== null) result = JSON.parse(attempt.result_json) as Schema2AiResult;
-  const grading_ms = attempt.grading_ms ?? 0;
+  const gradingMs = attempt.grading_ms ?? 0;
   const run: ModelRun = {
     status: 'running',
     requestedModelId: attempt.model,
@@ -316,22 +316,22 @@ function gradingOf(attempt: Schema2Attempt): { run: ModelRun; feedback_markdown:
     startedAt: attempt.submitted_at,
     finishedAt: null,
   };
-  let feedback_markdown: string | null = null;
+  let feedbackMarkdown: string | null = null;
   if (attempt.status === 'graded') {
-    const finished_at = attempt.graded_at ?? attempt.submitted_at;
+    const finishedAt = attempt.graded_at ?? attempt.submitted_at;
     run.status = 'succeeded';
-    run.finishedAt = finished_at;
-    run.startedAt = shiftTime(finished_at, -grading_ms);
-    feedback_markdown = result.text ?? '';
+    run.finishedAt = finishedAt;
+    run.startedAt = shiftTime(finishedAt, -gradingMs);
+    feedbackMarkdown = result.text ?? '';
   } else if (attempt.status === 'failed') {
-    let error_code: RunErrorCode = 'claude_error';
-    if (attempt.error === INTERRUPTED_MESSAGE) error_code = 'interrupted';
+    let errorCode: RunErrorCode = 'claude_error';
+    if (attempt.error === INTERRUPTED_MESSAGE) errorCode = 'interrupted';
     run.status = 'failed';
-    run.finishedAt = shiftTime(attempt.submitted_at, grading_ms);
-    run.errorCode = error_code;
+    run.finishedAt = shiftTime(attempt.submitted_at, gradingMs);
+    run.errorCode = errorCode;
     run.errorMessage = attempt.error ?? UNKNOWN_ERROR;
   }
-  return { run, feedback_markdown };
+  return { run, feedback_markdown: feedbackMarkdown };
 }
 
 // Schema 2 -> 3 (docs/data-model-proposal.md §5): the new data model. Every row is read, converted in code (the same
@@ -342,25 +342,25 @@ export function migrateFrom2(database: DatabaseSync): void {
   const projects = database.prepare('SELECT * FROM projects ORDER BY id').all() as unknown as Schema2Project[];
   const exercises = database.prepare('SELECT * FROM exercises ORDER BY id').all() as unknown as Schema2Exercise[];
   const attempts = database.prepare('SELECT * FROM attempts ORDER BY id').all() as unknown as Schema2Attempt[];
-  const sequence_rows = database.prepare('SELECT name, seq FROM sqlite_sequence').all() as { name: string; seq: number }[];
+  const sequenceRows = database.prepare('SELECT name, seq FROM sqlite_sequence').all() as { name: string; seq: number }[];
 
   // Rule 8: every attempt has an exercise. None is without one today; if one is, stop rather than drop it.
-  const orphan_ids = attempts.filter((attempt) => attempt.exercise_id === null).map((attempt) => attempt.id);
-  if (orphan_ids.length > 0) {
-    throw new Error(`migrating to schema 3: attempt(s) ${orphan_ids.join(', ')} have no exercise; every attempt must have one`);
+  const orphanIds = attempts.filter((attempt) => attempt.exercise_id === null).map((attempt) => attempt.id);
+  if (orphanIds.length > 0) {
+    throw new Error(`migrating to schema 3: attempt(s) ${orphanIds.join(', ')} have no exercise; every attempt must have one`);
   }
 
   // Children first. Dropping a table drops its indexes and its sqlite_sequence row too.
   database.exec('DROP TABLE attempts; DROP TABLE exercises; DROP TABLE projects');
   for (const statement of CREATE_TABLES) database.exec(statement);
 
-  const insert_project = database.prepare(`
+  const insertProject = database.prepare(`
     INSERT INTO projects (id, key, name, description, archived_at, created_at, updated_at)
     VALUES ($id, $key, $name, $description, $archived_at, $created_at, $updated_at)`);
   for (const project of projects) {
     let description: string | null = project.description;
     if (description === '') description = null;
-    insert_project.run({
+    insertProject.run({
       id: project.id,
       key: project.key,
       name: project.name,
@@ -371,12 +371,12 @@ export function migrateFrom2(database: DatabaseSync): void {
     });
   }
 
-  const insert_exercise = database.prepare(`
+  const insertExercise = database.prepare(`
     INSERT INTO exercises (id, project_id, key, position, type, topic, tags_json, content_json, version, created_at, updated_at)
     VALUES ($id, $project_id, $key, $position, $type, $topic, $tags_json, $content_json, $version, $created_at, $updated_at)`);
   for (const exercise of exercises) {
     const content = contentOf(`exercise ${exercise.id}`, exercise.type, exercise.content_json);
-    insert_exercise.run({
+    insertExercise.run({
       id: exercise.id,
       project_id: exercise.project_id,
       key: exercise.key,
@@ -391,17 +391,17 @@ export function migrateFrom2(database: DatabaseSync): void {
     });
   }
 
-  const insert_attempt = database.prepare(`
+  const insertAttempt = database.prepare(`
     INSERT INTO attempts (id, exercise_id, exercise_version, exercise_snapshot_json, answer_json, time_spent_ms, created_at, updated_at)
     VALUES ($id, $exercise_id, $exercise_version, $exercise_snapshot_json, $answer_json, $time_spent_ms, $created_at, $created_at)`);
-  const insert_grading = database.prepare(`
+  const insertGrading = database.prepare(`
     INSERT INTO gradings (attempt_id, ${RUN_INSERT_COLUMNS}, feedback_markdown, created_at, updated_at)
     VALUES ($attempt_id, ${RUN_INSERT_VALUES}, $feedback_markdown, $created_at, $created_at)`);
-  let grading_count = 0;
+  let gradingCount = 0;
   for (const attempt of attempts) {
     const snapshot = snapshotOf(attempt);
     const answer = answerOf(attempt, snapshot);
-    insert_attempt.run({
+    insertAttempt.run({
       id: attempt.id,
       exercise_id: attempt.exercise_id,
       exercise_version: attempt.exercise_version,
@@ -412,23 +412,23 @@ export function migrateFrom2(database: DatabaseSync): void {
     });
     // A flashcard's result was its rating, which the answer holds: it gets no grading (rule 6).
     if (attempt.grader !== 'ai') continue;
-    const { run, feedback_markdown } = gradingOf(attempt);
-    insert_grading.run({ attempt_id: attempt.id, ...runRowOf(run), feedback_markdown, created_at: run.startedAt });
-    grading_count++;
+    const { run, feedback_markdown: feedbackMarkdown } = gradingOf(attempt);
+    insertGrading.run({ attempt_id: attempt.id, ...runRowOf(run), feedback_markdown: feedbackMarkdown, created_at: run.startedAt });
+    gradingCount++;
   }
 
-  const expected_counts: Record<string, number> = { projects: projects.length, exercises: exercises.length, attempts: attempts.length, gradings: grading_count };
-  for (const [table, expected_count] of Object.entries(expected_counts)) {
+  const expectedCounts: Record<string, number> = { projects: projects.length, exercises: exercises.length, attempts: attempts.length, gradings: gradingCount };
+  for (const [table, expectedCount] of Object.entries(expectedCounts)) {
     const count = rowCount(database, table);
-    if (count !== expected_count) throw new Error(`migrating ${table} to schema 3 would lose rows (${expected_count} -> ${count})`);
+    if (count !== expectedCount) throw new Error(`migrating ${table} to schema 3 would lose rows (${expectedCount} -> ${count})`);
   }
 
   // Each counter starts where the old one was, so no id is ever given twice (a deleted row's id included).
-  const set_sequence = database.prepare('UPDATE sqlite_sequence SET seq = max(seq, $seq) WHERE name = $name');
-  const add_sequence = database.prepare('INSERT INTO sqlite_sequence (name, seq) SELECT $name, $seq WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = $name)');
-  for (const { name, seq } of sequence_rows) {
+  const setSequence = database.prepare('UPDATE sqlite_sequence SET seq = max(seq, $seq) WHERE name = $name');
+  const addSequence = database.prepare('INSERT INTO sqlite_sequence (name, seq) SELECT $name, $seq WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = $name)');
+  for (const { name, seq } of sequenceRows) {
     if (!MIGRATED_TABLES.includes(name)) continue;
-    set_sequence.run({ name, seq });
-    add_sequence.run({ name, seq });
+    setSequence.run({ name, seq });
+    addSequence.run({ name, seq });
   }
 }

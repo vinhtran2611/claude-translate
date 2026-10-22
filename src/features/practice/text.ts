@@ -55,18 +55,18 @@ const PREVIEW_CHARS = 200;
 
 // The words that identify an exercise in a list: its main text on one line, gaps shown as ____.
 export function previewOf(content: ExerciseContent): string {
-  const one_line = mainTextOf(content)
+  const oneLine = mainTextOf(content)
     .replace(/\{\{\d+\}\}/g, '____')
     .replace(/\s+/g, ' ')
     .trim();
-  return one_line.slice(0, PREVIEW_CHARS);
+  return oneLine.slice(0, PREVIEW_CHARS);
 }
 
-// The history line of an attempt: a flashcard's rating, or how its latest grading went (latest_status: null when it has
+// The history line of an attempt: a flashcard's rating, or how its latest grading went (latestStatus: null when it has
 // none). The grader's text is not parsed, so a finished grading says only "Graded".
-export function historyLineOf(answer: Answer, latest_status: RunStatus | null): string {
+export function historyLineOf(answer: Answer, latestStatus: RunStatus | null): string {
   if (answer.type === 'flashcard') return RATING_LABELS[answer.rating];
-  if (latest_status === 'running') return 'Grading…';
-  if (latest_status === 'succeeded') return 'Graded';
+  if (latestStatus === 'running') return 'Grading…';
+  if (latestStatus === 'succeeded') return 'Graded';
   return 'Not graded';
 }

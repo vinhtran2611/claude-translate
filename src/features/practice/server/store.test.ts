@@ -36,8 +36,8 @@ function bodyOf(exercise: FileExercise): ExerciseBody {
 }
 
 function scratchStore() {
-  const database_path = join(mkdtempSync(join(tmpdir(), 'practice-store-')), 'practice.sqlite');
-  return { store: openPracticeStore(database_path), database_path };
+  const databasePath = join(mkdtempSync(join(tmpdir(), 'practice-store-')), 'practice.sqlite');
+  return { store: openPracticeStore(databasePath), databasePath };
 }
 
 function exerciseId(store: PracticeStore, key: string): number {
@@ -77,8 +77,8 @@ const FAILED: GradingOutcome = {
   status: 'failed', servedModelId: null, thinkingText: '', thinkingMs: null, feedbackMarkdown: '', errorCode: 'claude_error', errorMessage: 'boom',
 };
 
-function readRows(database_path: string, sql: string): Record<string, unknown>[] {
-  const database = new DatabaseSync(database_path, { readOnly: true });
+function readRows(databasePath: string, sql: string): Record<string, unknown>[] {
+  const database = new DatabaseSync(databasePath, { readOnly: true });
   const rows = database.prepare(sql).all().map((row) => ({ ...row }));
   database.close();
   return rows;
@@ -103,7 +103,7 @@ test('an import makes a project with its exercises in file order', () => {
 });
 
 test('a project counts its exercises by type; nothing derived is stored', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(card('c1', 'one'), rewrite('r1', 'Two.'), card('c2', 'three')), false);
   const project = store.readProject('week-1')!;
   assert.equal(project.key, 'week-1');
@@ -113,7 +113,7 @@ test('a project counts its exercises by type; nothing derived is stored', () => 
   assert.equal(project.lastActivityAt, null);
   assert.equal(project.archivedAt, null);
   assert.deepEqual(project.typeCounts, { flashcard: 2, rewrite: 1 });
-  const columns = readRows(database_path, 'PRAGMA table_info(projects)').map((column) => column.name);
+  const columns = readRows(databasePath, 'PRAGMA table_info(projects)').map((column) => column.name);
   assert.deepEqual(columns, ['id', 'key', 'name', 'description', 'archived_at', 'created_at', 'updated_at']);
 });
 
@@ -151,7 +151,7 @@ test('a fixed file: a changed exercise gets version 2, a new one is added, and o
 });
 
 test('a dry run says what would happen and writes nothing', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   const dry = store.importFile(file(card('c1', 'one')), true);
   assert.equal(dry.dryRun, true);
   assert.equal(dry.projectChange, 'created');
@@ -159,12 +159,12 @@ test('a dry run says what would happen and writes nothing', () => {
   assert.equal(store.readProject('week-1'), null);
 
   store.importFile(file(card('c1', 'one')), false);
-  const rows_before = readRows(database_path, 'SELECT * FROM exercises');
+  const rowsBefore = readRows(databasePath, 'SELECT * FROM exercises');
   assert.equal(store.putExercise('week-1', 'c1', bodyOf(card('c1', 'changed')), true)!.exercise.version, 2);
   assert.equal(store.putExercise('week-1', 'c9', bodyOf(card('c9', 'new')), true)!.change, 'created');
   const archived = store.putProject('week-1', { name: 'Other', description: null, archivedAt: '2026-10-21T08:30:00.000Z' }, true);
   assert.equal(archived.project.archivedAt, '2026-10-21T08:30:00.000Z');
-  assert.deepEqual(readRows(database_path, 'SELECT * FROM exercises'), rows_before);
+  assert.deepEqual(readRows(databasePath, 'SELECT * FROM exercises'), rowsBefore);
   assert.equal(store.readProject('week-1')!.name, 'Week 1');
 });
 
@@ -206,9 +206,9 @@ test('an exercise with attempts is deleted only with them (rule 8)', () => {
 });
 
 test('the exercise list filters by type and tag, and a row with broken JSON still lists', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(card('c1', 'one'), { ...rewrite('r1', 'T.'), tags: ['passive'] }), false);
-  const database = new DatabaseSync(database_path);
+  const database = new DatabaseSync(databasePath);
   database.prepare("UPDATE exercises SET content_json = 'null' WHERE key = 'c1'").run();
   database.close();
 
@@ -222,9 +222,9 @@ test('the exercise list filters by type and tag, and a row with broken JSON stil
 });
 
 test('the database refuses content whose type is not the exercise\'s type', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(card('c1', 'one')), false);
-  const database = new DatabaseSync(database_path);
+  const database = new DatabaseSync(databasePath);
   assert.throws(() => database.prepare("UPDATE exercises SET type = 'essay' WHERE key = 'c1'").run(), /CHECK constraint failed/);
   database.close();
 });
@@ -314,12 +314,12 @@ test('the attempts list is newest first, filters by the latest grading\'s status
   assert.deepEqual(idsOf({ project: 'week-1', exercise: 'c1' }), [third.id, first.id]);
   assert.deepEqual(idsOf({ since: '2999-01-01T00:00:00.000Z' }), []);
 
-  const page_1 = listAttempts(store, { limit: 2 });
-  assert.equal(page_1.items.length, 2);
-  assert.equal(page_1.nextBefore, second.id);
-  const page_2 = listAttempts(store, { limit: 2, before: page_1.nextBefore });
-  assert.equal(page_2.items.length, 1);
-  assert.equal(page_2.nextBefore, undefined);
+  const page1 = listAttempts(store, { limit: 2 });
+  assert.equal(page1.items.length, 2);
+  assert.equal(page1.nextBefore, second.id);
+  const page2 = listAttempts(store, { limit: 2, before: page1.nextBefore });
+  assert.equal(page2.items.length, 1);
+  assert.equal(page2.nextBefore, undefined);
 });
 
 test('an AI attempt starts with a running grading, which is finished once', () => {
@@ -380,7 +380,7 @@ test('a regrade adds a new grading at any time, one at a time; every grading is 
 });
 
 test('an attempt being graded cannot be deleted; a finished one can, with its gradings', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(card('c1', 'one'), rewrite('r1', 'Text.')), false);
   const { attempt, gradingId } = answerRewrite(store, 'r1');
 
@@ -388,14 +388,14 @@ test('an attempt being graded cannot be deleted; a finished one can, with its gr
   store.finishGrading(gradingId!, SUCCEEDED);
   assert.equal(store.deleteAttempt(attempt.id), 'deleted');
   assert.equal(store.deleteAttempt(attempt.id), 'not_found');
-  assert.deepEqual(readRows(database_path, 'SELECT count(*) AS count FROM gradings'), [{ count: 0 }]);
+  assert.deepEqual(readRows(databasePath, 'SELECT count(*) AS count FROM gradings'), [{ count: 0 }]);
 });
 
 test('a server restart fails the gradings it interrupted', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(rewrite('r1', 'T.')), false);
   const { attempt } = answerRewrite(store, 'r1');
-  assert.equal(openPracticeStore(database_path).failInterruptedGradings(), 1);
+  assert.equal(openPracticeStore(databasePath).failInterruptedGradings(), 1);
   const run = store.readAttempt(attempt.id)!.gradings[0].run;
   assert.equal(run.status, 'failed');
   assert.equal(run.errorCode, 'interrupted');
@@ -404,10 +404,10 @@ test('a server restart fails the gradings it interrupted', () => {
 });
 
 test('the database keeps at most one running grading per attempt', () => {
-  const { store, database_path } = scratchStore();
+  const { store, databasePath } = scratchStore();
   store.importFile(file(rewrite('r1', 'T.')), false);
   const { attempt } = answerRewrite(store, 'r1');
-  const database = new DatabaseSync(database_path);
+  const database = new DatabaseSync(databasePath);
   const copy = `INSERT INTO gradings (attempt_id, run_status, run_requested_model_id, run_effort, run_started_at, created_at, updated_at)
     SELECT attempt_id, run_status, run_requested_model_id, run_effort, run_started_at, created_at, updated_at FROM gradings WHERE attempt_id = ?`;
   assert.throws(() => database.prepare(copy).run(attempt.id), /UNIQUE constraint failed/);
@@ -444,8 +444,8 @@ const OLD_CONTENTS: Record<string, [string, object]> = {
 
 function schema2File() {
   const directory = mkdtempSync(join(tmpdir(), 'practice-migrate-'));
-  const database_path = join(directory, 'practice.sqlite');
-  const database = new DatabaseSync(database_path);
+  const databasePath = join(directory, 'practice.sqlite');
+  const database = new DatabaseSync(databasePath);
   database.exec(SCHEMA_2);
   const project = database.prepare('INSERT INTO projects (key, name, description, archived_at, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
   project.run('day-1', 'Day 1', '', null, '2026-10-18T15:38:46.581Z', '2026-10-18T15:38:46.581Z', '2026-10-19T13:42:01.965Z');
@@ -506,29 +506,29 @@ function schema2File() {
   insertAttempt('t1', { submitted_at: '2026-10-19T13:46:00.000Z', answer: '{"text":"Hi."}', status: 'failed', grader: 'ai', grading_ms: 1, error: 'x' });
   database.exec('DELETE FROM attempts WHERE id = 8');
   database.close();
-  return { directory, database_path };
+  return { directory, databasePath };
 }
 
-function gradingRows(database_path: string): Record<string, unknown>[] {
-  return readRows(database_path, `
+function gradingRows(databasePath: string): Record<string, unknown>[] {
+  return readRows(databasePath, `
     SELECT attempt_id, run_status, run_requested_model_id, run_served_model_id, run_effort, run_thinking_text, run_thinking_ms,
            run_error_code, run_error_message, run_started_at, run_finished_at, feedback_markdown, created_at, updated_at
     FROM gradings ORDER BY attempt_id`);
 }
 
 test('the schema 2 migration copies the file to backups/ first, and sets the schema version', () => {
-  const { directory, database_path } = schema2File();
-  openPracticeStore(database_path);
-  const backup_path = join(directory, 'backups', 'practice-before-schema-3.sqlite');
-  assert.deepEqual(readRows(backup_path, 'PRAGMA user_version'), [{ user_version: 2 }]);
-  assert.deepEqual(readRows(backup_path, 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 3 }]);
+  const { directory, databasePath } = schema2File();
+  openPracticeStore(databasePath);
+  const backupPath = join(directory, 'backups', 'practice-before-schema-3.sqlite');
+  assert.deepEqual(readRows(backupPath, 'PRAGMA user_version'), [{ user_version: 2 }]);
+  assert.deepEqual(readRows(backupPath, 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 3 }]);
 });
 
 test('the schema 2 migration: projects lose last_activity_at, and an empty description becomes null', () => {
-  const { database_path } = schema2File();
-  openPracticeStore(database_path);
-  assert.deepEqual(readRows(database_path, 'SELECT * FROM projects ORDER BY id'), [
+  const { databasePath } = schema2File();
+  openPracticeStore(databasePath);
+  assert.deepEqual(readRows(databasePath, 'SELECT * FROM projects ORDER BY id'), [
     { id: 1, key: 'day-1', name: 'Day 1', description: null, archived_at: null, created_at: '2026-10-18T15:38:46.581Z', updated_at: '2026-10-18T15:38:46.581Z' },
     {
       id: 2, key: 'day-2', name: 'Day 2', description: 'Đề số 1', archived_at: '2026-10-20T00:00:00.000Z', created_at: '2026-10-19T13:48:07.177Z',
@@ -538,9 +538,9 @@ test('the schema 2 migration: projects lose last_activity_at, and an empty descr
 });
 
 test('the schema 2 migration maps every exercise type, keeping ids, versions and times', () => {
-  const { database_path } = schema2File();
-  const store = openPracticeStore(database_path);
-  const rows = readRows(database_path, 'SELECT id, key, type, version, created_at, updated_at FROM exercises ORDER BY position');
+  const { databasePath } = schema2File();
+  const store = openPracticeStore(databasePath);
+  const rows = readRows(databasePath, 'SELECT id, key, type, version, created_at, updated_at FROM exercises ORDER BY position');
   assert.deepEqual(rows.map((row) => `${row.key} ${row.type} v${row.version}`), [
     'r1 rewrite v2', 't1 translation v1', 'c1 correction v1', 'w1 essay v1', 'q1 choice v1', 'f1 gap_fill v1', 'k1 flashcard v1',
   ]);
@@ -560,9 +560,9 @@ test('the schema 2 migration maps every exercise type, keeping ids, versions and
 });
 
 test('the schema 2 migration: attempts keep their snapshot and answer in the new shapes, and only the columns of the spec', () => {
-  const { database_path } = schema2File();
-  const store = openPracticeStore(database_path);
-  const columns = readRows(database_path, 'PRAGMA table_info(attempts)').map((column) => column.name);
+  const { databasePath } = schema2File();
+  const store = openPracticeStore(databasePath);
+  const columns = readRows(databasePath, 'PRAGMA table_info(attempts)').map((column) => column.name);
   assert.deepEqual(columns, ['id', 'exercise_id', 'exercise_version', 'exercise_snapshot_json', 'answer_json', 'time_spent_ms', 'created_at', 'updated_at']);
 
   const first = store.readAttempt(1)!;
@@ -580,9 +580,9 @@ test('the schema 2 migration: attempts keep their snapshot and answer in the new
 });
 
 test('the schema 2 migration gives each AI-graded attempt one grading, and a flashcard none', () => {
-  const { database_path } = schema2File();
-  openPracticeStore(database_path);
-  assert.deepEqual(gradingRows(database_path), [
+  const { databasePath } = schema2File();
+  openPracticeStore(databasePath);
+  assert.deepEqual(gradingRows(databasePath), [
     {
       attempt_id: 1, run_status: 'succeeded', run_requested_model_id: 'claude-sonnet-5-5', run_served_model_id: 'claude-sonnet-5-5',
       run_effort: null, run_thinking_text: null, run_thinking_ms: null, run_error_code: null, run_error_message: null,
@@ -621,13 +621,13 @@ test('the schema 2 migration gives each AI-graded attempt one grading, and a fla
 });
 
 test('after the schema 2 migration the derived facts read as before, and a grading left running fails at startup', () => {
-  const { database_path } = schema2File();
-  const store = openPracticeStore(database_path);
-  const day_1 = store.readProject('day-1')!;
-  assert.equal(day_1.exerciseCount, 7);
+  const { databasePath } = schema2File();
+  const store = openPracticeStore(databasePath);
+  const day1 = store.readProject('day-1')!;
+  assert.equal(day1.exerciseCount, 7);
   // r1 and q1 have a succeeded grading, k1 a flashcard attempt.
-  assert.equal(day_1.doneCount, 3);
-  assert.equal(day_1.lastActivityAt, '2026-10-19T13:45:00.000Z');
+  assert.equal(day1.doneCount, 3);
+  assert.equal(day1.lastActivityAt, '2026-10-19T13:45:00.000Z');
   const items = store.listExercises('day-1', { type: null, tag: null })!;
   assert.equal(items.find((item) => item.key === 'k1')!.lastAttempt!.historyLine, 'Didn’t know');
   assert.equal(items.find((item) => item.key === 'r1')!.lastAttempt!.historyLine, 'Graded');
@@ -637,34 +637,34 @@ test('after the schema 2 migration the derived facts read as before, and a gradi
 });
 
 test('after the schema 2 migration an id is never given twice, the delete rules are there, and opening again changes nothing', () => {
-  const { directory, database_path } = schema2File();
-  const store = openPracticeStore(database_path);
+  const { directory, databasePath } = schema2File();
+  const store = openPracticeStore(databasePath);
   const next = store.createAttempt({ exerciseId: 7, answer: { type: 'flashcard', rating: 'almost' }, timeSpentMs: 1, grading: null });
   // Attempt 8 was deleted before the migration: the next one is 9.
   assert.equal(next.attempt.id, 9);
-  const rules = readRows(database_path, 'PRAGMA foreign_key_list(attempts)').map((row) => `${row.table} ${row.on_delete}`);
+  const rules = readRows(databasePath, 'PRAGMA foreign_key_list(attempts)').map((row) => `${row.table} ${row.on_delete}`);
   assert.deepEqual(rules, ['exercises CASCADE']);
-  assert.equal(openPracticeStore(database_path).listProjects('all').length, 2);
+  assert.equal(openPracticeStore(databasePath).listProjects('all').length, 2);
   assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-3.sqlite'), 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
 });
 
 test('the schema 2 migration stops, and changes nothing, when an attempt has no exercise', () => {
-  const { database_path } = schema2File();
-  const database = new DatabaseSync(database_path);
+  const { databasePath } = schema2File();
+  const database = new DatabaseSync(databasePath);
   database.exec('UPDATE attempts SET exercise_id = NULL WHERE id = 3');
   database.close();
-  assert.throws(() => openPracticeStore(database_path), /attempt\(s\) 3 have no exercise/);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 2 }]);
-  assert.deepEqual(readRows(database_path, 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
+  assert.throws(() => openPracticeStore(databasePath), /attempt\(s\) 3 have no exercise/);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 2 }]);
+  assert.deepEqual(readRows(databasePath, 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
 });
 
 test('the schema 2 migration stops, naming the row, when stored content cannot be read', () => {
-  const { database_path } = schema2File();
-  const database = new DatabaseSync(database_path);
+  const { databasePath } = schema2File();
+  const database = new DatabaseSync(databasePath);
   database.exec("UPDATE exercises SET content_json = 'null' WHERE key = 'q1'");
   database.close();
-  assert.throws(() => openPracticeStore(database_path), /migrating exercise 5 to schema 3/);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 2 }]);
+  assert.throws(() => openPracticeStore(databasePath), /migrating exercise 5 to schema 3/);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 2 }]);
 });
 
 // ---- Migration from schema 1 (to 2, then to 3) ----
@@ -685,8 +685,8 @@ const SCHEMA_1 = `
 
 function schema1File() {
   const directory = mkdtempSync(join(tmpdir(), 'practice-migrate-'));
-  const database_path = join(directory, 'practice.sqlite');
-  const database = new DatabaseSync(database_path);
+  const databasePath = join(directory, 'practice.sqlite');
+  const database = new DatabaseSync(databasePath);
   database.exec(SCHEMA_1);
   const project = database.prepare('INSERT INTO projects (name, description, created_at, last_activity_at) VALUES (?, ?, ?, ?)');
   project.run('Test', '', '2026-10-18T15:38:46.581Z', '2026-10-18T16:24:42.538Z');
@@ -697,8 +697,8 @@ function schema1File() {
     VALUES (?, ?, ?, ?, ?, ?, ?)`);
   exercise.run(1, 'r1', 1, 'rewrite', 'transport', '["passive"]', '{"instruction":"Fix","text":"It go.","length":"sentence"}');
   exercise.run(2, 'd1-card-1', 1, 'flashcard', null, '[]', '{"front":"cheap","back":"rẻ"}');
-  const snapshotOf = (exercise_id: number): string => {
-    const row = database.prepare('SELECT type, content_json FROM exercises WHERE id = ?').get(exercise_id) as { type: string; content_json: string };
+  const snapshotOf = (id: number): string => {
+    const row = database.prepare('SELECT type, content_json FROM exercises WHERE id = ?').get(id) as { type: string; content_json: string };
     return JSON.stringify({ type: row.type, topic: null, tags: [], content: JSON.parse(row.content_json) });
   };
   const attempt = database.prepare(`
@@ -711,15 +711,15 @@ function schema1File() {
   attempt.run(2, 2, '2026-10-19T13:42:01.965Z', 'flashcard', snapshotOf(2), '{"rating":"known"}', 'graded', '{"rating":"known"}', 'Knew it', 'self',
     null, null, null, 900, '2026-10-19T13:42:01.965Z');
   database.close();
-  return { directory, database_path };
+  return { directory, databasePath };
 }
 
 test('a schema 1 file goes through schema 2 to schema 3: keys from names, then the new model', () => {
-  const { directory, database_path } = schema1File();
-  const store = openPracticeStore(database_path);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 3 }]);
+  const { directory, databasePath } = schema1File();
+  const store = openPracticeStore(databasePath);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 3 }]);
   assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-3.sqlite'), 'PRAGMA user_version'), [{ user_version: 1 }]);
-  assert.deepEqual(readRows(database_path, 'SELECT id, key FROM projects ORDER BY id'), [
+  assert.deepEqual(readRows(databasePath, 'SELECT id, key FROM projects ORDER BY id'), [
     { id: 1, key: 'test' },
     { id: 2, key: 'day-1-19-10-2026' },
     { id: 3, key: 'test-3' },
@@ -730,17 +730,17 @@ test('a schema 1 file goes through schema 2 to schema 3: keys from names, then t
   assert.equal(graded.gradings[0].feedbackMarkdown, '**Close.**');
   assert.deepEqual(store.readAttempt(2)!.answer, { type: 'flashcard', rating: 'knew' });
   assert.equal(store.readProject('day-1-19-10-2026')!.doneCount, 1);
-  assert.deepEqual(readRows(database_path, "SELECT name FROM sqlite_master WHERE name LIKE '%_v1'"), []);
+  assert.deepEqual(readRows(databasePath, "SELECT name FROM sqlite_master WHERE name LIKE '%_v1'"), []);
 });
 
 test('a schema 1 migration that would lose a row changes nothing', () => {
-  const { database_path } = schema1File();
-  const database = new DatabaseSync(database_path);
+  const { databasePath } = schema1File();
+  const database = new DatabaseSync(databasePath);
   database.exec('PRAGMA foreign_keys = OFF; DELETE FROM exercises WHERE id = 1');
   database.close();
-  assert.throws(() => openPracticeStore(database_path), /would lose rows/);
-  assert.deepEqual(readRows(database_path, 'PRAGMA user_version'), [{ user_version: 1 }]);
-  assert.deepEqual(readRows(database_path, 'SELECT count(*) AS count FROM attempts'), [{ count: 2 }]);
+  assert.throws(() => openPracticeStore(databasePath), /would lose rows/);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 1 }]);
+  assert.deepEqual(readRows(databasePath, 'SELECT count(*) AS count FROM attempts'), [{ count: 2 }]);
 });
 
 test('a key made from a name', () => {

@@ -23,13 +23,13 @@ export const essay: Template<'essay'> = {
   },
 
   // The clock only shows the time you have spent; it never stops you.
-  status({ exercise: { content }, answer, editable }, elapsed_ms) {
+  status({ exercise: { content }, answer, editable }, elapsedMs) {
     const words = countWords(answer.text);
     const target = content.minWords;
-    const is_met = words >= target;
-    const parts: (Node | string)[] = [h('strong', '', is_met ? `${words} words` : `${words} of ${target} words`)];
-    if (is_met) parts.push(' · ', h('span', 'is-met', 'Target reached'));
-    if (editable) parts.push(` · ⏱ ${formatClock(elapsed_ms)}`);
+    const isMet = words >= target;
+    const parts: (Node | string)[] = [h('strong', '', isMet ? `${words} words` : `${words} of ${target} words`)];
+    if (isMet) parts.push(' · ', h('span', 'is-met', 'Target reached'));
+    if (editable) parts.push(` · ⏱ ${formatClock(elapsedMs)}`);
     return parts;
   },
 };

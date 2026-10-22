@@ -26,10 +26,10 @@ const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
 // The files at a URL of their own. The page's modules and stylesheet, the example file and the format guide (static/)
 // are served by the entry file, at their path under src/.
 // URL -> the file's path on disk and its Content-Type.
-const FILES = new Map<string, { path: string; content_type: string }>();
+const FILES = new Map<string, { path: string; contentType: string }>();
 FILES.set('/practice', {
   path: join(WEB_DIRECTORY, 'practice.html'),
-  content_type: 'text/html; charset=utf-8',
+  contentType: 'text/html; charset=utf-8',
 });
 // The import body is the file itself.
 const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
@@ -72,7 +72,7 @@ interface Route {
 }
 
 // The problems with the body's keys in PUT .../order: it must list exercise keys of the project, each once.
-function orderProblems(keys: unknown, known_keys: Set<string>, project_key: string): Problem[] {
+function orderProblems(keys: unknown, knownKeys: Set<string>, projectKey: string): Problem[] {
   if (keys === undefined) {
     return [{ path: '/keys', code: 'required', message: 'keys is missing: the exercise keys in their new order.' }];
   }
@@ -85,8 +85,8 @@ function orderProblems(keys: unknown, known_keys: Set<string>, project_key: stri
     const path = `/keys/${index}`;
     if (typeof key !== 'string') {
       problems.push({ path, code: 'wrong_type', message: 'must be an exercise key.' });
-    } else if (!known_keys.has(key)) {
-      problems.push({ path, code: 'unknown_key', message: `project "${project_key}" has no exercise "${key}".` });
+    } else if (!knownKeys.has(key)) {
+      problems.push({ path, code: 'unknown_key', message: `project "${projectKey}" has no exercise "${key}".` });
     } else if (seen.has(key)) {
       problems.push({ path, code: 'duplicate_key', message: `"${key}" is listed twice.` });
     }
@@ -95,14 +95,14 @@ function orderProblems(keys: unknown, known_keys: Set<string>, project_key: stri
   return problems;
 }
 
-export function createPracticeFeature({ database_path }: { database_path: string }): Feature {
+export function createPracticeFeature({ databasePath }: { databasePath: string }): Feature {
   // Throws on a newer or damaged file, so the server stops at startup, not mid-request.
-  const store: PracticeStore = openPracticeStore(database_path);
-  const interrupted_count = store.failInterruptedGradings();
-  if (interrupted_count > 0) log('warn', null, 'practice', `${interrupted_count} grading(s) were interrupted by a restart; Grade again redoes them`);
+  const store: PracticeStore = openPracticeStore(databasePath);
+  const interruptedCount = store.failInterruptedGradings();
+  if (interruptedCount > 0) log('warn', null, 'practice', `${interruptedCount} grading(s) were interrupted by a restart; Grade again redoes them`);
 
   const grader = createGrader(store);
-  const grading_options: GradingOptions = {
+  const gradingOptions: GradingOptions = {
     models: MODEL_OPTIONS.map(({ modelId, label, shortLabel, description }) => ({ modelId, label, shortLabel, description })),
     efforts: EFFORT_OPTIONS,
     defaultModelId: DEFAULT_MODEL_ID,
@@ -134,35 +134,35 @@ export function createPracticeFeature({ database_path }: { database_path: string
 
   async function putProject(req: IncomingMessage, res: ServerResponse, [key]: string[], query: URLSearchParams): Promise<void> {
     const problems = keyProblems(key);
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
     const body = await readRequestJson(req, res, MAX_EXERCISE_BODY_BYTES);
     if (body === undefined) return;
-    const { project, problems: body_problems } = checkProjectInput(body);
-    problems.push(...(body_problems ?? []));
+    const { project, problems: bodyProblems } = checkProjectInput(body);
+    problems.push(...(bodyProblems ?? []));
     if (project === null || problems.length > 0) return sendProblems(res, problems);
-    const { project: saved, change } = store.putProject(key, project, is_dry_run);
-    if (change !== 'unchanged' && !is_dry_run) log('info', null, 'practice', `project ${key} ${change}`);
+    const { project: saved, change } = store.putProject(key, project, isDryRun);
+    if (change !== 'unchanged' && !isDryRun) log('info', null, 'practice', `project ${key} ${change}`);
     sendJson(res, change === 'created' ? 201 : 200, saved);
   }
 
   // A new key for a project. Its exercises and attempts stay linked; old URLs with the old key stop working.
   async function renameProject(req: IncomingMessage, res: ServerResponse, [key]: string[], query: URLSearchParams): Promise<void> {
     const problems: Problem[] = [];
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
-    const new_key = await readKeyBody(req, res, 'key', problems);
-    if (new_key === null) return;
-    const outcome = store.renameProject(key, new_key, is_dry_run);
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const newKey = await readKeyBody(req, res, 'key', problems);
+    if (newKey === null) return;
+    const outcome = store.renameProject(key, newKey, isDryRun);
     if (outcome === 'not_found') return notFound(res, `project "${key}"`);
-    if (outcome === 'key_taken') return keyTaken(res, `There is already a project "${new_key}".`);
-    if (new_key !== key && !is_dry_run) log('info', null, 'practice', `project ${key} renamed to ${new_key}`);
+    if (outcome === 'key_taken') return keyTaken(res, `There is already a project "${newKey}".`);
+    if (newKey !== key && !isDryRun) log('info', null, 'practice', `project ${key} renamed to ${newKey}`);
     sendJson(res, 200, outcome);
   }
 
   function deleteProject(_req: IncomingMessage, res: ServerResponse, [key]: string[], query: URLSearchParams): void {
     const problems: Problem[] = [];
-    const is_with_attempts = choiceParam(query, 'with_attempts', ['false', 'true'] as const, problems) === 'true';
+    const isWithAttempts = choiceParam(query, 'with_attempts', ['false', 'true'] as const, problems) === 'true';
     if (problems.length > 0) return sendProblems(res, problems);
-    const outcome = store.deleteProject(key, is_with_attempts);
+    const outcome = store.deleteProject(key, isWithAttempts);
     if (outcome === 'not_found') return notFound(res, `project "${key}"`);
     if (outcome === 'has_attempts') {
       const message = `Project "${key}" has attempts. To delete them too, add ?with_attempts=true; to keep them, archive it instead.`;
@@ -181,115 +181,115 @@ export function createPracticeFeature({ database_path }: { database_path: string
 
   // ---- exercises ----
 
-  function listExercises(_req: IncomingMessage, res: ServerResponse, [project_key]: string[], query: URLSearchParams): void {
+  function listExercises(_req: IncomingMessage, res: ServerResponse, [projectKey]: string[], query: URLSearchParams): void {
     const problems: Problem[] = [];
     const type = query.get('type');
     if (type !== null && !EXERCISE_TYPES.includes(type as ExerciseType)) {
       problems.push({ path: '?type', code: 'not_allowed', message: `type must be one of: ${EXERCISE_TYPES.join(', ')}.` });
     }
     if (problems.length > 0) return sendProblems(res, problems);
-    const items = store.listExercises(project_key, { type: type as ExerciseType | null, tag: query.get('tag') });
-    if (items === null) return notFound(res, `project "${project_key}"`);
+    const items = store.listExercises(projectKey, { type: type as ExerciseType | null, tag: query.get('tag') });
+    if (items === null) return notFound(res, `project "${projectKey}"`);
     sendJson(res, 200, { items });
   }
 
-  async function putExercise(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): Promise<void> {
+  async function putExercise(req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[], query: URLSearchParams): Promise<void> {
     const problems = keyProblems(key);
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
     const body = await readRequestJson(req, res, MAX_EXERCISE_BODY_BYTES);
     if (body === undefined) return;
-    const { exercise, problems: body_problems } = checkExerciseInput(body, key);
-    problems.push(...(body_problems ?? []));
+    const { exercise, problems: bodyProblems } = checkExerciseInput(body, key);
+    problems.push(...(bodyProblems ?? []));
     if (exercise === null || problems.length > 0) return sendProblems(res, problems);
-    const saved = store.putExercise(project_key, key, exercise, is_dry_run);
-    if (saved === null) return notFound(res, `project "${project_key}"`);
-    if (saved.change !== 'unchanged' && !is_dry_run) {
-      log('info', null, 'practice', `exercise ${project_key}/${key} ${saved.change}, version ${saved.exercise.version}`);
+    const saved = store.putExercise(projectKey, key, exercise, isDryRun);
+    if (saved === null) return notFound(res, `project "${projectKey}"`);
+    if (saved.change !== 'unchanged' && !isDryRun) {
+      log('info', null, 'practice', `exercise ${projectKey}/${key} ${saved.change}, version ${saved.exercise.version}`);
     }
     sendJson(res, saved.change === 'created' ? 201 : 200, saved.exercise);
   }
 
-  function readExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): void {
-    const exercise = store.readExercise(project_key, key);
+  function readExercise(_req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[]): void {
+    const exercise = store.readExercise(projectKey, key);
     if (exercise !== null) return sendJson(res, 200, exercise);
     // Say which part of the URL is wrong.
-    if (store.readProject(project_key) === null) return notFound(res, `project "${project_key}"`);
-    notFound(res, `exercise "${key}" in project "${project_key}"`);
+    if (store.readProject(projectKey) === null) return notFound(res, `project "${projectKey}"`);
+    notFound(res, `exercise "${key}" in project "${projectKey}"`);
   }
 
   // A new key for an exercise, inside its project. Its attempts follow it and show the new key.
-  async function renameExercise(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): Promise<void> {
+  async function renameExercise(req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[], query: URLSearchParams): Promise<void> {
     const problems: Problem[] = [];
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
-    const new_key = await readKeyBody(req, res, 'key', problems);
-    if (new_key === null) return;
-    const outcome = store.renameExercise(project_key, key, new_key, is_dry_run);
-    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
-    if (outcome === 'key_taken') return keyTaken(res, `There is already an exercise "${new_key}" in project "${project_key}".`);
-    if (new_key !== key && !is_dry_run) log('info', null, 'practice', `exercise ${project_key}/${key} renamed to ${new_key}`);
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const newKey = await readKeyBody(req, res, 'key', problems);
+    if (newKey === null) return;
+    const outcome = store.renameExercise(projectKey, key, newKey, isDryRun);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${projectKey}"`);
+    if (outcome === 'key_taken') return keyTaken(res, `There is already an exercise "${newKey}" in project "${projectKey}".`);
+    if (newKey !== key && !isDryRun) log('info', null, 'practice', `exercise ${projectKey}/${key} renamed to ${newKey}`);
     sendJson(res, 200, outcome);
   }
 
   // Moves an exercise, with its attempts, to the end of another project. It keeps its key, so the key must be free there.
-  async function moveExercise(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): Promise<void> {
+  async function moveExercise(req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[], query: URLSearchParams): Promise<void> {
     const problems: Problem[] = [];
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
-    const to_project_key = await readKeyBody(req, res, 'project', problems);
-    if (to_project_key === null) return;
-    const outcome = store.moveExercise(project_key, key, to_project_key, is_dry_run);
-    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
-    if (outcome === 'no_target') return notFound(res, `project "${to_project_key}" to move to`);
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const toProjectKey = await readKeyBody(req, res, 'project', problems);
+    if (toProjectKey === null) return;
+    const outcome = store.moveExercise(projectKey, key, toProjectKey, isDryRun);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${projectKey}"`);
+    if (outcome === 'no_target') return notFound(res, `project "${toProjectKey}" to move to`);
     if (outcome === 'key_taken') {
-      const message = `Project "${to_project_key}" already has an exercise "${key}". Rename one of them first.`;
+      const message = `Project "${toProjectKey}" already has an exercise "${key}". Rename one of them first.`;
       return keyTaken(res, message);
     }
-    if (to_project_key !== project_key && !is_dry_run) log('info', null, 'practice', `exercise ${project_key}/${key} moved to ${to_project_key}`);
+    if (toProjectKey !== projectKey && !isDryRun) log('info', null, 'practice', `exercise ${projectKey}/${key} moved to ${toProjectKey}`);
     sendJson(res, 200, outcome);
   }
 
   // The order of a project's exercises: the listed keys first, in this order; the others keep their order after them.
-  async function putOrder(req: IncomingMessage, res: ServerResponse, [project_key]: string[], query: URLSearchParams): Promise<void> {
+  async function putOrder(req: IncomingMessage, res: ServerResponse, [projectKey]: string[], query: URLSearchParams): Promise<void> {
     const problems: Problem[] = [];
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
     const body = await readObjectBody(req, res, MAX_EXERCISE_BODY_BYTES, ['keys']);
     if (body === null) return;
-    const items = store.listExercises(project_key, { type: null, tag: null });
-    if (items === null) return notFound(res, `project "${project_key}"`);
-    const known_keys = new Set(items.map((item) => item.key));
-    problems.push(...orderProblems(body.keys, known_keys, project_key));
+    const items = store.listExercises(projectKey, { type: null, tag: null });
+    if (items === null) return notFound(res, `project "${projectKey}"`);
+    const knownKeys = new Set(items.map((item) => item.key));
+    problems.push(...orderProblems(body.keys, knownKeys, projectKey));
     if (problems.length > 0) return sendProblems(res, problems);
 
-    const ordered = store.reorderExercises(project_key, body.keys as string[], is_dry_run) as ExerciseItem[];
-    if (!is_dry_run) log('info', null, 'practice', `project ${project_key}: exercises reordered`);
+    const ordered = store.reorderExercises(projectKey, body.keys as string[], isDryRun) as ExerciseItem[];
+    if (!isDryRun) log('info', null, 'practice', `project ${projectKey}: exercises reordered`);
     sendJson(res, 200, { items: ordered });
   }
 
   // An exercise with attempts is deleted only on purpose, with them (rule 8).
-  function deleteExercise(_req: IncomingMessage, res: ServerResponse, [project_key, key]: string[], query: URLSearchParams): void {
+  function deleteExercise(_req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[], query: URLSearchParams): void {
     const problems: Problem[] = [];
-    const is_with_attempts = choiceParam(query, 'with_attempts', ['false', 'true'] as const, problems) === 'true';
+    const isWithAttempts = choiceParam(query, 'with_attempts', ['false', 'true'] as const, problems) === 'true';
     if (problems.length > 0) return sendProblems(res, problems);
-    const outcome = store.deleteExercise(project_key, key, is_with_attempts);
-    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${project_key}"`);
+    const outcome = store.deleteExercise(projectKey, key, isWithAttempts);
+    if (outcome === 'not_found') return notFound(res, `exercise "${key}" in project "${projectKey}"`);
     if (outcome === 'has_attempts') {
       const message = `Exercise "${key}" has attempts. To delete them too, add ?with_attempts=true.`;
       return sendError(res, 409, 'has_attempts', message);
     }
-    log('info', null, 'practice', `exercise ${project_key}/${key} deleted`);
+    log('info', null, 'practice', `exercise ${projectKey}/${key} deleted`);
     res.writeHead(204).end();
   }
 
   async function importFile(req: IncomingMessage, res: ServerResponse, _params: string[], query: URLSearchParams): Promise<void> {
     const problems: Problem[] = [];
-    const is_dry_run = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
+    const isDryRun = choiceParam(query, 'dry_run', DRY_RUN, problems) === 'true';
     const body = await readRequestJson(req, res, MAX_IMPORT_BODY_BYTES);
     if (body === undefined) return;
-    const { file, problems: file_problems } = checkImportValue(body);
-    problems.push(...(file_problems ?? []));
+    const { file, problems: fileProblems } = checkImportValue(body);
+    problems.push(...(fileProblems ?? []));
     if (file === null || problems.length > 0) return sendProblems(res, problems);
-    const result = store.importFile(file, is_dry_run);
+    const result = store.importFile(file, isDryRun);
     const { created, updated, unchanged } = result.exercises;
-    if (!is_dry_run) {
+    if (!isDryRun) {
       const counts = `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged`;
       log('info', null, 'import', `project ${file.key} ${result.projectChange}  ${counts}`);
     }
@@ -300,11 +300,11 @@ export function createPracticeFeature({ database_path }: { database_path: string
 
   // Saves an answer. A flashcard's rating is its result; every other answer is saved with a running grading, which then
   // goes on in the background.
-  async function createAttempt(req: IncomingMessage, res: ServerResponse, [project_key, key]: string[]): Promise<void> {
+  async function createAttempt(req: IncomingMessage, res: ServerResponse, [projectKey, key]: string[]): Promise<void> {
     const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['answer', 'timeSpentMs', 'modelId', 'effort', 'exerciseVersion']);
     if (body === null) return;
-    const exercise = store.readExercise(project_key, key);
-    if (exercise === null) return notFound(res, `exercise "${key}" in project "${project_key}"`);
+    const exercise = store.readExercise(projectKey, key);
+    if (exercise === null) return notFound(res, `exercise "${key}" in project "${projectKey}"`);
 
     const problems: Problem[] = [];
     const { answer, problem } = checkAnswer(exercise.content, body.answer);
@@ -313,25 +313,25 @@ export function createPracticeFeature({ database_path }: { database_path: string
       problems.push({ path: '/answer', code, message: `${problem}.` });
     }
     const settings = settingsOf(body as RegradeRequest, problems);
-    const time_spent_ms = body.timeSpentMs ?? null;
-    if (time_spent_ms !== null && !isWholeNumber(time_spent_ms)) {
+    const timeSpentMs = body.timeSpentMs ?? null;
+    if (timeSpentMs !== null && !isWholeNumber(timeSpentMs)) {
       problems.push({ path: '/timeSpentMs', code: 'wrong_type', message: 'timeSpentMs must be a whole number of milliseconds, or null.' });
     }
-    const shown_version = body.exerciseVersion;
-    if (shown_version !== undefined && !isWholeNumber(shown_version)) {
+    const shownVersion = body.exerciseVersion;
+    if (shownVersion !== undefined && !isWholeNumber(shownVersion)) {
       problems.push({ path: '/exerciseVersion', code: 'wrong_type', message: 'exerciseVersion must be a whole number.' });
     }
     if (answer === null || problems.length > 0) return sendProblems(res, problems);
 
     // The exercise was changed (by an agent, say) after the page showed it: do not grade against a question you did not see.
-    if (shown_version !== undefined && shown_version !== exercise.version) {
-      const message = `The exercise changed while you answered (you saw version ${shown_version}, it is now ${exercise.version}). Open it again.`;
+    if (shownVersion !== undefined && shownVersion !== exercise.version) {
+      const message = `The exercise changed while you answered (you saw version ${shownVersion}, it is now ${exercise.version}). Open it again.`;
       return sendError(res, 409, 'exercise_changed', message);
     }
 
     let grading: GradingSettings | null = null;
     if (isGradedByAi(exercise.content.type)) grading = settings;
-    const started = store.createAttempt({ exerciseId: exercise.id, answer, timeSpentMs: time_spent_ms as number | null, grading });
+    const started = store.createAttempt({ exerciseId: exercise.id, answer, timeSpentMs: timeSpentMs as number | null, grading });
     sendJson(res, 201, started.attempt);
     if (started.gradingId !== null) grader.start(started.attempt, started.gradingId, settings);
   }
@@ -352,8 +352,8 @@ export function createPracticeFeature({ database_path }: { database_path: string
 
     // A date ("2026-10-19", midnight UTC) or a full time.
     const since = query.get('since');
-    const is_since_valid = since === null || (/^\d{4}-\d{2}-\d{2}/.test(since) && !Number.isNaN(Date.parse(since)));
-    if (!is_since_valid) {
+    const isSinceValid = since === null || (/^\d{4}-\d{2}-\d{2}/.test(since) && !Number.isNaN(Date.parse(since)));
+    if (!isSinceValid) {
       problems.push({ path: '?since', code: 'wrong_type', message: 'since must be a date or time, like 2026-10-19 or 2026-10-19T08:30:00Z.' });
     }
 
@@ -383,13 +383,13 @@ export function createPracticeFeature({ database_path }: { database_path: string
   // A new grading of the attempt, with the same answer and the exercise as it was then, and the settings now chosen. Allowed
   // at any time, one at a time (rule 7); every earlier grading is kept.
   async function regrade(req: IncomingMessage, res: ServerResponse, [id]: string[]): Promise<void> {
-    const attempt_id = Number(id);
+    const attemptId = Number(id);
     const body = await readObjectBody(req, res, MAX_ATTEMPT_BODY_BYTES, ['modelId', 'effort']);
     if (body === null) return;
     const problems: Problem[] = [];
     const settings = settingsOf(body as RegradeRequest, problems);
     if (problems.length > 0) return sendProblems(res, problems);
-    const outcome = store.regrade(attempt_id, settings);
+    const outcome = store.regrade(attemptId, settings);
     if (outcome === 'not_found') return notFound(res, 'attempt');
     if (outcome === 'not_graded_by_ai') return sendError(res, 409, 'not_graded_by_ai', 'A flashcard is not graded: its rating is its result.');
     if (outcome === 'grading') return sendError(res, 409, 'grading_in_progress', 'The attempt is being graded; grade it again once that has ended.');
@@ -404,9 +404,9 @@ export function createPracticeFeature({ database_path }: { database_path: string
   }
 
   function watchAttempt(_req: IncomingMessage, res: ServerResponse, [id]: string[]): void {
-    const attempt_id = Number(id);
-    if (store.readAttempt(attempt_id) === null) return notFound(res, 'attempt');
-    grader.watch(res, attempt_id);
+    const attemptId = Number(id);
+    if (store.readAttempt(attemptId) === null) return notFound(res, 'attempt');
+    grader.watch(res, attemptId);
   }
 
   // The parts of a readable path: {p} a project key and {e} an exercise key (checked by the handler that needs it), {id} an
@@ -421,14 +421,14 @@ export function createPracticeFeature({ database_path }: { database_path: string
     return new RegExp(`^${pattern}$`);
   }
   function route(method: string, path: string, about: string, handler: Handler, query?: string[]): Route {
-    const full_path = `/api/practice${path}`;
-    return { method, path: full_path, pattern: patternOf(full_path), about, handler, query };
+    const fullPath = `/api/practice${path}`;
+    return { method, path: fullPath, pattern: patternOf(fullPath), about, handler, query };
   }
   const routes: Route[] = [
-    route('GET', '', 'This index: version, limits, types and every endpoint.', (_req, res) => sendJson(res, 200, api_index)),
+    route('GET', '', 'This index: version, limits, types and every endpoint.', (_req, res) => sendJson(res, 200, apiIndex)),
     route('GET', '/schemas/{name}.json', 'JSON Schema of an exercise (exercise) or an import file (import).',
       (_req, res, [name]) => found(res, SCHEMAS.get(name) ?? null, `schema "${name}"`)),
-    route('GET', '/grading-options', 'The models and efforts the AI grader can use.', (_req, res) => sendJson(res, 200, grading_options)),
+    route('GET', '/grading-options', 'The models and efforts the AI grader can use.', (_req, res) => sendJson(res, 200, gradingOptions)),
 
     route('GET', '/projects', 'List projects, newest activity first.', listProjects, ['archived']),
     route('GET', '/projects/{p}', 'Read one project.', (_req, res, [key]) => found(res, store.readProject(key), `project "${key}"`)),
@@ -453,20 +453,20 @@ export function createPracticeFeature({ database_path }: { database_path: string
     route('POST', '/attempts/{id}/regrade', 'Grade an attempt again, as a new grading: { modelId?, effort? }.', regrade),
     route('GET', '/attempts/{id}/stream', 'Follow a grading as server-sent events.', watchAttempt),
   ];
-  const api_index: ApiIndex = {
+  const apiIndex: ApiIndex = {
     ...API_INDEX,
-    endpoints: routes.map((one_route) => ({
-      method: one_route.method,
-      path: one_route.path,
-      query: one_route.query ?? [],
-      about: one_route.about,
+    endpoints: routes.map((oneRoute) => ({
+      method: oneRoute.method,
+      path: oneRoute.path,
+      query: oneRoute.query ?? [],
+      about: oneRoute.about,
     })),
   };
 
   async function handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
     const file = FILES.get(pathname);
     if (req.method === 'GET' && file !== undefined) {
-      await sendFile(res, file.path, file.content_type);
+      await sendFile(res, file.path, file.contentType);
       return true;
     }
     return handleApi(req, res, pathname);
@@ -475,24 +475,24 @@ export function createPracticeFeature({ database_path }: { database_path: string
   // Finds the route for the path and method and runs it. A known path with another method is a 405 that names the right
   // ones; a path no route knows is left to the server (false).
   async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    const allowed_methods = new Set<string>();
-    for (const one_route of routes) {
-      const match = one_route.pattern.exec(pathname);
+    const allowedMethods = new Set<string>();
+    for (const oneRoute of routes) {
+      const match = oneRoute.pattern.exec(pathname);
       if (match === null) continue;
-      if (req.method === one_route.method) {
-        await runRoute(one_route, match, req, res, pathname);
+      if (req.method === oneRoute.method) {
+        await runRoute(oneRoute, match, req, res, pathname);
         return true;
       }
-      allowed_methods.add(one_route.method);
+      allowedMethods.add(oneRoute.method);
     }
-    if (allowed_methods.size === 0) return false;
-    const allowed = [...allowed_methods];
+    if (allowedMethods.size === 0) return false;
+    const allowed = [...allowedMethods];
     const message = `${req.method} is not allowed here; use ${allowed.join(' or ')}.`;
     sendError(res, 405, 'method_not_allowed', message, undefined, { Allow: allowed.join(', ') });
     return true;
   }
 
-  async function runRoute(one_route: Route, match: RegExpExecArray, req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
+  async function runRoute(oneRoute: Route, match: RegExpExecArray, req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
     let params: string[];
     try {
       params = match.slice(1).map((part) => decodeURIComponent(part));
@@ -500,9 +500,9 @@ export function createPracticeFeature({ database_path }: { database_path: string
       return sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
     }
     const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
-    const problems = unknownParameterProblems(query, one_route.query ?? []);
+    const problems = unknownParameterProblems(query, oneRoute.query ?? []);
     if (problems.length > 0) return sendProblems(res, problems);
-    await one_route.handler(req, res, params, query);
+    await oneRoute.handler(req, res, params, query);
   }
 
   return { name: 'practice', handle };

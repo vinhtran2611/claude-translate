@@ -99,7 +99,7 @@ for (const { old_path, new_path, schema_version, is_default } of RENAMED_DATABAS
 // Each feature opens its database here, so a damaged or newer file stops the server at startup, not mid-request.
 const features: Feature[] = [
   createTranslateFeature({ database_path: TRANSLATE_DATABASE_PATH }),
-  createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH }),
+  createPracticeFeature({ databasePath: PRACTICE_DATABASE_PATH }),
 ];
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 // A rebinding page can retry without end; one line per Host names it without flooding the log.

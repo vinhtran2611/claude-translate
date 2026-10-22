@@ -17,7 +17,7 @@ const SORTS = {
 };
 
 // Archived projects are hidden unless this is on. It lasts until the page is reloaded.
-let is_showing_archived = false;
+let isShowingArchived = false;
 
 function activityOf(project: ProjectSummary): string {
   if (project.archivedAt !== null) return 'Archived';
@@ -37,7 +37,7 @@ function createCard(project: ProjectSummary): HTMLAnchorElement {
 
 export async function showProjects(page: Page): Promise<void> {
   page.setTitle('Projects');
-  const projects = await listProjects(is_showing_archived ? 'all' : 'false', page.signal);
+  const projects = await listProjects(isShowingArchived ? 'all' : 'false', page.signal);
   showProjectsSide(projects);
   const sort = Object.assign(h('select'), { id: 'sort' });
   sort.append(...Object.entries(SORTS).map(([value, { label }]) => Object.assign(h('option', '', label), { value })));
@@ -48,29 +48,29 @@ export async function showProjects(page: Page): Promise<void> {
     const query = search.value.trim().toLowerCase();
     const shown = projects.filter((project) => project.name.toLowerCase().includes(query))
       .sort(SORTS[sort.value as keyof typeof SORTS].compare);
-    const no_match = Object.assign(h('p', 'empty-note', `No project matches “${search.value.trim()}”.`), { role: 'status' });
-    grid.replaceChildren(...(shown.length > 0 ? shown.map(createCard) : [no_match]));
+    const noMatch = Object.assign(h('p', 'empty-note', `No project matches “${search.value.trim()}”.`), { role: 'status' });
+    grid.replaceChildren(...(shown.length > 0 ? shown.map(createCard) : [noMatch]));
   };
   search.addEventListener('input', draw, { signal: page.signal });
   sort.addEventListener('change', draw);
   page.main.append(h('h1', '', 'Projects'));
-  const new_project = link('#/new', 'primary-button', 'New project');
-  const archived_toggle = createArchivedToggle();
+  const newProject = link('#/new', 'primary-button', 'New project');
+  const archivedToggle = createArchivedToggle();
   if (projects.length === 0) {
-    const toolbar = h('div', 'toolbar', archived_toggle, h('span', 'grow'), new_project);
+    const toolbar = h('div', 'toolbar', archivedToggle, h('span', 'grow'), newProject);
     const note = h('p', 'empty-note', 'No projects yet. A project is one JSON file of exercises: choose New project to import one.');
     page.main.append(toolbar, note);
     return;
   }
-  const toolbar = h('div', 'toolbar', h('label', 'settings-chip sort-chip', 'Sort by', sort), archived_toggle, h('span', 'grow'), new_project);
+  const toolbar = h('div', 'toolbar', h('label', 'settings-chip sort-chip', 'Sort by', sort), archivedToggle, h('span', 'grow'), newProject);
   page.main.append(toolbar, grid);
   draw();
 }
 
 function createArchivedToggle(): HTMLElement {
-  const checkbox = Object.assign(h('input'), { type: 'checkbox', checked: is_showing_archived });
+  const checkbox = Object.assign(h('input'), { type: 'checkbox', checked: isShowingArchived });
   checkbox.addEventListener('change', () => {
-    is_showing_archived = checkbox.checked;
+    isShowingArchived = checkbox.checked;
     reloadView();
   });
   return h('label', 'settings-chip', checkbox, 'Show archived');

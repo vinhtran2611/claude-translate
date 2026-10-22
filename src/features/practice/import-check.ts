@@ -143,8 +143,8 @@ export const TYPE_RULES: { [Type in ExerciseType]: string } = {
 
 // The fields of an exercise around its content. The key is required in a file, and may be left out in PUT (the URL
 // names the exercise).
-export function exerciseFields(is_key_required: boolean): Fields {
-  const key: Spec = is_key_required ? { kind: 'key', required: true } : { kind: 'key' };
+export function exerciseFields(isKeyRequired: boolean): Fields {
+  const key: Spec = isKeyRequired ? { kind: 'key', required: true } : { kind: 'key' };
   return {
     key: about(key, 'Names the exercise inside its project.'),
     topic: text(100),
@@ -286,14 +286,14 @@ function checkValue(value: unknown, spec: Spec, at: Segment[], problems: Problem
       break;
     }
     case 'time': {
-      const is_time = typeof value === 'string' && TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
-      if (!is_time) problems.add(at, 'wrong_type', TIME_RULE);
+      const isTime = typeof value === 'string' && TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+      if (!isTime) problems.add(at, 'wrong_type', TIME_RULE);
       break;
     }
     case 'texts': {
       // A list of 1 to 10 texts is checked text by text; anything else must be one text.
-      const is_text_list = Array.isArray(value) && value.length >= 1 && value.length <= 10;
-      if (!is_text_list) {
+      const isTextList = Array.isArray(value) && value.length >= 1 && value.length <= 10;
+      if (!isTextList) {
         checkText(value, spec.max, at, problems);
         break;
       }
@@ -345,19 +345,19 @@ function checkFields(object: Record<string, unknown>, fields: Fields, at: Segmen
 }
 
 // A choice exercise needs at least one correct option.
-function checkChoiceOptions(options: unknown[], correct_field: string, problems: Problems): void {
-  const has_correct_option = options.some((option) => isObject(option) && option[correct_field] === true);
-  if (!has_correct_option) problems.addRule(['content', 'options'], 'no_correct_option', 'no option is marked correct.');
+function checkChoiceOptions(options: unknown[], correctField: string, problems: Problems): void {
+  const hasCorrectOption = options.some((option) => isObject(option) && option[correctField] === true);
+  if (!hasCorrectOption) problems.addRule(['content', 'options'], 'no_correct_option', 'no option is marked correct.');
 }
 
 // A gap-fill text holds {{1}} to {{n}}, in order, one per gap.
-function checkGapMarkers(text_field: string, text: string, gaps: unknown[], problems: Problems): void {
+function checkGapMarkers(textField: string, text: string, gaps: unknown[], problems: Problems): void {
   const markers = [...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
-  const is_in_order = markers.length === gaps.length && markers.every((marker, index) => marker === index + 1);
-  if (is_in_order) return;
+  const isInOrder = markers.length === gaps.length && markers.every((marker, index) => marker === index + 1);
+  if (isInOrder) return;
   const found = markers.map((marker) => `{{${marker}}}`).join(' ') || 'none';
   const message = `the markers must be {{1}} to {{${gaps.length}}} in order, one per gap (found ${found}).`;
-  problems.addRule(['content', text_field], 'gap_markers', message);
+  problems.addRule(['content', textField], 'gap_markers', message);
 }
 
 // Each planted mistake of a correction appears exactly once in its text.
@@ -440,42 +440,42 @@ function gapOf(value: Record<string, unknown>): Gap {
 // The fields are written in the spec's order, so two equal contents are also equal as JSON text.
 function contentWithDefaults(type: ExerciseType, content: Record<string, unknown>): ExerciseContent {
   const instruction = content.instruction as string;
-  const source_text = content.sourceText as string;
+  const sourceText = content.sourceText as string;
   const length = content.length as TextLength;
   const constraints = listOrEmpty<string>(content.constraints);
-  const model_answer = textOrNull(content.modelAnswer);
+  const modelAnswer = textOrNull(content.modelAnswer);
   switch (type) {
     case 'rewrite':
-      return { type, instruction, sourceText: source_text, length, constraints, modelAnswer: model_answer };
+      return { type, instruction, sourceText, length, constraints, modelAnswer };
     case 'translation':
       return {
         type,
         instruction,
-        sourceText: source_text,
+        sourceText,
         sourceLanguage: content.sourceLanguage as Language,
         targetLanguage: content.targetLanguage as Language,
         length,
         constraints,
-        modelAnswer: model_answer,
+        modelAnswer,
       };
     case 'correction': {
       const mistakes = listOrEmpty<Record<string, unknown>>(content.plantedMistakes);
       return {
         type,
         instruction,
-        sourceText: source_text,
+        sourceText,
         length,
         plantedMistakes: mistakes.map(plantedMistakeOf),
         constraints,
-        modelAnswer: model_answer,
+        modelAnswer,
       };
     }
     case 'essay': {
-      let min_words = 250;
-      if (typeof content.minWords === 'number') min_words = content.minWords;
-      let suggested_minutes: number | null = null;
-      if (typeof content.suggestedMinutes === 'number') suggested_minutes = content.suggestedMinutes;
-      return { type, instruction, minWords: min_words, suggestedMinutes: suggested_minutes, constraints, modelAnswer: model_answer };
+      let minWords = 250;
+      if (typeof content.minWords === 'number') minWords = content.minWords;
+      let suggestedMinutes: number | null = null;
+      if (typeof content.suggestedMinutes === 'number') suggestedMinutes = content.suggestedMinutes;
+      return { type, instruction, minWords, suggestedMinutes, constraints, modelAnswer };
     }
     case 'choice': {
       const options = listOrEmpty<Record<string, unknown>>(content.options);
@@ -517,7 +517,7 @@ function topicAndTagsOf(value: Record<string, unknown>): { topic: string | null;
 
 // The content of a format 4 exercise; its problems added. null when it has problems, or no known type.
 function checkContent(content: unknown, problems: Problems): ExerciseContent | null {
-  const count_before = problems.list.length;
+  const countBefore = problems.list.length;
   if (content === undefined || content === null) {
     problems.add(['content'], 'required', 'is missing.');
     return null;
@@ -526,9 +526,9 @@ function checkContent(content: unknown, problems: Problems): ExerciseContent | n
     problems.add(['content'], 'wrong_type', 'must be an object.');
     return null;
   }
-  const { type: type_value, ...fields } = content;
-  const type = EXERCISE_TYPES.find((known) => known === type_value);
-  if (type_value === undefined) {
+  const { type: typeValue, ...fields } = content;
+  const type = EXERCISE_TYPES.find((known) => known === typeValue);
+  if (typeValue === undefined) {
     problems.add(['content', 'type'], 'required', 'is missing.');
     return null;
   }
@@ -538,31 +538,31 @@ function checkContent(content: unknown, problems: Problems): ExerciseContent | n
   }
   checkFields(fields, CONTENT_FIELDS[type], ['content'], problems);
   checkRelations(type, content, problems);
-  if (problems.list.length > count_before) return null;
+  if (problems.list.length > countBefore) return null;
   return contentWithDefaults(type, content);
 }
 
 // One format 4 exercise, its problems added under problems.base; the exercise when it has none.
-// url_key: in PUT, the key in the URL, which a key in the body must equal.
-function checkExercise(value: unknown, problems: Problems, url_key: string | null = null): FileExercise | null {
-  const count_before = problems.list.length;
+// urlKey: in PUT, the key in the URL, which a key in the body must equal.
+function checkExercise(value: unknown, problems: Problems, urlKey: string | null = null): FileExercise | null {
+  const countBefore = problems.list.length;
   if (!isObject(value)) {
     problems.add([], 'wrong_type', 'must be an object.');
     return null;
   }
-  const { content: content_value, ...outer } = value;
-  checkFields(outer, exerciseFields(url_key === null), [], problems);
-  if (url_key !== null && typeof value.key === 'string' && KEY_PATTERN.test(value.key) && value.key !== url_key) {
-    problems.add(['key'], 'key_mismatch', `"${value.key}" is not the key in the URL ("${url_key}").`);
+  const { content: contentValue, ...outer } = value;
+  checkFields(outer, exerciseFields(urlKey === null), [], problems);
+  if (urlKey !== null && typeof value.key === 'string' && KEY_PATTERN.test(value.key) && value.key !== urlKey) {
+    problems.add(['key'], 'key_mismatch', `"${value.key}" is not the key in the URL ("${urlKey}").`);
   }
-  const content = checkContent(content_value, problems);
-  if (problems.list.length > count_before || content === null) return null;
-  return { key: url_key ?? (value.key as string), ...topicAndTagsOf(value), content };
+  const content = checkContent(contentValue, problems);
+  if (problems.list.length > countBefore || content === null) return null;
+  return { key: urlKey ?? (value.key as string), ...topicAndTagsOf(value), content };
 }
 
 // One format 3 exercise, checked by the format 3 rules, then converted.
 function checkFormat3Exercise(value: unknown, problems: Problems): FileExercise | null {
-  const count_before = problems.list.length;
+  const countBefore = problems.list.length;
   if (!isObject(value)) {
     problems.add([], 'wrong_type', 'must be an object.');
     return null;
@@ -576,7 +576,7 @@ function checkFormat3Exercise(value: unknown, problems: Problems): FileExercise 
     checkFields(content, FORMAT_3_CONTENT_FIELDS[type], ['content'], problems);
     checkFormat3Relations(type, content, problems);
   }
-  if (problems.list.length > count_before || type === undefined) return null;
+  if (problems.list.length > countBefore || type === undefined) return null;
   // No problems, so every field has the shape its spec says.
   const converted = contentFromFormat3(type, content as unknown as Format3Content);
   return { key: value.key as string, ...topicAndTagsOf(value), content: converted };
@@ -600,8 +600,8 @@ export function checkImportValue(parsed: unknown): CheckedFile {
   if (isObject(parsed.project)) checkFields(parsed.project, PROJECT_FIELDS, ['project'], problems);
   else problems.add(['project'], parsed.project === undefined ? 'required' : 'wrong_type', 'is missing.');
   // A format 2 file is closest to format 3, so its exercises are checked by those rules.
-  const is_format_3 = parsed.format === 3 || parsed.format === 2;
-  const exercises = checkFileExercises(parsed.exercises, is_format_3, problems);
+  const isFormat3 = parsed.format === 3 || parsed.format === 2;
+  const exercises = checkFileExercises(parsed.exercises, isFormat3, problems);
   if (problems.list.length > 0) return { file: null, problems: problems.list };
   const project = parsed.project as { key: string; name: string; description?: string | null };
   const file: ProjectFile = {
@@ -614,7 +614,7 @@ export function checkImportValue(parsed: unknown): CheckedFile {
 }
 
 // The file's "exercises": a list of 1 to MAX_EXERCISES exercises, each key used once. The ones without problems.
-function checkFileExercises(value: unknown, is_format_3: boolean, problems: Problems): FileExercise[] {
+function checkFileExercises(value: unknown, isFormat3: boolean, problems: Problems): FileExercise[] {
   const rule = `must be a list of 1 to ${MAX_EXERCISES} items.`;
   if (!Array.isArray(value)) {
     problems.add(['exercises'], 'wrong_type', rule);
@@ -630,17 +630,17 @@ function checkFileExercises(value: unknown, is_format_3: boolean, problems: Prob
   }
   const exercises: FileExercise[] = [];
   // key -> the 1-based number of the exercise that used it first.
-  const first_seen = new Map<string, number>();
-  value.forEach((exercise_value, index) => {
-    const exercise_problems = new Problems(['exercises', index], problems.list);
+  const firstSeen = new Map<string, number>();
+  value.forEach((exerciseValue, index) => {
+    const exerciseProblems = new Problems(['exercises', index], problems.list);
     let exercise: FileExercise | null;
-    if (is_format_3) exercise = checkFormat3Exercise(exercise_value, exercise_problems);
-    else exercise = checkExercise(exercise_value, exercise_problems);
-    const key = isObject(exercise_value) && typeof exercise_value.key === 'string' ? exercise_value.key : null;
-    if (key !== null && first_seen.has(key)) {
-      exercise_problems.add(['key'], 'duplicate_key', `"${key}" is already used by exercise ${first_seen.get(key)}.`);
+    if (isFormat3) exercise = checkFormat3Exercise(exerciseValue, exerciseProblems);
+    else exercise = checkExercise(exerciseValue, exerciseProblems);
+    const key = isObject(exerciseValue) && typeof exerciseValue.key === 'string' ? exerciseValue.key : null;
+    if (key !== null && firstSeen.has(key)) {
+      exerciseProblems.add(['key'], 'duplicate_key', `"${key}" is already used by exercise ${firstSeen.get(key)}.`);
     } else if (key !== null) {
-      first_seen.set(key, index + 1);
+      firstSeen.set(key, index + 1);
     }
     if (exercise !== null) exercises.push(exercise);
   });
@@ -648,27 +648,27 @@ function checkFileExercises(value: unknown, is_format_3: boolean, problems: Prob
 }
 
 // The file's text: checked as above, after its size and its JSON.
-export function checkProjectFile(file_text: string): CheckedFile {
-  if (file_text.length > MAX_FILE_CHARS) return { file: null, problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }] };
+export function checkProjectFile(fileText: string): CheckedFile {
+  if (fileText.length > MAX_FILE_CHARS) return { file: null, problems: [{ path: '', code: 'too_large', message: 'The file is larger than 2 MB.' }] };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(file_text);
+    parsed = JSON.parse(fileText);
   } catch (error) {
     const position = /position (\d+)/.exec((error as Error).message);
-    let line_note = '';
+    let lineNote = '';
     if (position !== null) {
-      const line = file_text.slice(0, Number(position[1])).split('\n').length;
-      line_note = ` (line ${line})`;
+      const line = fileText.slice(0, Number(position[1])).split('\n').length;
+      lineNote = ` (line ${line})`;
     }
-    return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${line_note}.` }] };
+    return { file: null, problems: [{ path: '', code: 'bad_json', message: `Not valid JSON${lineNote}.` }] };
   }
   return checkImportValue(parsed);
 }
 
 // The body of PUT .../exercises/:key (format 4): the exercise, or every problem.
-export function checkExerciseInput(value: unknown, url_key: string): { exercise: ExerciseBody; problems: null } | { exercise: null; problems: Problem[] } {
+export function checkExerciseInput(value: unknown, urlKey: string): { exercise: ExerciseBody; problems: null } | { exercise: null; problems: Problem[] } {
   const problems = new Problems();
-  const exercise = checkExercise(value, problems, url_key);
+  const exercise = checkExercise(value, problems, urlKey);
   if (exercise === null) return { exercise: null, problems: problems.list };
   const { key: _key, ...body } = exercise;
   return { exercise: body, problems: null };
@@ -698,10 +698,10 @@ export function keyProblems(key: string): Problem[] {
 
 // The type an exercise of a file names: content.type (format 4) or type (format 3). null when it names no known one.
 function typeNamedBy(exercise: Record<string, unknown>): string | null {
-  const known_types: string[] = [...EXERCISE_TYPES, ...FORMAT_3_TYPES];
+  const knownTypes: string[] = [...EXERCISE_TYPES, ...FORMAT_3_TYPES];
   let type = exercise.type;
   if (isObject(exercise.content) && exercise.content.type !== undefined) type = exercise.content.type;
-  if (typeof type === 'string' && known_types.includes(type)) return type;
+  if (typeof type === 'string' && knownTypes.includes(type)) return type;
   return null;
 }
 

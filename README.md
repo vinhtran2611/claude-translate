@@ -59,14 +59,16 @@ How it works inside (the `claude` command, streaming, timeouts, the API, the log
 Open http://localhost:8787/practice, or **Practice** at the top of the page.
 
 1. **Get exercises.** Ask Claude for a JSON file in the [import format](docs/practice-import-format.md). One file is one
-   project, for example one day of study. There are five exercise types:
+   project, for example one day of study. There are seven exercise types (`content.type`):
 
    | Type | For | Graded by |
    |---|---|---|
-   | `rewrite` | translate, rewrite, correct mistakes | Claude |
-   | `write` | IELTS Task 2 essays | Claude, with estimated bands |
+   | `rewrite` | say a text another way | Claude |
+   | `translation` | Vietnamese to English, or back | Claude |
+   | `correction` | fix the mistakes in a text | Claude |
+   | `essay` | IELTS Task 2 essays | Claude, with estimated bands |
    | `choice` | multiple choice | Claude |
-   | `fill` | fill in the blanks | Claude |
+   | `gap_fill` | fill in the blanks | Claude |
    | `flashcard` | vocabulary and rules | you: *Didn't know*, *Almost*, *Knew it* |
 
    [features/practice/examples/example-project.json](features/practice/examples/example-project.json) has one of each.
@@ -107,12 +109,14 @@ The full design and every endpoint: [docs/practice-api-design.md](docs/practice-
 
 | File | What |
 |---|---|
-| `data/history.sqlite` | your translations |
-| `data/practice-v2.sqlite` | your Practice projects, exercises and answers |
-| `data/backups/` | a daily copy of both; the newest 30 are kept |
+| `data/translate.sqlite` | your translations |
+| `data/practice.sqlite` | your Practice projects, exercises and answers |
+| `data/backups/` | a daily copy of both (the newest 30 are kept), and a copy before any migration or rename |
 | `data/server.log` | the server log |
 
 `data/` is never committed. To restore a backup, stop the server and copy the backup over the live file.
+The data model (names, types and rules) is [docs/data-model-proposal.md](docs/data-model-proposal.md). Older files
+(`history.sqlite`, `practice-v2.sqlite`) are renamed and migrated once, on the first start, after a backup.
 The server only listens on `127.0.0.1` and refuses requests from other websites.
 
 ## Development

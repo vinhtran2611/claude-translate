@@ -1,10 +1,10 @@
 // The history sidebar: the list of saved translations, grouped by day, with search, keyboard moves and delete with
 // Undo. Docked as a column on wide screens, a modal drawer on narrow ones.
+import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { parseInline, plainTextOf } from '../../../shared/web/markdown.ts';
 import { foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type { HistoryEntry, HistorySummary } from '../api-types.ts';
 import { errorText, showAlert } from './alert.ts';
-import { fetchJson } from './fetch-json.ts';
 import { arrowTargetOf, choiceLabelOf, modeNoteOf } from './settings-menus.ts';
 
 // What the sidebar asks the page to do. Set once by initHistorySidebar.

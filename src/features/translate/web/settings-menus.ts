@@ -2,8 +2,8 @@
 // with, remember it in localStorage, and show the latest quota warning.
 import type { Effort, EffortOption } from '../../../shared/api-types.ts';
 import type { Mode, QuotaWarning, TranslationOptions } from '../api-types.ts';
+import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import { fetchJson } from './fetch-json.ts';
 
 // What the next translation runs with.
 export interface TranslationSettings {

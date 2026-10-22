@@ -1,48 +1,24 @@
 // The page's side of the HTTP API (src/features/practice/api-types.ts). Every read takes the navigation's AbortSignal, so a response
 // that arrives after the page has moved on is dropped, never drawn.
-import type { ApiErrorBody, ApiProblem } from '../../../shared/api-types.ts';
+import type { ApiProblem } from '../../../shared/api-types.ts';
+import { ApiError, fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
   AnswerByType, Attempt, CreateAttemptRequest, Exercise, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, GradingStreamEvents, ImportResult,
   List, Project, ProjectInput,
 } from '../api-types.ts';
 
-// A non-2xx answer: its status and the API's one error shape (docs/practice-api-design.md §3.3).
-export class ApiError extends Error {
-  status: number;
-  code: string;
-  problems: ApiProblem[];
+// The pages check `error instanceof ApiError`; it is defined with fetchJson in shared/web/fetch-json.ts.
+export { ApiError };
 
-  constructor(status: number, code: string, message: string, problems: ApiProblem[] = []) {
-    super(message);
-    this.status = status;
-    this.code = code;
-    this.problems = problems;
-  }
-}
-
-// Every API error is JSON; anything else (a proxy, a crash before the server answered) keeps its status and text.
-async function apiErrorOf(response: Response): Promise<ApiError> {
-  const text = await response.text();
-  try {
-    const { error } = JSON.parse(text) as ApiErrorBody;
-    return new ApiError(response.status, error.code, error.message, error.problems);
-  } catch {
-    return new ApiError(response.status, 'http', text || `HTTP ${response.status}`);
-  }
-}
-
-// Sends one API request. A body is sent as JSON. A 204 has no body, so it returns undefined.
-async function request<Body>(method: string, path: string, signal: AbortSignal, body?: unknown): Promise<Body> {
+// Sends one API request. A body is sent as JSON. A 204 has no body, so it returns null.
+function request<Body>(method: string, path: string, signal: AbortSignal, body?: unknown): Promise<Body> {
   const init: RequestInit = { method, signal };
   if (body !== undefined) {
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body);
   }
-  const response = await fetch(`/api/practice${path}`, init);
-  if (!response.ok) throw await apiErrorOf(response);
-  if (response.status === 204) return undefined as Body;
-  return await response.json() as Body;
+  return fetchJson<Body>(`/api/practice${path}`, init);
 }
 
 // The problems of a rejected request, or the one error as a problem.

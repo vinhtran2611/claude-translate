@@ -230,7 +230,7 @@ function forgetClearedSnapshot(): void {
 
 // The one place the end-of-run status line is worded. A live run names the model only after a fallback, since the
 // picker already shows the choice; a history entry always names its choice.
-function runInfoTextOf({ outcome, hasOutput, durationMs: durationMs = 0, servedModelId: servedModelId = '', effort = '', sourceFormat: mode, isFallback, isFromHistory }: RunInfo): string {
+function runInfoTextOf({ outcome, hasOutput, durationMs = 0, servedModelId = '', effort = '', sourceFormat: mode, isFallback, isFromHistory }: RunInfo): string {
   if (outcome === 'cancelled') return hasOutput ? 'Cancelled · partial' : 'Cancelled';
   if (outcome === 'error') return hasOutput ? 'Stopped · partial' : 'Failed';
   const seconds = `${(durationMs / 1000).toFixed(1)}s`;

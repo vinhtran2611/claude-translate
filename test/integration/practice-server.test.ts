@@ -32,10 +32,10 @@ async function get(path: string): Promise<any> {
 }
 
 // Imports the example file as a new project, and returns its key.
-let project_count = 0;
+let projectCount = 0;
 async function exampleProject(): Promise<string> {
-  project_count++;
-  const key = `example-${project_count}`;
+  projectCount++;
+  const key = `example-${projectCount}`;
   const response = await call('POST', '/import', { ...EXAMPLE, project: { ...EXAMPLE.project, key } });
   assert.equal(response.status, 200);
   return key;
@@ -57,13 +57,13 @@ function latestOf(attempt: any): any {
   return attempt.gradings.at(-1);
 }
 
-async function waitForGrading(attempt_id: number): Promise<any> {
+async function waitForGrading(attemptId: number): Promise<any> {
   for (let tries = 0; tries < 100; tries++) {
-    const attempt = await get(`/attempts/${attempt_id}`);
+    const attempt = await get(`/attempts/${attemptId}`);
     if (latestOf(attempt).run.status !== 'running') return attempt;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`attempt ${attempt_id} is still grading`);
+  throw new Error(`attempt ${attemptId} is still grading`);
 }
 
 // The last run the fake claude saw, and one of its arguments.
@@ -119,9 +119,9 @@ test('every module the page loads, however deep, is served as JavaScript without
     assert.equal(response.headers.get('content-type'), 'text/javascript; charset=utf-8', url);
     const source = await response.text();
     assert.doesNotMatch(source, /import type|^\s*(export )?(enum|namespace) /m, url);
-    for (const [, import_path] of source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g)) pending.push(new URL(import_path, url).href);
+    for (const [, importPath] of source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g)) pending.push(new URL(importPath, url).href);
   }
-  const expected_modules = [
+  const expectedModules = [
     'features/practice/web/exercise.ts',
     'features/practice/web/templates/index.ts',
     'features/practice/import-check.ts',
@@ -129,7 +129,7 @@ test('every module the page loads, however deep, is served as JavaScript without
     'features/practice/text.ts',
     'shared/web/ui.ts',
   ];
-  for (const name of expected_modules) {
+  for (const name of expectedModules) {
     assert.ok(seen.has(`${server.baseUrl}/${name}`), name);
   }
 });
@@ -158,12 +158,12 @@ test('the example file imports as a project with every type', async () => {
 
 test('a flashcard has no grading: the rating is the result, and it never reaches claude', async () => {
   const key = await exampleProject();
-  const runs_before = server.claudeRuns().length;
+  const runsBefore = server.claudeRuns().length;
   const card = await answerAndRead(key, 'ex-09', { answer: { type: 'flashcard', rating: 'almost' }, timeSpentMs: 900 });
   assert.deepEqual(card.gradings, []);
   assert.deepEqual(card.answer, { type: 'flashcard', rating: 'almost' });
   assert.equal(card.timeSpentMs, 900);
-  assert.equal(server.claudeRuns().length, runs_before);
+  assert.equal(server.claudeRuns().length, runsBefore);
 
   const project = await get(`/projects/${key}`);
   assert.equal(project.doneCount, 1);
@@ -179,7 +179,7 @@ test('a flashcard has no grading: the rating is the result, and it never reaches
 
 test('answers that do not fit their exercise are refused and nothing is saved', async () => {
   const key = await exampleProject();
-  const bad_answers: [string, unknown][] = [
+  const badAnswers: [string, unknown][] = [
     ['ex-06', { type: 'choice', chosenOptionIndexes: [7] }],
     ['ex-06', { type: 'choice', chosenOptionIndexes: [0, 1] }],
     ['ex-08', { type: 'gap_fill', gapAnswers: ['one'] }],
@@ -188,9 +188,9 @@ test('answers that do not fit their exercise are refused and nothing is saved', 
     ['ex-01', { type: 'translation', text: 'Right text, wrong type.' }],
     ['ex-01', 'text'],
   ];
-  for (const [exercise, bad_answer] of bad_answers) {
-    const response = await answer(key, exercise, { answer: bad_answer });
-    assert.equal(response.status, 400, `${exercise} ${JSON.stringify(bad_answer)}`);
+  for (const [exercise, badAnswer] of badAnswers) {
+    const response = await answer(key, exercise, { answer: badAnswer });
+    assert.equal(response.status, 400, `${exercise} ${JSON.stringify(badAnswer)}`);
   }
   const missing = await answer(key, 'ex-01', {});
   assert.equal(missing.status, 400);
@@ -236,8 +236,8 @@ test('a rewrite is saved, graded by claude with the common prompt, and the text 
 
 test('an essay is graded with the whole exercise, and with the model and effort the person picked', async () => {
   const key = await exampleProject();
-  const answer_text = 'Public transport matters. FAKE:reply=Band 6.0 overall.';
-  const body = { answer: { type: 'essay', text: answer_text }, timeSpentMs: 1, modelId: 'claude-haiku-5-5', effort: 'high' };
+  const answerText = 'Public transport matters. FAKE:reply=Band 6.0 overall.';
+  const body = { answer: { type: 'essay', text: answerText }, timeSpentMs: 1, modelId: 'claude-haiku-5-5', effort: 'high' };
   const started = await answerAndRead(key, 'ex-05', body);
   const graded = latestOf(await waitForGrading(started.id));
   assert.equal(graded.feedbackMarkdown, 'Band 6.0 overall.');
@@ -256,8 +256,8 @@ test('a translation and a correction send their own fields to the grader', async
   await waitForGrading(translated.id);
   assert.match(lastRun().content, /"sourceLanguage": "vi"/);
 
-  const answer_text = 'Many students prefer online classes because it save time. FAKE:reply=Two of three fixed.';
-  const started = await answerAndRead(key, 'ex-04', { answer: { type: 'correction', text: answer_text } });
+  const answerText = 'Many students prefer online classes because it save time. FAKE:reply=Two of three fixed.';
+  const started = await answerAndRead(key, 'ex-04', { answer: { type: 'correction', text: answerText } });
   assert.equal(latestOf(await waitForGrading(started.id)).feedbackMarkdown, 'Two of three fixed.');
   assert.match(lastRun().content, /"wrongText": "it saves"/);
   assert.match(lastRun().content, /"correctText": "they save"/);
@@ -289,18 +289,18 @@ test('the grading options are the ones Claude Translate offers', async () => {
   assert.deepEqual(options.models.map((model: any) => model.modelId), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
   assert.deepEqual(options.efforts.map((effort: any) => effort.effort), ['low', 'medium', 'high']);
 
-  const translate_options = await (await fetch(`${server.baseUrl}/translation-options`)).json() as any;
-  assert.equal(options.defaultModelId, translate_options.defaultModelId);
-  assert.equal(options.defaultEffort, translate_options.defaultEffort);
-  assert.deepEqual(options.models, translate_options.models);
+  const translateOptions = await (await fetch(`${server.baseUrl}/translation-options`)).json() as any;
+  assert.equal(options.defaultModelId, translateOptions.defaultModelId);
+  assert.equal(options.defaultEffort, translateOptions.defaultEffort);
+  assert.deepEqual(options.models, translateOptions.models);
 });
 
 test('a model or effort that is not offered is refused, for an answer and for Grade again', async () => {
   const key = await exampleProject();
-  const runs_before = server.claudeRuns().length;
-  const text_answer = { type: 'rewrite', text: 'Text.' };
+  const runsBefore = server.claudeRuns().length;
+  const textAnswer = { type: 'rewrite', text: 'Text.' };
   for (const settings of [{ modelId: 'gpt-5' }, { effort: 'extreme' }, { modelId: 7 }, { effort: null }, { effort: 'max' }]) {
-    const refused = await answer(key, 'ex-01', { answer: text_answer, ...settings });
+    const refused = await answer(key, 'ex-01', { answer: textAnswer, ...settings });
     assert.equal(refused.status, 400, JSON.stringify(settings));
     assert.match(await refused.text(), /must be one of/);
   }
@@ -311,14 +311,14 @@ test('a model or effort that is not offered is refused, for an answer and for Gr
   const regrade = await call('POST', `/attempts/${failed.id}/regrade`, { effort: 'extreme' });
   assert.equal(regrade.status, 400);
   assert.equal((await get(`/attempts/${failed.id}`)).gradings.length, 1);
-  assert.equal(server.claudeRuns().length, runs_before + 1);
+  assert.equal(server.claudeRuns().length, runsBefore + 1);
 });
 
 // ---- The grading stream ----
 
 // The events of a grading's stream as [name, data], read until it ends.
-async function watch(attempt_id: number): Promise<[string, any][]> {
-  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${attempt_id}/stream`);
+async function watch(attemptId: number): Promise<[string, any][]> {
+  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${attemptId}/stream`);
   assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
   const blocks = (await response.text()).split('\n\n').filter((block) => block.trim() !== '');
   return blocks.map((block) => {
@@ -343,8 +343,8 @@ test('a grading streams its thinking and words, a page that joins midway gets wh
   const midway = await watch(started.id).catch(() => [] as [string, any][]);
   const events = await first;
 
-  const [snapshot_name, snapshot] = events[0];
-  assert.equal(snapshot_name, 'snapshot');
+  const [snapshotName, snapshot] = events[0];
+  assert.equal(snapshotName, 'snapshot');
   assert.equal(snapshot.modelId, 'claude-sonnet-5-5');
   assert.equal(typeof snapshot.elapsedMs, 'number');
   assert.equal(snapshot.effort, 'low');
@@ -352,18 +352,18 @@ test('a grading streams its thinking and words, a page that joins midway gets wh
   assert.equal(snapshot.text + streamedText(events), reply);
 
   // The second watcher was a whole page reload: its snapshot already held the words so far, and it ended when the grading did.
-  const [midway_name, midway_snapshot] = midway[0];
-  assert.equal(midway_name, 'snapshot');
-  assert.ok(midway_snapshot.text.length > 0, 'the snapshot holds some of the words');
-  assert.ok(midway_snapshot.text.length < reply.length, 'the snapshot does not hold all of the words');
-  assert.equal(midway_snapshot.text + streamedText(midway), reply);
+  const [midwayName, midwaySnapshot] = midway[0];
+  assert.equal(midwayName, 'snapshot');
+  assert.ok(midwaySnapshot.text.length > 0, 'the snapshot holds some of the words');
+  assert.ok(midwaySnapshot.text.length < reply.length, 'the snapshot does not hold all of the words');
+  assert.equal(midwaySnapshot.text + streamedText(midway), reply);
   assert.equal(midway.at(-1)![0], 'done');
 
   const thinking = events.find(([name]) => name === 'thinking_delta')!;
   assert.deepEqual(thinking[1], { text: 'Thinking it over.' });
 
-  const thinking_done = events.find(([name]) => name === 'thinking_done')!;
-  assert.equal(typeof thinking_done[1].durationMs, 'number');
+  const thinkingDone = events.find(([name]) => name === 'thinking_done')!;
+  assert.equal(typeof thinkingDone[1].durationMs, 'number');
 
   const graded = latestOf(await get(`/attempts/${started.id}`));
   assert.equal(graded.run.status, 'succeeded');
@@ -385,11 +385,11 @@ test('a grading goes on and is saved when nobody is watching, and a failure reac
 
   const crash = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:error' } });
   const events = await watch(crash.id);
-  const [last_name, last_data] = events.at(-1)!;
-  assert.ok(['error', 'finished'].includes(last_name));
+  const [lastName, lastData] = events.at(-1)!;
+  assert.ok(['error', 'finished'].includes(lastName));
   const failed = latestOf(await waitForGrading(crash.id));
   assert.equal(failed.run.status, 'failed');
-  if (last_name === 'error') assert.equal(last_data.message, failed.run.errorMessage);
+  if (lastName === 'error') assert.equal(lastData.message, failed.run.errorMessage);
 });
 
 test('a failed run keeps its error code and message; Grade again adds a new grading, at any time but one at a time', async () => {
@@ -427,10 +427,10 @@ test('one malformed row never breaks the lists, and an attempt keeps its exercis
   const card = await answerAndRead(key, 'ex-10', { answer: { type: 'flashcard', rating: 'knew' } });
 
   const database = new DatabaseSync(join(server.dataDirectory, 'practice.sqlite'));
-  const project_id = (await get(`/projects/${key}`)).id;
-  database.prepare("UPDATE exercises SET content_json = 'null' WHERE project_id = ? AND key = 'ex-01'").run(project_id);
+  const projectId = (await get(`/projects/${key}`)).id;
+  database.prepare("UPDATE exercises SET content_json = 'null' WHERE project_id = ? AND key = 'ex-01'").run(projectId);
   const changed = JSON.stringify({ type: 'flashcard', front: 'changed', back: 'b', hint: null, example: null, explanationMarkdown: null });
-  database.prepare("UPDATE exercises SET content_json = ? WHERE project_id = ? AND key = 'ex-10'").run(changed, project_id);
+  database.prepare("UPDATE exercises SET content_json = ? WHERE project_id = ? AND key = 'ex-10'").run(changed, projectId);
   database.close();
 
   const { items } = await get(`/projects/${key}/exercises`);
@@ -441,21 +441,21 @@ test('one malformed row never breaks the lists, and an attempt keeps its exercis
 
 test('every API error has the one shape: bad JSON, too large, invalid, not found, wrong method, unknown path', async () => {
   const key = await exampleProject();
-  const attempts_path = `/projects/${key}/exercises/ex-01/attempts`;
+  const attemptsPath = `/projects/${key}/exercises/ex-01/attempts`;
 
-  const bad_json = await call('POST', attempts_path, '{\n  "answer": oops\n}');
-  assert.equal(bad_json.status, 400);
-  assert.equal(bad_json.headers.get('content-type'), 'application/json; charset=utf-8');
-  const bad_json_error = (await bad_json.json()).error;
-  assert.equal(bad_json_error.code, 'bad_json');
-  assert.match(bad_json_error.message, /line 2, column 13/);
+  const badJson = await call('POST', attemptsPath, '{\n  "answer": oops\n}');
+  assert.equal(badJson.status, 400);
+  assert.equal(badJson.headers.get('content-type'), 'application/json; charset=utf-8');
+  const badJsonError = (await badJson.json()).error;
+  assert.equal(badJsonError.code, 'bad_json');
+  assert.match(badJsonError.message, /line 2, column 13/);
 
-  const too_large = await call('POST', attempts_path, { answer: { text: 'x'.repeat(300_000) } });
-  assert.equal(too_large.status, 413);
-  assert.equal((await too_large.json()).error.code, 'too_large');
+  const tooLarge = await call('POST', attemptsPath, { answer: { text: 'x'.repeat(300_000) } });
+  assert.equal(tooLarge.status, 413);
+  assert.equal((await tooLarge.json()).error.code, 'too_large');
 
-  const not_object = await call('POST', attempts_path, '[]');
-  assert.deepEqual(await not_object.json(), {
+  const notObject = await call('POST', attemptsPath, '[]');
+  assert.deepEqual(await notObject.json(), {
     error: { code: 'invalid', message: 'The request has 1 problem.', problems: [{ path: '', code: 'wrong_type', message: 'The body must be a JSON object.' }] },
   });
 
@@ -463,14 +463,14 @@ test('every API error has the one shape: bad JSON, too large, invalid, not found
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: { code: 'not_found', message: 'No such attempt.' } });
 
-  const wrong_method = await call('PUT', '/grading-options');
-  assert.equal(wrong_method.status, 405);
-  assert.equal(wrong_method.headers.get('allow'), 'GET');
+  const wrongMethod = await call('PUT', '/grading-options');
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get('allow'), 'GET');
   assert.equal((await call('GET', '/attempts/1/regrade')).status, 405);
 
-  const unknown_path = await call('GET', '/nothing/here');
-  assert.equal(unknown_path.status, 404);
-  assert.deepEqual(await unknown_path.json(), { error: { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' } });
+  const unknownPath = await call('GET', '/nothing/here');
+  assert.equal(unknownPath.status, 404);
+  assert.deepEqual(await unknownPath.json(), { error: { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' } });
 
   // Outside the API a 404 stays bare.
   assert.equal((await fetch(`${server.baseUrl}/nothing`)).headers.get('content-type'), null);

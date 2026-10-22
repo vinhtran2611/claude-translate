@@ -54,8 +54,8 @@ function rewrite(key: string, text: string) {
   return { key, topic: 'transport', content: { type: 'rewrite', instruction: 'Fix it.', sourceText: text, length: 'sentence' } };
 }
 
-function fileOf(project_key: string, ...exercises: object[]) {
-  return { format: 4, project: { key: project_key, name: `Project ${project_key}` }, exercises };
+function fileOf(projectKey: string, ...exercises: object[]) {
+  return { format: 4, project: { key: projectKey, name: `Project ${projectKey}` }, exercises };
 }
 
 const KNEW = { type: 'flashcard', rating: 'knew' };
@@ -164,8 +164,8 @@ test('importing a fixed file updates in place: changed content gets a new versio
 
 test('a bad file is refused with every problem, and nothing is written', async () => {
   const blank = card('a', ' ');
-  const unknown_field = { ...card('a', 'x'), colour: 'red' };
-  const reply = await call('POST', '/import', fileOf('bad', blank, unknown_field));
+  const unknownField = { ...card('a', 'x'), colour: 'red' };
+  const reply = await call('POST', '/import', fileOf('bad', blank, unknownField));
   assert.equal(reply.body.error.message, 'The request has 3 problems.');
   assert.deepEqual(problemsOf(reply), [
     '/exercises/0/content/front empty',
@@ -178,40 +178,40 @@ test('a bad file is refused with every problem, and nothing is written', async (
 });
 
 test('a format 3 file is still imported, converted to the new model', async () => {
-  const old_file = {
+  const oldFile = {
     format: 3,
     project: { key: 'old-format', name: 'Old format' },
     exercises: [{ key: 'w1', type: 'write', content: { prompt: 'Discuss.', sample: 'S' } }],
   };
-  const reply = await call('POST', '/import', old_file);
+  const reply = await call('POST', '/import', oldFile);
   assert.equal(reply.status, 200);
   const essay = await get('/projects/old-format/exercises/w1');
   assert.deepEqual(essay.content, { type: 'essay', instruction: 'Discuss.', minWords: 250, suggestedMinutes: null, constraints: [], modelAnswer: 'S' });
 });
 
 test('a format 2 file is refused with the edits that make it format 3', async () => {
-  const old_file = { format: 2, project: { name: 'Old' }, exercises: [{ id: 'a', type: 'flashcard', content: { front: 'f', back: 'b' } }] };
-  const reply = await call('POST', '/import', old_file);
-  const [format_problem] = reply.body.error.problems;
-  assert.equal(format_problem.code, 'unsupported_format');
-  assert.match(format_problem.message, /rename each exercise's "id" to "key"/);
+  const oldFile = { format: 2, project: { name: 'Old' }, exercises: [{ id: 'a', type: 'flashcard', content: { front: 'f', back: 'b' } }] };
+  const reply = await call('POST', '/import', oldFile);
+  const [formatProblem] = reply.body.error.problems;
+  assert.equal(formatProblem.code, 'unsupported_format');
+  assert.match(formatProblem.message, /rename each exercise's "id" to "key"/);
 });
 
 test('import: bad JSON, a body over 2 MB, and unknown or wrong query parameters', async () => {
-  const bad_json = await call('POST', '/import', '{"format": 4,');
-  assert.equal(bad_json.status, 400);
-  assert.equal(bad_json.body.error.code, 'bad_json');
+  const badJson = await call('POST', '/import', '{"format": 4,');
+  assert.equal(badJson.status, 400);
+  assert.equal(badJson.body.error.code, 'bad_json');
 
-  const too_large = `${JSON.stringify(fileOf('huge', card('a', 'f')))}${' '.repeat(2_000_000)}`;
-  const large = await call('POST', '/import', too_large);
+  const tooLarge = `${JSON.stringify(fileOf('huge', card('a', 'f')))}${' '.repeat(2_000_000)}`;
+  const large = await call('POST', '/import', tooLarge);
   assert.equal(large.status, 413);
   assert.equal(large.body.error.code, 'too_large');
 
   const typo = await call('POST', '/import?dryrun=true', fileOf('x', card('a', 'f')));
   assert.deepEqual(problemsOf(typo), ['?dryrun unknown_parameter']);
 
-  const wrong_value = await call('POST', '/import?dry_run=yes', fileOf('x', card('a', 'f')));
-  assert.deepEqual(problemsOf(wrong_value), ['?dry_run not_allowed']);
+  const wrongValue = await call('POST', '/import?dry_run=yes', fileOf('x', card('a', 'f')));
+  assert.deepEqual(problemsOf(wrongValue), ['?dry_run not_allowed']);
 });
 
 // ---- Projects ----
@@ -233,10 +233,10 @@ test('a project read with GET can be sent back with PUT (no description is null)
   const project = await get('/projects/round');
   assert.equal(project.description, null);
 
-  const archived_at = '2026-10-21T08:30:00.000Z';
-  const reply = await call('PUT', '/projects/round', { name: project.name, description: project.description, archivedAt: archived_at });
+  const archivedAt = '2026-10-21T08:30:00.000Z';
+  const reply = await call('PUT', '/projects/round', { name: project.name, description: project.description, archivedAt });
   assert.equal(reply.status, 200);
-  assert.equal(reply.body.archivedAt, archived_at);
+  assert.equal(reply.body.archivedAt, archivedAt);
   assert.deepEqual(problemsOf(await call('PUT', '/projects/round', { name: 'Round', archived: true })), ['/archived unknown_field']);
 });
 
@@ -355,8 +355,8 @@ test('PUT an exercise: a key that is not the URL key, and a choice with no corre
   const mismatch = await call('PUT', '/projects/day-4/exercises/c1', { key: 'c2', ...HOWEVER });
   assert.deepEqual(problemsOf(mismatch), ['/key key_mismatch']);
 
-  const no_correct = { content: { type: 'choice', question: 'Q', options: [{ text: 'a', explanationMarkdown: 'b' }, { text: 'c', explanationMarkdown: 'd' }] } };
-  const choice = await call('PUT', '/projects/day-4/exercises/c2', no_correct);
+  const noCorrect = { content: { type: 'choice', question: 'Q', options: [{ text: 'a', explanationMarkdown: 'b' }, { text: 'c', explanationMarkdown: 'd' }] } };
+  const choice = await call('PUT', '/projects/day-4/exercises/c2', noCorrect);
   assert.deepEqual(problemsOf(choice), ['/content/options no_correct_option']);
 });
 
@@ -379,10 +379,10 @@ test('an unknown exercise is a 404 that names it; a wrong method is a 405 with A
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error.message, 'No such exercise "nope" in project "day-5".');
 
-  const wrong_method = await call('POST', '/projects/day-5/exercises/c1', HOWEVER);
-  assert.equal(wrong_method.status, 405);
-  assert.equal(wrong_method.headers.get('allow'), 'GET, PUT, DELETE');
-  assert.equal(wrong_method.body.error.code, 'method_not_allowed');
+  const wrongMethod = await call('POST', '/projects/day-5/exercises/c1', HOWEVER);
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get('allow'), 'GET, PUT, DELETE');
+  assert.equal(wrongMethod.body.error.code, 'method_not_allowed');
 });
 
 test('an exercise with attempts is deleted only with ?with_attempts=true, and its attempts go with it', async () => {
@@ -410,7 +410,7 @@ test('an exercise with attempts is deleted only with ?with_attempts=true, and it
 
 test('a flashcard answer has no grading: its rating is the result, and it records the version it answered', async () => {
   await call('POST', '/import', fileOf('answers', card('c1', 'cheap')));
-  const runs_before = server.claudeRuns().length;
+  const runsBefore = server.claudeRuns().length;
 
   const answer = { type: 'flashcard', rating: 'almost' };
   const reply = await call('POST', '/projects/answers/exercises/c1/attempts', { answer, timeSpentMs: 900, exerciseVersion: 1 });
@@ -422,7 +422,7 @@ test('a flashcard answer has no grading: its rating is the result, and it record
   assert.deepEqual(reply.body.answer, answer);
   assert.deepEqual(reply.body.gradings, []);
   assert.equal(reply.body.exerciseSnapshot.content.front, 'cheap');
-  assert.equal(server.claudeRuns().length, runs_before);
+  assert.equal(server.claudeRuns().length, runsBefore);
 
   const exercise = await get('/projects/answers/exercises/c1');
   assert.equal(exercise.isDone, true);
@@ -462,21 +462,21 @@ test('the attempts list is newest first, filters by exercise, and pages with bef
     const reply = await call('POST', `/projects/list/exercises/${key}/attempts`, { answer: KNEW });
     ids.push(reply.body.id);
   }
-  const [first_id, second_id, third_id] = ids;
+  const [firstId, secondId, thirdId] = ids;
 
   const all = await get('/attempts?project=list');
-  assert.deepEqual(all.items.map((attempt: any) => attempt.id), [third_id, second_id, first_id]);
+  assert.deepEqual(all.items.map((attempt: any) => attempt.id), [thirdId, secondId, firstId]);
 
   const c1 = await get('/attempts?project=list&exercise=c1');
-  assert.deepEqual(c1.items.map((attempt: any) => attempt.id), [third_id, first_id]);
+  assert.deepEqual(c1.items.map((attempt: any) => attempt.id), [thirdId, firstId]);
 
-  const page_1 = await get('/attempts?project=list&limit=2');
-  assert.equal(page_1.items.length, 2);
-  assert.equal(page_1.nextBefore, second_id);
+  const page1 = await get('/attempts?project=list&limit=2');
+  assert.equal(page1.items.length, 2);
+  assert.equal(page1.nextBefore, secondId);
 
-  const page_2 = await get(`/attempts?project=list&limit=2&before=${page_1.nextBefore}`);
-  assert.deepEqual(page_2.items.map((attempt: any) => attempt.id), [first_id]);
-  assert.equal(page_2.nextBefore, undefined);
+  const page2 = await get(`/attempts?project=list&limit=2&before=${page1.nextBefore}`);
+  assert.deepEqual(page2.items.map((attempt: any) => attempt.id), [firstId]);
+  assert.equal(page2.nextBefore, undefined);
 });
 
 test('the attempts list filters by the latest grading\'s status, and by time', async () => {
@@ -502,8 +502,8 @@ test('the attempts list checks its query', async () => {
     '?before out_of_range',
     '?limit out_of_range',
   ]);
-  const unknown_project = await call('GET', '/attempts?project=nope');
-  assert.equal(unknown_project.status, 404);
+  const unknownProject = await call('GET', '/attempts?project=nope');
+  assert.equal(unknownProject.status, 404);
 });
 
 test('an attempt cannot be deleted while it is graded; afterwards it can', async () => {
@@ -511,16 +511,16 @@ test('an attempt cannot be deleted while it is graded; afterwards it can', async
   // The fake claude streams this reply slowly, so the grading is still going when we ask.
   const answer = { type: 'rewrite', text: 'It goes. FAKE:stream=One two three four five six.' };
   const slow = await call('POST', '/projects/grading/exercises/r1/attempts', { answer });
-  const attempt_id = slow.body.id;
+  const attemptId = slow.body.id;
 
-  const refused = await call('DELETE', `/attempts/${attempt_id}`);
+  const refused = await call('DELETE', `/attempts/${attemptId}`);
   assert.equal(refused.status, 409);
   assert.equal(refused.body.error.code, 'grading_in_progress');
 
-  await waitUntilGraded(attempt_id);
-  const deleted = await call('DELETE', `/attempts/${attempt_id}`);
+  await waitUntilGraded(attemptId);
+  const deleted = await call('DELETE', `/attempts/${attemptId}`);
   assert.equal(deleted.status, 204);
-  assert.equal((await call('GET', `/attempts/${attempt_id}`)).status, 404);
+  assert.equal((await call('GET', `/attempts/${attemptId}`)).status, 404);
 });
 
 test('regrade refuses an unknown field', async () => {
@@ -528,27 +528,27 @@ test('regrade refuses an unknown field', async () => {
   assert.deepEqual(problemsOf(reply), ['/model unknown_field']);
 });
 
-async function waitUntilGraded(attempt_id: number): Promise<void> {
+async function waitUntilGraded(attemptId: number): Promise<void> {
   for (let tries = 0; tries < 100; tries++) {
-    const attempt = await get(`/attempts/${attempt_id}`);
+    const attempt = await get(`/attempts/${attemptId}`);
     if (attempt.gradings.at(-1).run.status !== 'running') return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`attempt ${attempt_id} is still grading`);
+  throw new Error(`attempt ${attemptId} is still grading`);
 }
 
 // ---- Rename, move and order (docs/practice-api-design.md §10) ----
 
 // Answers a flashcard; the attempt's id.
-async function answerCard(project_key: string, exercise_key: string): Promise<number> {
-  const reply = await call('POST', `/projects/${project_key}/exercises/${exercise_key}/attempts`, { answer: KNEW });
+async function answerCard(projectKey: string, exerciseKey: string): Promise<number> {
+  const reply = await call('POST', `/projects/${projectKey}/exercises/${exerciseKey}/attempts`, { answer: KNEW });
   assert.equal(reply.status, 201);
   return reply.body.id;
 }
 
 test('renaming a project keeps its exercises and attempts', async () => {
   await call('POST', '/import', fileOf('day-1-19-10-2026', card('c1', 'cheap')));
-  const attempt_id = await answerCard('day-1-19-10-2026', 'c1');
+  const attemptId = await answerCard('day-1-19-10-2026', 'c1');
 
   const reply = await call('POST', '/projects/day-1-19-10-2026/rename', { key: 'm1-day-01-renamed' });
   assert.equal(reply.status, 200);
@@ -558,10 +558,10 @@ test('renaming a project keeps its exercises and attempts', async () => {
 
   assert.equal((await call('GET', '/projects/day-1-19-10-2026')).status, 404);
   assert.deepEqual(keysOf((await get('/projects/m1-day-01-renamed/exercises')).items), ['c1']);
-  const attempt = await get(`/attempts/${attempt_id}`);
+  const attempt = await get(`/attempts/${attemptId}`);
   assert.equal(attempt.projectKey, 'm1-day-01-renamed');
   const listed = await get('/attempts?project=m1-day-01-renamed&exercise=c1');
-  assert.deepEqual(listed.items.map((item: any) => item.id), [attempt_id]);
+  assert.deepEqual(listed.items.map((item: any) => item.id), [attemptId]);
 });
 
 test('renaming a project: a dry run writes nothing; the same key is no change', async () => {
@@ -599,7 +599,7 @@ test('renaming a project: a taken key is a 409; a bad body or an unknown project
 
 test('renaming an exercise keeps its attempts, which show the new key', async () => {
   await call('POST', '/import', fileOf('rename-ex', card('c1', 'cheap'), card('c2', 'fast')));
-  const attempt_id = await answerCard('rename-ex', 'c1');
+  const attemptId = await answerCard('rename-ex', 'c1');
 
   const reply = await call('POST', '/projects/rename-ex/exercises/c1/rename', { key: 'cheap-card' });
   assert.equal(reply.status, 200);
@@ -610,9 +610,9 @@ test('renaming an exercise keeps its attempts, which show the new key', async ()
   assert.equal(reply.body.isDone, true);
 
   assert.equal((await call('GET', '/projects/rename-ex/exercises/c1')).status, 404);
-  assert.equal((await get(`/attempts/${attempt_id}`)).exerciseKey, 'cheap-card');
+  assert.equal((await get(`/attempts/${attemptId}`)).exerciseKey, 'cheap-card');
   const listed = await get('/attempts?project=rename-ex&exercise=cheap-card');
-  assert.deepEqual(listed.items.map((item: any) => item.id), [attempt_id]);
+  assert.deepEqual(listed.items.map((item: any) => item.id), [attemptId]);
   assert.equal((await get('/attempts?project=rename-ex&exercise=c1')).items.length, 0);
 });
 
@@ -636,7 +636,7 @@ test('renaming an exercise: a dry run writes nothing; a taken key is a 409; a ba
 test('moving an exercise takes its attempts to the new project, at the end', async () => {
   await call('POST', '/import', fileOf('move-from', card('c1', 'cheap'), card('c2', 'fast')));
   await call('POST', '/import', fileOf('move-to', card('t1', 'slow')));
-  const attempt_id = await answerCard('move-from', 'c1');
+  const attemptId = await answerCard('move-from', 'c1');
 
   const reply = await call('POST', '/projects/move-from/exercises/c1/move', { project: 'move-to' });
   assert.equal(reply.status, 200);
@@ -647,7 +647,7 @@ test('moving an exercise takes its attempts to the new project, at the end', asy
 
   assert.deepEqual(keysOf((await get('/projects/move-from/exercises')).items), ['c2']);
   assert.deepEqual(keysOf((await get('/projects/move-to/exercises')).items), ['t1', 'c1']);
-  assert.equal((await get(`/attempts/${attempt_id}`)).projectKey, 'move-to');
+  assert.equal((await get(`/attempts/${attemptId}`)).projectKey, 'move-to');
   assert.equal((await get('/attempts?project=move-from')).items.length, 0);
   assert.equal((await get('/projects/move-from')).doneCount, 0);
   assert.equal((await get('/projects/move-from')).lastActivityAt, null);

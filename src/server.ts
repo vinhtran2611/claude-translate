@@ -21,16 +21,16 @@ const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_D
 // from before practice-v2 (never read since) is moved to backups/ first.
 const RENAMED_DATABASES = [
   {
-    old_path: join(DATA_DIRECTORY, 'history.sqlite'),
-    new_path: TRANSLATE_DATABASE_PATH,
-    schema_version: TRANSLATE_SCHEMA_VERSION,
-    is_default: process.env.TRANSLATE_DATABASE_PATH === undefined,
+    oldPath: join(DATA_DIRECTORY, 'history.sqlite'),
+    newPath: TRANSLATE_DATABASE_PATH,
+    schemaVersion: TRANSLATE_SCHEMA_VERSION,
+    isDefault: process.env.TRANSLATE_DATABASE_PATH === undefined,
   },
   {
-    old_path: join(DATA_DIRECTORY, 'practice-v2.sqlite'),
-    new_path: PRACTICE_DATABASE_PATH,
-    schema_version: PRACTICE_SCHEMA_VERSION,
-    is_default: process.env.PRACTICE_DATABASE_PATH === undefined,
+    oldPath: join(DATA_DIRECTORY, 'practice-v2.sqlite'),
+    newPath: PRACTICE_DATABASE_PATH,
+    schemaVersion: PRACTICE_SCHEMA_VERSION,
+    isDefault: process.env.PRACTICE_DATABASE_PATH === undefined,
   },
 ];
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
@@ -66,8 +66,8 @@ function servedFileOf(pathname: string): string | null {
   if (path.endsWith('.test.ts')) return null;
   const extension = extname(path);
   if (extension !== '.ts' && !CONTENT_TYPES.has(extension)) return null;
-  const is_file = statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
-  if (!is_file) return null;
+  const isFile = statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+  if (!isFile) return null;
   return path;
 }
 
@@ -80,8 +80,8 @@ async function sendServedFile(res: ServerResponse, path: string): Promise<void> 
 function runDailyBackups(): void {
   for (const { path, name } of DAILY_BACKUPS) {
     try {
-      const backup_path = backupDaily(path, BACKUPS_DIRECTORY, name);
-      if (backup_path !== null) log('info', null, 'backup', backup_path);
+      const backupPath = backupDaily(path, BACKUPS_DIRECTORY, name);
+      if (backupPath !== null) log('info', null, 'backup', backupPath);
     } catch (error) {
       log('error', null, 'backup', `${name} failed: ${(error as Error).message}`);
     }
@@ -90,11 +90,11 @@ function runDailyBackups(): void {
 
 mkdirSync(dirname(SERVER_LOG_PATH), { recursive: true });
 configureLogFile(SERVER_LOG_PATH);
-for (const { old_path, new_path, schema_version, is_default } of RENAMED_DATABASES) {
-  if (!is_default) continue;
-  const renamed = renameDatabaseOnce(old_path, new_path, schema_version);
-  if (renamed === 'renamed_after_set_aside') log('warn', null, 'data', `an older ${basename(new_path)} was moved to backups/`);
-  if (renamed !== 'nothing') log('info', null, 'data', `${basename(old_path)} renamed to ${basename(new_path)}`);
+for (const { oldPath, newPath, schemaVersion, isDefault } of RENAMED_DATABASES) {
+  if (!isDefault) continue;
+  const renamed = renameDatabaseOnce(oldPath, newPath, schemaVersion);
+  if (renamed === 'renamed_after_set_aside') log('warn', null, 'data', `an older ${basename(newPath)} was moved to backups/`);
+  if (renamed !== 'nothing') log('info', null, 'data', `${basename(oldPath)} renamed to ${basename(newPath)}`);
 }
 // Each feature opens its database here, so a damaged or newer file stops the server at startup, not mid-request.
 const features: Feature[] = [
@@ -103,15 +103,15 @@ const features: Feature[] = [
 ];
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 // A rebinding page can retry without end; one line per Host names it without flooding the log.
-const logged_forbidden_hosts = new Set<string>();
+const loggedForbiddenHosts = new Set<string>();
 
 const server = createServer(async (req, res) => {
   // Loopback binding alone does not stop DNS rebinding: a page on another site whose name resolves to
   // 127.0.0.1 would otherwise read /history as same-origin. Its requests carry that site's Host header.
   const host = req.headers.host ?? '';
   if (!ALLOWED_HOSTS.has(host)) {
-    if (!logged_forbidden_hosts.has(host)) {
-      logged_forbidden_hosts.add(host);
+    if (!loggedForbiddenHosts.has(host)) {
+      loggedForbiddenHosts.add(host);
       log('warn', null, 'http', `403 ${req.method} ${req.url} from Host ${JSON.stringify(host)}`);
     }
     res.writeHead(403).end('Forbidden host');
@@ -119,26 +119,26 @@ const server = createServer(async (req, res) => {
   }
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
   try {
-    const served_file = req.method === 'GET' ? servedFileOf(pathname) : null;
-    if (served_file !== null) {
-      await sendServedFile(res, served_file);
+    const servedFile = req.method === 'GET' ? servedFileOf(pathname) : null;
+    if (servedFile !== null) {
+      await sendServedFile(res, servedFile);
     } else if (req.method === 'GET' && pathname === '/favicon.ico') {
       await sendFile(res, FAVICON_PATH, 'image/svg+xml');
     } else {
-      let is_handled = false;
+      let isHandled = false;
       for (const feature of features) {
-        is_handled = await feature.handle(req, res, pathname);
-        if (is_handled) break;
+        isHandled = await feature.handle(req, res, pathname);
+        if (isHandled) break;
       }
       // A JSON API answers in its one error shape; anything else stays a bare 404.
-      if (!is_handled && pathname.startsWith('/api/')) sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
-      else if (!is_handled) res.writeHead(404).end();
+      if (!isHandled && pathname.startsWith('/api/')) sendError(res, 404, 'not_found', `Nothing at ${pathname}.`);
+      else if (!isHandled) res.writeHead(404).end();
     }
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error));
-    const stack_frame_lines = String(failure.stack ?? '').split('\n').slice(1, 1 + LOG_DETAIL_MAX_LINES)
+    const stackFrameLines = String(failure.stack ?? '').split('\n').slice(1, 1 + LOG_DETAIL_MAX_LINES)
       .map((line) => line.replaceAll(`file://${APP_DIRECTORY}/`, ''));
-    log('error', null, 'http', `500 ${req.method} ${pathname}: ${failure.message}`, stack_frame_lines);
+    log('error', null, 'http', `500 ${req.method} ${pathname}: ${failure.message}`, stackFrameLines);
     if (res.headersSent) res.end();
     else if (pathname.startsWith('/api/')) sendError(res, 500, 'internal', 'Internal error: the details are in the server log.');
     else res.writeHead(500).end('Internal error');

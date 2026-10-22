@@ -38,7 +38,7 @@ test('a normal reply streams the block and ends with done, saved to history', as
 
 test('claude is started with the same flags and the translate system prompt', async () => {
   await translate(server.baseUrl, 'Flags FAKE:ok');
-  const run = server.claudeRuns().find((logged_run) => logged_run.content.includes('Flags FAKE:ok'));
+  const run = server.claudeRuns().find((loggedRun) => loggedRun.content.includes('Flags FAKE:ok'));
   assert.ok(run);
   const { args } = run;
   for (const flag of ['-p', '--tools', '--setting-sources', '--disable-slash-commands', '--strict-mcp-config', '--no-session-persistence',
@@ -87,8 +87,8 @@ test('a silent model hands over to the next one down after 10s', { timeout: 30_0
 test('a bad request is rejected with 400, and an old snake_case body is a bad request', async () => {
   const response = await fetch(`${server.baseUrl}/translate`, { method: 'POST', body: '{}' });
   assert.equal(response.status, 400);
-  const old_body = { source_language: 'en', target_language: 'vi', text: 'Hi', model_id: 'claude-sonnet-5-5', effort: 'low', mode: 'translate' };
-  const old = await fetch(`${server.baseUrl}/translate`, { method: 'POST', body: JSON.stringify(old_body) });
+  const oldBody = { source_language: 'en', target_language: 'vi', text: 'Hi', model_id: 'claude-sonnet-5-5', effort: 'low', mode: 'translate' };
+  const old = await fetch(`${server.baseUrl}/translate`, { method: 'POST', body: JSON.stringify(oldBody) });
   assert.equal(old.status, 400);
 });
 

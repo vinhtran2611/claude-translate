@@ -48,7 +48,7 @@ interface Row {
   href: string;
   preview: string;
   meta: string;
-  is_current: boolean;
+  isCurrent: boolean;
   group: string;
 }
 
@@ -57,7 +57,7 @@ function rowsOf(currentShown: Shown): { rows: Row[]; isEmpty: boolean } {
     const projects = [...currentShown.projects];
     projects.sort((a, b) => activityTimeOf(b).localeCompare(activityTimeOf(a)));
     const rows = projects.map((project): Row => ({
-      href: `#/p/${project.key}`, preview: project.name, meta: `${pluralize(project.exerciseCount, 'exercise')} · ${project.doneCount} done`, is_current: false,
+      href: `#/p/${project.key}`, preview: project.name, meta: `${pluralize(project.exerciseCount, 'exercise')} · ${project.doneCount} done`, isCurrent: false,
       group: historyGroupOf(activityTimeOf(project)),
     }));
     return { rows, isEmpty: rows.length === 0 };
@@ -69,7 +69,7 @@ function rowsOf(currentShown: Shown): { rows: Row[]; isEmpty: boolean } {
     const exercise = exercises.get(exerciseId)!;
     return {
       href: `#/p/${projectKey}/x/${exercise.key}`, preview: exercise.preview, meta: `${exercise.label} · Draft`,
-      is_current: current.draftExerciseId === exerciseId, group: 'Drafts',
+      isCurrent: current.draftExerciseId === exerciseId, group: 'Drafts',
     };
   });
   // The History: the latest attempt of each exercise, newest first.
@@ -79,7 +79,7 @@ function rowsOf(currentShown: Shown): { rows: Row[]; isEmpty: boolean } {
     const last = exercise.lastAttempt!;
     return {
       href: `#/a/${last.id}`, preview: exercise.preview, meta: `${exercise.label} · ${last.historyLine}`,
-      is_current: current.attemptId === last.id, group: historyGroupOf(last.createdAt),
+      isCurrent: current.attemptId === last.id, group: historyGroupOf(last.createdAt),
     };
   });
   return { rows: [...drafts, ...attempts], isEmpty: drafts.length + attempts.length === 0 };
@@ -96,7 +96,7 @@ function renderList(): void {
     if (!words.every((word) => foldForSearch(`${row.preview} ${row.meta}`).includes(word))) continue;
     if (row.group !== previousGroup) children.push(h('li', 'history-group-label', row.group));
     previousGroup = row.group;
-    children.push(createItem(row.href, row.preview, row.meta, row.is_current));
+    children.push(createItem(row.href, row.preview, row.meta, row.isCurrent));
   }
   list.replaceChildren(...children);
   status.textContent = children.length > 0 ? '' : isEmpty ? `Your ${'projects' in shown ? 'projects' : 'exercises'} will appear here.` : `No matches for “${search.value.trim()}”`;

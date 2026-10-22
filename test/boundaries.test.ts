@@ -17,14 +17,14 @@ function typeScriptFiles(directory: string): string[] {
 
 test('features import only from themselves and shared/', () => {
   const violations: string[] = [];
-  for (const file_path of typeScriptFiles(FEATURES_DIRECTORY)) {
-    const feature_name = relative(FEATURES_DIRECTORY, file_path).split('/')[0];
-    for (const [, import_path] of readFileSync(file_path, 'utf8').matchAll(IMPORT_PATH)) {
-      if (!import_path.startsWith('.')) continue;
+  for (const filePath of typeScriptFiles(FEATURES_DIRECTORY)) {
+    const featureName = relative(FEATURES_DIRECTORY, filePath).split('/')[0];
+    for (const [, importPath] of readFileSync(filePath, 'utf8').matchAll(IMPORT_PATH)) {
+      if (!importPath.startsWith('.')) continue;
       // The import's target, relative to src/.
-      const target = relative(SOURCE_DIRECTORY, resolve(dirname(file_path), import_path));
-      if (!target.startsWith(`features/${feature_name}/`) && !target.startsWith('shared/')) {
-        violations.push(`${relative(APP_DIRECTORY, file_path)} imports ${target}`);
+      const target = relative(SOURCE_DIRECTORY, resolve(dirname(filePath), importPath));
+      if (!target.startsWith(`features/${featureName}/`) && !target.startsWith('shared/')) {
+        violations.push(`${relative(APP_DIRECTORY, filePath)} imports ${target}`);
       }
     }
   }
@@ -33,12 +33,12 @@ test('features import only from themselves and shared/', () => {
 
 test('shared/ imports nothing from features/, server/ or web/', () => {
   const violations: string[] = [];
-  for (const file_path of typeScriptFiles(SHARED_DIRECTORY)) {
-    for (const [, import_path] of readFileSync(file_path, 'utf8').matchAll(IMPORT_PATH)) {
-      if (!import_path.startsWith('.')) continue;
+  for (const filePath of typeScriptFiles(SHARED_DIRECTORY)) {
+    for (const [, importPath] of readFileSync(filePath, 'utf8').matchAll(IMPORT_PATH)) {
+      if (!importPath.startsWith('.')) continue;
       // The import's target, relative to src/.
-      const target = relative(SOURCE_DIRECTORY, resolve(dirname(file_path), import_path));
-      if (!target.startsWith('shared/')) violations.push(`${relative(APP_DIRECTORY, file_path)} imports ${target}`);
+      const target = relative(SOURCE_DIRECTORY, resolve(dirname(filePath), importPath));
+      if (!target.startsWith('shared/')) violations.push(`${relative(APP_DIRECTORY, filePath)} imports ${target}`);
     }
   }
   assert.deepEqual(violations, []);
@@ -46,12 +46,12 @@ test('shared/ imports nothing from features/, server/ or web/', () => {
 
 test('nothing in src/ imports from outside src/', () => {
   const violations: string[] = [];
-  for (const file_path of typeScriptFiles(SOURCE_DIRECTORY)) {
-    for (const [, import_path] of readFileSync(file_path, 'utf8').matchAll(IMPORT_PATH)) {
-      if (!import_path.startsWith('.')) continue;
+  for (const filePath of typeScriptFiles(SOURCE_DIRECTORY)) {
+    for (const [, importPath] of readFileSync(filePath, 'utf8').matchAll(IMPORT_PATH)) {
+      if (!importPath.startsWith('.')) continue;
       // The import's target, relative to src/; one outside src/ starts with "..".
-      const target = relative(SOURCE_DIRECTORY, resolve(dirname(file_path), import_path));
-      if (target.startsWith('..')) violations.push(`${relative(APP_DIRECTORY, file_path)} imports ${target}`);
+      const target = relative(SOURCE_DIRECTORY, resolve(dirname(filePath), importPath));
+      if (target.startsWith('..')) violations.push(`${relative(APP_DIRECTORY, filePath)} imports ${target}`);
     }
   }
   assert.deepEqual(violations, []);

@@ -1,34 +1,34 @@
 {
-  "format": 3,
+  "format": 4,
   "project": {
     "key": "example",
     "name": "IELTS Writing Task 2 – Example",
-    "description": "One or more exercises of every type: rewrite, translation, error correction, free writing, multiple choice, fill in the blanks and flashcards."
+    "description": "One exercise or more of every type: rewrite, translation, correction, essay, multiple choice, gap fill and flashcards."
   },
   "exercises": [
     {
       "key": "ex-01",
-      "type": "rewrite",
       "topic": "transport",
       "content": {
+        "type": "rewrite",
         "instruction": "Rewrite the sentence using the passive voice. Keep the meaning.",
+        "sourceText": "Many cities have built new cycle lanes to reduce traffic.",
         "length": "sentence",
-        "text": "Many cities have built new cycle lanes to reduce traffic.",
         "constraints": [
           "Use the passive voice",
           "Keep the meaning"
         ],
-        "reference": "New cycle lanes have been built in many cities to reduce traffic."
+        "modelAnswer": "New cycle lanes have been built in many cities to reduce traffic."
       }
     },
     {
       "key": "ex-02",
-      "type": "rewrite",
       "topic": "technology",
       "content": {
+        "type": "rewrite",
         "instruction": "Rewrite the paragraph in a more formal style. Replace informal words and join short sentences.",
+        "sourceText": "Lots of people think social media is bad for kids. It takes up too much of their time, and they get stressed out about it. But I think it's not all bad, because kids can talk to friends and learn stuff online.",
         "length": "paragraph",
-        "text": "Lots of people think social media is bad for kids. It takes up too much of their time, and they get stressed out about it. But I think it's not all bad, because kids can talk to friends and learn stuff online.",
         "constraints": [
           "Formal register",
           "Linking words"
@@ -37,150 +37,152 @@
     },
     {
       "key": "ex-03",
-      "type": "rewrite",
       "topic": "urbanisation",
       "content": {
+        "type": "translation",
         "instruction": "Translate into natural English.",
-        "length": "sentence",
-        "source_lang": "vi",
-        "text": "Ngày càng nhiều người trẻ chọn sống ở các thành phố lớn để có cơ hội việc làm tốt hơn."
+        "sourceText": "Ngày càng nhiều người trẻ chọn sống ở các thành phố lớn để có cơ hội việc làm tốt hơn.",
+        "sourceLanguage": "vi",
+        "targetLanguage": "en",
+        "length": "sentence"
       }
     },
     {
       "key": "ex-04",
-      "type": "rewrite",
       "topic": "education",
       "tags": [
         "agreement",
         "articles"
       ],
       "content": {
+        "type": "correction",
         "instruction": "Fix the mistakes.",
+        "sourceText": "Many student prefer online classes because it saves a time.",
         "length": "sentence",
-        "prefill": true,
-        "text": "Many student prefer online classes because it saves a time.",
-        "mistakes": [
+        "plantedMistakes": [
           {
-            "wrong": "student",
-            "right": "students",
-            "note": "Plural noun after many."
+            "wrongText": "student",
+            "correctText": "students",
+            "explanationMarkdown": "Plural noun after *many*."
           },
           {
-            "wrong": "it saves",
-            "right": "they save",
-            "note": "The verb agrees with classes."
+            "wrongText": "it saves",
+            "correctText": "they save",
+            "explanationMarkdown": "The verb agrees with *classes*."
           },
           {
-            "wrong": "a time",
-            "right": "time",
-            "note": "Time is uncountable here."
+            "wrongText": "a time",
+            "correctText": "time",
+            "explanationMarkdown": "*Time* is uncountable here."
           }
         ]
       }
     },
     {
       "key": "ex-05",
-      "type": "write",
       "topic": "transport",
       "content": {
-        "prompt": "Some people think that governments should spend more money on public transport than on building new roads. To what extent do you agree or disagree?",
-        "min_words": 250,
-        "minutes": 40
+        "type": "essay",
+        "instruction": "Some people think that governments should spend more money on public transport than on building new roads. To what extent do you agree or disagree?",
+        "minWords": 250,
+        "suggestedMinutes": 40
       }
     },
     {
       "key": "ex-06",
-      "type": "choice",
       "topic": "grammar",
       "tags": [
         "second conditional"
       ],
       "content": {
+        "type": "choice",
         "question": "If more people ____ public transport, city centres would be much less crowded.",
         "options": [
           {
             "text": "use",
-            "why": "Present simple does not fit an unreal situation. The if-clause needs a past form."
+            "explanationMarkdown": "Present simple does not fit an unreal situation. The if-clause needs a past form."
           },
           {
             "text": "used",
-            "correct": true,
-            "why": "Second conditional: if + past simple, would + verb."
+            "isCorrect": true,
+            "explanationMarkdown": "Second conditional: if + past simple, would + verb."
           },
           {
             "text": "will use",
-            "why": "Never put will in an if-clause."
+            "explanationMarkdown": "Never put *will* in an if-clause."
           },
           {
             "text": "would use",
-            "why": "Would belongs in the result clause, not in the if-clause."
+            "explanationMarkdown": "*Would* belongs in the result clause, not in the if-clause."
           }
         ]
       }
     },
     {
       "key": "ex-07",
-      "type": "choice",
       "topic": "linking words",
       "tags": [
         "linking"
       ],
       "content": {
+        "type": "choice",
         "question": "Which TWO words show contrast?",
         "options": [
           {
             "text": "However",
-            "correct": true,
-            "why": "However introduces a contrast."
+            "isCorrect": true,
+            "explanationMarkdown": "*However* introduces a contrast."
           },
           {
             "text": "Moreover",
-            "why": "Moreover adds a point."
+            "explanationMarkdown": "*Moreover* adds a point."
           },
           {
             "text": "Although",
-            "correct": true,
-            "why": "Although introduces a contrast inside one sentence."
+            "isCorrect": true,
+            "explanationMarkdown": "*Although* introduces a contrast inside one sentence."
           },
           {
             "text": "Therefore",
-            "why": "Therefore shows a result."
+            "explanationMarkdown": "*Therefore* shows a result."
           }
         ]
       }
     },
     {
       "key": "ex-08",
-      "type": "fill",
       "topic": "grammar",
       "tags": [
         "present perfect"
       ],
       "content": {
+        "type": "gap_fill",
         "instruction": "Type the missing words.",
-        "text": "Prices {{1}} sharply in recent years, so many families {{2}} to cut their spending.",
+        "textWithGaps": "Prices {{1}} sharply in recent years, so many families {{2}} to cut their spending.",
         "gaps": [
           {
-            "answer": [
+            "acceptedAnswers": [
               "have risen",
               "have been rising"
             ],
             "hint": "rise",
-            "why": "Present perfect for a change up to now."
+            "explanationMarkdown": "Present perfect for a change up to now."
           },
           {
-            "answer": "have had",
+            "acceptedAnswers": [
+              "have had"
+            ],
             "hint": "have",
-            "why": "Present perfect again: the result is still true now."
+            "explanationMarkdown": "Present perfect again: the result is still true now."
           }
         ]
       }
     },
     {
       "key": "ex-09",
-      "type": "flashcard",
       "topic": "IELTS vocabulary",
       "content": {
+        "type": "flashcard",
         "front": "mitigate",
         "hint": "verb · /ˈmɪtɪɡeɪt/",
         "back": "to make something less severe, serious or harmful",
@@ -189,9 +191,9 @@
     },
     {
       "key": "ex-10",
-      "type": "flashcard",
       "topic": "IELTS vocabulary",
       "content": {
+        "type": "flashcard",
         "front": "resilient",
         "hint": "adjective",
         "back": "able to recover quickly after a problem",

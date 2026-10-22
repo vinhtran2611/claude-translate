@@ -1,12 +1,14 @@
-// What an answer is: the check of one that arrives over HTTP, and the self-rated flashcard.
-import type { AnswerByType, ChoiceContent, ExerciseBody, ExerciseType, FillContent, RewriteContent } from '../api.ts';
+// What an answer is: the check of one that arrives over HTTP (docs/data-model-proposal.md §3.9, rules 1, 4 and 5).
+import type { TextLength } from '../../../shared/api.ts';
+import type { Answer, ExerciseContent, ExerciseType, TextAnswer } from '../api.ts';
 import { RATING_LABELS } from '../text.ts';
 
-// Arbitrary: the longest a person would write for each kind of answer.
-const MAX_TEXT_CHARS = { sentence: 1_000, paragraph: 5_000, essay: 20_000 };
+// Arbitrary: the longest a person would write for each length of answer; an essay has the longest limit.
+const MAX_TEXT_CHARS: Record<TextLength, number> = { sentence: 1_000, paragraph: 5_000, multi_paragraph: 20_000 };
+const MAX_ESSAY_CHARS = 20_000;
 const MAX_GAP_CHARS = 200;
 
-export type AnswerCheck = { answer: AnswerByType[ExerciseType]; problem: null } | { answer: null; problem: string };
+export type AnswerCheck = { answer: Answer; problem: null } | { answer: null; problem: string };
 
 const reject = (problem: string): AnswerCheck => ({ answer: null, problem });
 
@@ -14,42 +16,59 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Who grades a type: the AI, or you (a flashcard).
-export function graderOf(type: ExerciseType): 'ai' | 'self' {
-  return type === 'flashcard' ? 'self' : 'ai';
+// Every type but a flashcard is graded by the AI; a flashcard's rating is its result (rule 6).
+export function isGradedByAi(type: ExerciseType): boolean {
+  return type !== 'flashcard';
 }
 
-// The answer in the shape its type stores, or why it cannot be one.
-export function checkAnswer(exercise: ExerciseBody, value: unknown): AnswerCheck {
+function checkText(max: number, value: Record<string, unknown>, type: TextAnswer['type']): AnswerCheck {
+  let text = '';
+  if (typeof value.text === 'string') text = value.text.trim().normalize('NFC');
+  if (text === '' || text.length > max) return reject(`answer.text must be non-empty and at most ${max} characters`);
+  return { answer: { type, text }, problem: null };
+}
+
+// Indexes of options: whole numbers in range, no repeats. With one correct option, exactly one (rule 4).
+function checkChosen(option_count: number, correct_count: number, chosen: unknown): number[] | null {
+  if (!Array.isArray(chosen) || chosen.length === 0) return null;
+  if (new Set(chosen).size !== chosen.length) return null;
+  const is_each_an_option = chosen.every((index) => Number.isInteger(index) && index >= 0 && index < option_count);
+  if (!is_each_an_option) return null;
+  if (correct_count === 1 && chosen.length !== 1) return null;
+  return [...chosen].sort((a, b) => a - b);
+}
+
+// The answer in the shape its exercise stores, or why it cannot be one. answer.type must be the exercise's type (rule 1).
+export function checkAnswer(content: ExerciseContent, value: unknown): AnswerCheck {
   if (!isObject(value)) return reject('answer must be an object');
-  switch (exercise.type) {
+  if (value.type !== content.type) return reject(`answer.type must be "${content.type}", the type of the exercise`);
+  switch (content.type) {
     case 'rewrite':
-    case 'write': {
-      const max = MAX_TEXT_CHARS[exercise.type === 'write' ? 'essay' : (exercise.content as RewriteContent).length];
-      const text = typeof value.text === 'string' ? value.text.trim().normalize('NFC') : '';
-      return text === '' || text.length > max ? reject(`answer.text must be non-empty and at most ${max} characters`) : { answer: { text }, problem: null };
-    }
+    case 'translation':
+    case 'correction':
+      return checkText(MAX_TEXT_CHARS[content.length], value, content.type);
+    case 'essay':
+      return checkText(MAX_ESSAY_CHARS, value, content.type);
     case 'choice': {
-      const options = (exercise.content as ChoiceContent).options;
-      const chosen = value.chosen;
-      const is_valid = Array.isArray(chosen) && chosen.length > 0 && new Set(chosen).size === chosen.length
-        && chosen.every((index) => Number.isInteger(index) && index >= 0 && index < options.length);
-      const is_single = options.filter((option) => option.correct === true).length === 1;
-      return is_valid && !(is_single && chosen.length > 1) ? { answer: { chosen: [...chosen].sort((a, b) => a - b) }, problem: null } : reject('answer.chosen must list the picked options');
+      const correct_count = content.options.filter((option) => option.isCorrect).length;
+      const chosen = checkChosen(content.options.length, correct_count, value.chosenOptionIndexes);
+      if (chosen === null) return reject('answer.chosenOptionIndexes must list the picked options, each once (one when one option is correct)');
+      return { answer: { type: 'choice', chosenOptionIndexes: chosen }, problem: null };
     }
-    case 'fill': {
-      const { gaps } = exercise.content as FillContent;
-      const typed = value.gaps;
-      return Array.isArray(typed) && typed.length === gaps.length && typed.every((gap) => typeof gap === 'string' && gap.length <= MAX_GAP_CHARS)
-        ? { answer: { gaps: typed.map((gap) => gap.trim().normalize('NFC')) }, problem: null } : reject(`answer.gaps must be ${gaps.length} texts of at most ${MAX_GAP_CHARS} characters`);
+    case 'gap_fill': {
+      const { gaps } = content;
+      const typed = value.gapAnswers;
+      const is_valid = Array.isArray(typed) && typed.length === gaps.length
+        && typed.every((gap) => typeof gap === 'string' && gap.length <= MAX_GAP_CHARS);
+      if (!is_valid) return reject(`answer.gapAnswers must be ${gaps.length} texts of at most ${MAX_GAP_CHARS} characters`);
+      const gap_answers = typed.map((gap: string) => gap.trim().normalize('NFC'));
+      return { answer: { type: 'gap_fill', gapAnswers: gap_answers }, problem: null };
     }
-    case 'flashcard':
-      return typeof value.rating === 'string' && Object.hasOwn(RATING_LABELS, value.rating)
-        ? { answer: { rating: value.rating as keyof typeof RATING_LABELS }, problem: null } : reject('answer.rating must be unknown, almost or known');
+    case 'flashcard': {
+      const rating = value.rating;
+      const is_rating = typeof rating === 'string' && Object.hasOwn(RATING_LABELS, rating);
+      if (!is_rating) return reject('answer.rating must be didnt_know, almost or knew');
+      return { answer: { type: 'flashcard', rating: rating as keyof typeof RATING_LABELS }, problem: null };
+    }
   }
-}
-
-// A flashcard has nothing to grade: its result is your rating, and the history line says it in words.
-export function rateFlashcard({ rating }: AnswerByType['flashcard']): { result: { rating: typeof rating }; summary: string } {
-  return { result: { rating }, summary: RATING_LABELS[rating] };
 }

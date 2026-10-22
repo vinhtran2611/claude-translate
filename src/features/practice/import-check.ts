@@ -213,7 +213,7 @@ function format3ExerciseFields(): Fields {
 
 // ---- The checks ----
 
-function isObject(value: unknown): value is Record<string, unknown> {
+export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -584,7 +584,7 @@ function checkFormat3Exercise(value: unknown, problems: Problems): FileExercise 
 
 // ---- A whole file ----
 
-export type CheckedFile = { file: ProjectFile; problems: null } | { file: null; problems: Problem[] };
+type CheckedFile = { file: ProjectFile; problems: null } | { file: null; problems: Problem[] };
 
 const FORMAT_2_EDITS = 'To make a format 2 file format 3 (still read): set "format" to 3, add a "key" to "project" (a-z, 0-9 and -, like "m1-day-01"), and rename each exercise\'s "id" to "key".';
 

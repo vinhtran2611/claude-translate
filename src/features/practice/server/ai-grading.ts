@@ -63,7 +63,7 @@ interface LiveGrading {
   watchers: Set<ServerResponse>;
 }
 
-export interface Grader {
+interface Grader {
   // Runs the grading (stored as running) of the attempt; the outcome is written to the store when it ends.
   start(attempt: AttemptDetail, gradingId: number, settings: GradingSettings): void;
   // Answers a request to watch the attempt's grading; a 'finished' event at once when it is not being graded.

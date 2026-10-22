@@ -11,7 +11,7 @@ const PAIR_CLOSE_TAG = '</pair>';
 type ParserState = 'between_pairs' | 'in_pair' | 'in_source' | 'in_translation';
 const FIELD_OPEN_TAGS: Record<string, ParserState> = { '<source>': 'in_source', '<translation>': 'in_translation' };
 
-export interface PairStreamParser {
+interface PairStreamParser {
   // The events for this piece of the reply. Text that may be the start of a tag is held until more arrives.
   push(text: string): StreamEvent[];
   // The events for whatever is still held, once the reply has ended.

@@ -4,14 +4,14 @@
 import type { Effort, EffortOption, ModelOption } from '../api-types.ts';
 import { createIcon, readStored, writeStored } from './ui.ts';
 
-export interface PickerOptions {
+interface PickerOptions {
   models: ModelOption[];
   efforts: EffortOption[];
   defaultModelId: string;
   defaultEffort: Effort;
 }
 
-export interface PickerSettings {
+interface PickerSettings {
   modelId: string;
   effort: Effort;
 }

@@ -25,7 +25,7 @@ export interface View<Type extends ExerciseType> {
 }
 
 // What a template draws for the Problem: the kind of exercise, named in the header, and what goes in the pane.
-export interface ProblemPane {
+interface ProblemPane {
   kind: string;
   content: HTMLElement[];
 }

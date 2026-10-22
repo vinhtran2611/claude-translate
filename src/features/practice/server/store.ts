@@ -13,7 +13,7 @@ import { historyLineOf, labelOf, previewOf } from '../text.ts';
 import { CREATE_TABLES, INTERRUPTED_MESSAGE, migrateFrom1, migrateFrom2, SCHEMA_VERSION } from './store-schema.ts';
 
 // What createAttempt stores. grading: the settings of the AI grading it starts; null for a flashcard (rule 6).
-export interface NewAttempt {
+interface NewAttempt {
   exerciseId: number;
   answer: Answer;
   timeSpentMs: number | null;
@@ -40,7 +40,7 @@ export interface AttemptFilter {
 }
 
 // An attempt that was just saved, with the grading that must now run (null for a flashcard).
-export interface StartedAttempt {
+interface StartedAttempt {
   attempt: AttemptDetail;
   gradingId: number | null;
 }

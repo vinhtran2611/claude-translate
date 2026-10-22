@@ -2,16 +2,12 @@
 // Each check adds what is wrong to a list of problems, so one answer can name every problem at once.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readRequestJson, sendError } from '../../../shared/server/http.ts';
-import { KEY_PATTERN, type Problem } from '../import-check.ts';
+import { isObject, KEY_PATTERN, type Problem } from '../import-check.ts';
 
 // A PUT of one exercise or project, or a rename or move; the longest exercise is far below it.
 export const MAX_EXERCISE_BODY_BYTES = 200_000;
 // ?dry_run=false or ?dry_run=true.
 export const DRY_RUN = ['false', 'true'] as const;
-
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 export function isWholeNumber(value: unknown): boolean {
   return Number.isInteger(value) && (value as number) >= 0;

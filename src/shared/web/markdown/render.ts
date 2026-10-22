@@ -5,7 +5,7 @@ import { type DocumentIndex, documentIndexOf } from './document-index.ts';
 import type { InlineNode } from './inline.ts';
 import { ANCHOR_ID_PREFIX, type LinkTarget, linkTargetOf } from './links.ts';
 
-export interface RenderContext {
+interface RenderContext {
   side: 'source' | 'translation';
   blockIndex: number;
   documentIndex: DocumentIndex;

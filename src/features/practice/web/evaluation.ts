@@ -7,7 +7,7 @@ import type { Grading } from '../api-types.ts';
 import type { GradingEvent } from './client.ts';
 import { h } from './dom.ts';
 
-export interface Evaluation {
+interface Evaluation {
   element: HTMLElement;
   // Nothing to show yet.
   empty(): void;

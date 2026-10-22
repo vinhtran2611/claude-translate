@@ -10,7 +10,7 @@ import { answerFromFormat3 } from '../format-3.ts';
 const PREFIX = 'practice.draft.';
 const KEY_PATTERN = /^practice\.draft\.(\d+)$/;
 
-export interface Draft {
+interface Draft {
   schemaVersion: 1;
   exerciseId: number;
   // The version the answer was written for: the page warns when the exercise changed since.

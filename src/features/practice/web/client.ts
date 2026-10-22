@@ -42,7 +42,7 @@ export async function listProjects(archived: 'false' | 'all', signal: AbortSigna
   return list.items;
 }
 
-export function readProject(key: string, signal: AbortSignal): Promise<ProjectSummary> {
+function readProject(key: string, signal: AbortSignal): Promise<ProjectSummary> {
   return request<ProjectSummary>('GET', `/projects/${key}`, signal);
 }
 
@@ -76,7 +76,7 @@ export async function readProjectView(key: string, signal: AbortSignal): Promise
 
 // ---- exercises ----
 
-export async function listExercises(projectKey: string, signal: AbortSignal): Promise<ExerciseItem[]> {
+async function listExercises(projectKey: string, signal: AbortSignal): Promise<ExerciseItem[]> {
   const list = await request<List<ExerciseItem>>('GET', `/projects/${projectKey}/exercises`, signal);
   return list.items;
 }

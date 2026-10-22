@@ -20,7 +20,7 @@ const wideScreenQuery = matchMedia('(min-width: 1280px)');
 const OPEN_KEY = 'is_sidebar_open';
 
 // What the page shows now, so the sidebar can mark it: an attempt, or an exercise with a draft.
-export interface Current {
+interface Current {
   attemptId?: number;
   draftExerciseId?: number;
 }

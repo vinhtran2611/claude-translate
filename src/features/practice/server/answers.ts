@@ -1,6 +1,7 @@
 // What an answer is: the check of one that arrives over HTTP (docs/data-model-proposal.md §3.9, rules 1, 4 and 5).
 import type { TextLength } from '../../../shared/api-types.ts';
 import type { Answer, ExerciseContent, ExerciseType, TextAnswer } from '../api-types.ts';
+import { isObject } from '../import-check.ts';
 import { RATING_LABELS } from '../text.ts';
 
 // Arbitrary: the longest a person would write for each length of answer; an essay has the longest limit.
@@ -8,13 +9,9 @@ const MAX_TEXT_CHARS: Record<TextLength, number> = { sentence: 1_000, paragraph:
 const MAX_ESSAY_CHARS = 20_000;
 const MAX_GAP_CHARS = 200;
 
-export type AnswerCheck = { answer: Answer; problem: null } | { answer: null; problem: string };
+type AnswerCheck = { answer: Answer; problem: null } | { answer: null; problem: string };
 
 const reject = (problem: string): AnswerCheck => ({ answer: null, problem });
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // Every type but a flashcard is graded by the AI; a flashcard's rating is its result (rule 6).
 export function isGradedByAi(type: ExerciseType): boolean {

@@ -173,7 +173,7 @@ export interface NewTranslation {
 }
 
 // How a run ended, and what it produced (complete when it succeeded, partial or none otherwise).
-export interface TranslationOutcome {
+interface TranslationOutcome {
   status: 'succeeded' | 'failed' | 'cancelled';
   blocks: TranslatedBlock[];
   textOutsideBlocks: string;

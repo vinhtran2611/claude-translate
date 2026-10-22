@@ -5,7 +5,7 @@ import { type LinkDefinition, normalizeLabel, parseInline, plainTextOf } from '.
 import { ANCHOR_ID_PREFIX } from './links.ts';
 
 // The fields of a pair the cross-pair index reads.
-export type IndexedBlock = Pick<TranslatedBlock, 'blockType' | 'sourceText' | 'translatedText'>;
+type IndexedBlock = Pick<TranslatedBlock, 'blockType' | 'sourceText' | 'translatedText'>;
 
 export interface DocumentIndex {
   linkDefinitions: Map<string, LinkDefinition>;
@@ -17,7 +17,7 @@ export interface DocumentIndex {
 
 // GitHub's heading id algorithm (https://github.com/Flet/github-slugger): lowercase, drop punctuation except - and _,
 // spaces to hyphens, then -1, -2 for repeats.
-export function slugOf(text: string, usedSlugs: Set<string>): string {
+function slugOf(text: string, usedSlugs: Set<string>): string {
   const base = text.toLowerCase().trim().replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '').replace(/ /g, '-');
   let slug = base;
   for (let repeat = 1; usedSlugs.has(slug); repeat++) slug = `${base}-${repeat}`;

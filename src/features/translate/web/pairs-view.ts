@@ -8,13 +8,13 @@ import { errorText, showAlert } from './alert.ts';
 import { type PairSide, translationTextOf } from './pairs-markdown.ts';
 
 // A pair on screen: what the model returned, plus the cells it renders into.
-export interface ShownBlock extends TranslatedBlock {
+interface ShownBlock extends TranslatedBlock {
   blockIndex: number;
   sourceContent: HTMLElement;
   translationContent: HTMLElement;
 }
 
-export type BlockEvent = Extract<StreamEvent, ['block_start' | 'source_delta' | 'translation_delta', unknown]>;
+type BlockEvent = Extract<StreamEvent, ['block_start' | 'source_delta' | 'translation_delta', unknown]>;
 interface StreamingCell {
   pair: ShownBlock;
   side: PairSide;

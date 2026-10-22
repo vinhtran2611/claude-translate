@@ -6,7 +6,7 @@ import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 
 // What the next translation runs with.
-export interface TranslationSettings {
+interface TranslationSettings {
   modelId: string;
   effort: Effort;
   sourceFormat: SourceFormat;

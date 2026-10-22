@@ -5,7 +5,7 @@ import type { Effort, ModelRun, RunErrorCode, RunStatus } from '../api-types.ts'
 
 export const RUN_STATUSES: RunStatus[] = ['running', 'succeeded', 'failed', 'cancelled'];
 export const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-export const RUN_ERROR_CODES: RunErrorCode[] = [
+const RUN_ERROR_CODES: RunErrorCode[] = [
   'start_failed', 'no_response', 'stalled', 'output_limit', 'exited', 'claude_error', 'empty_reply', 'no_check_block', 'interrupted',
 ];
 
@@ -98,7 +98,7 @@ export function runRowOf(run: ModelRun): RunRow {
 }
 
 // The column list and the matching $parameters of the run_* columns, for an INSERT.
-export const RUN_COLUMN_NAMES = [
+const RUN_COLUMN_NAMES = [
   'run_status', 'run_requested_model_id', 'run_served_model_id', 'run_effort', 'run_thinking_text', 'run_thinking_ms',
   'run_error_code', 'run_error_message', 'run_started_at', 'run_finished_at',
 ];

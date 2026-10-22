@@ -2,13 +2,13 @@
 import type { BlockType } from '../../api-types.ts';
 import { type InlineNode, type InlineOptions, parseInline, unescapeString } from './inline.ts';
 
-export interface ListMarker {
+interface ListMarker {
   kind: 'bullet' | 'ordered' | 'task';
   text: string;
   isChecked: boolean;
 }
 
-export type Alignment = 'left' | 'center' | 'right';
+type Alignment = 'left' | 'center' | 'right';
 
 export type Block =
   | { kind: 'paragraph'; children: InlineNode[] }
@@ -92,7 +92,7 @@ export function definitionOf(text: string): Definition | null {
   return { kind: 'link_definition', label, destination, title };
 }
 
-export function listMarkerOf(marker: string, level: number): ListMarker {
+function listMarkerOf(marker: string, level: number): ListMarker {
   const taskMatch = TASK_MARKER.exec(marker.trim());
   if (taskMatch) return { kind: 'task', text: '', isChecked: taskMatch[1] !== ' ' };
   const orderedMatch = ORDERED_MARKER.exec(marker.trim());

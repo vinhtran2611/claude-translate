@@ -2,7 +2,7 @@
 // says for each error is in alert-text.ts.
 import { requiredElement } from '../../../shared/web/ui.ts';
 
-export interface AlertAction {
+interface AlertAction {
   label: string;
   run: () => void;
 }

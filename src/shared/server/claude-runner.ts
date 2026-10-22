@@ -7,7 +7,7 @@ import { APP_DIRECTORY } from './paths.ts';
 
 // fallbackModelId: the model a first run hands over to when this one sends no token within SWITCH_TO_FALLBACK_AFTER_MS;
 // null: the run waits LAST_MODEL_FIRST_TOKEN_TIMEOUT_MS, then fails.
-export interface ModelConfig extends ModelOption {
+interface ModelConfig extends ModelOption {
   fallbackModelId: string | null;
 }
 
@@ -26,7 +26,7 @@ export const EFFORT_OPTIONS: EffortOption[] = [
 // What a page starts with before the person picks: the same for every feature.
 export const DEFAULT_MODEL_ID = 'claude-sonnet-5-5';
 export const DEFAULT_EFFORT: Effort = 'low';
-export const MAX_OUTPUT_TOKENS = 128_000;
+const MAX_OUTPUT_TOKENS = 128_000;
 // A token is the start of a thinking block or any content delta. Even at --effort low the model may think first, for
 // seconds on a long input, and its first summarized thinking_delta lags the block start by 1.4-1.9s (measured); only
 // "no token at all" means stuck. The warm first token arrives in ~1-2s, so 10s without one hands over to the next
@@ -43,14 +43,14 @@ const QUOTA_STATUS_LABELS: Record<string, string> = { allowed: 'ok', allowed_war
 const QUOTA_STATUS_LOG_LEVELS: Record<string, LogLevel> = { allowed: 'info', allowed_warning: 'warn', rejected: 'error' };
 
 // What a claude process is started with; all three are fixed for its lifetime.
-export interface ClaudeSettings {
+interface ClaudeSettings {
   modelId: string;
   effort: Effort;
   systemPrompt: string;
 }
 
 // The rateLimitInfo a stream-json reply carries.
-export interface RateLimitInfo {
+interface RateLimitInfo {
   status: string;
   rateLimitType?: string;
   utilization?: number;
@@ -163,7 +163,7 @@ export function spawnClaudeProcess({ modelId, effort, systemPrompt }: ClaudeSett
 
 export type ClaudeProcess = ReturnType<typeof spawnClaudeProcess>;
 
-export function stopProcess(claudeProcess: ChildProcess): void {
+function stopProcess(claudeProcess: ChildProcess): void {
   if (claudeProcess.exitCode !== null || claudeProcess.signalCode !== null) return;
   claudeProcess.kill('SIGINT');
   // A process stuck on the network may ignore SIGINT; without this it would linger forever.
@@ -172,13 +172,13 @@ export function stopProcess(claudeProcess: ChildProcess): void {
   }, 3000);
 }
 
-export interface RunError {
+interface RunError {
   errorCode: CliErrorCode;
   message: string;
 }
 
 // What a run reports. After onDone or onError nothing more arrives.
-export interface RunHandlers {
+interface RunHandlers {
   onThinkingDelta?(text: string): void;
   onThinkingDone?(durationMs: number): void;
   onText?(text: string): void;
@@ -191,7 +191,7 @@ export interface RunHandlers {
   onError(error: RunError, failureText: string, failureDetailLines: string[]): void;
 }
 
-export interface RunOptions {
+interface RunOptions {
   // The log's request number; null for a line that belongs to no request.
   requestNumber: number | null;
   settings: ClaudeSettings;

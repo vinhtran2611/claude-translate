@@ -123,6 +123,8 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
   let isRevealed = false;
   let isSending = false;
   let isFollowing = false;
+  // True while a Grade again request is on its way.
+  let isStartingGrading = false;
   let clock: ReturnType<typeof setInterval> | undefined;
   let statusLine = h('p', 'footer-note');
   let submitButton: HTMLButtonElement | null = null;
@@ -370,19 +372,19 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
   }
 
   async function gradeAgain(): Promise<void> {
-    if (attempt === null || isSending) return;
+    if (attempt === null || isStartingGrading) return;
     // A second click before the answer comes back starts nothing.
-    isSending = true;
+    isStartingGrading = true;
     const graded = attempt;
     try {
       attempt = await regrade(graded.id, gradingSettingsOf(modelPicker), signal);
     } catch (error) {
-      isSending = false;
+      isStartingGrading = false;
       // No new grading was made, so every grading the attempt has is an earlier one.
       if (!signal.aborted) evaluation.failed(`Could not start grading: ${errorText(error)}`, gradeAgainActions('primary-button'), graded.gradings);
       return;
     }
-    isSending = false;
+    isStartingGrading = false;
     await settle();
   }
 

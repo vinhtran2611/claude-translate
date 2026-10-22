@@ -1,0 +1,386 @@
+/* The Translate page: what is on top of /shared/web/base.css, which holds the tokens, masthead, sidebar, buttons, chips,
+   menus, thinking disclosure and Markdown elements every page shares. Here: the two panes, the side-by-side pairs, the
+   alert, the phone layout and the printed page. */
+
+#masthead-new-translation-button { margin-left: -8px; }
+body:has(> #history-sidebar[open]) #masthead-new-translation-button { display: none; }
+
+#run-info { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane.source .pane-footer:has(.footer-note:empty) { display: none; }
+.detected-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.detected-hint::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+.detected-hint[hidden] { display: none; }
+
+.swap-button {
+  position: absolute;
+  left: 50%;
+  top: 26px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, transform 0.3s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.swap-button:hover { color: var(--accent); border-color: var(--accent); }
+.swap-button.is-turned { transform: rotate(180deg); }
+.swap-button svg { width: 16px; height: 16px; }
+
+.panes { display: grid; grid-template-columns: 1fr 1fr; }
+.panes[hidden] { display: none; }
+.pane { --pane-bg: var(--surface); display: flex; flex-direction: column; background: var(--pane-bg); }
+.pane.target { --pane-bg: var(--surface-tint); border-left: 1px solid var(--line); }
+
+.pane-text {
+  flex: 1 0 auto;
+  min-height: 216px;
+  margin: 0;
+  padding: 20px 32px 16px;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+textarea.pane-text {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  field-sizing: content;
+  caret-color: var(--accent);
+}
+textarea.pane-text::placeholder { color: var(--muted); }
+.pane-text.is-empty::before { content: attr(data-placeholder); color: var(--faint); }
+.pane-text.is-streaming::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: var(--accent);
+  animation: caret 1s steps(1) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+.pane-text.is-error {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin: 20px 32px 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.pane-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 56px;
+  padding: 0 12px 0 32px;
+  flex-shrink: 0;
+  background: var(--pane-bg);
+}
+.pane-footer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 16px;
+  background: linear-gradient(to bottom, transparent, var(--pane-bg));
+  pointer-events: none;
+}
+
+/* Measured with the widest label, "From Vietnamese · detected": below 520px of content width the hint wraps the row. */
+.bar-half.source { container-type: inline-size; }
+@container (max-width: 520px) { .shortcut-hint { display: none; } }
+/* Below 440px the word goes too and only the dot stays (it is sized in px, not em). */
+@container (max-width: 440px) { .detected-hint { font-size: 0; gap: 0; } }
+
+/* Each pair contributes two grid items to the same row, so a source cell and its translation always share a height. */
+.pairs-view { display: grid; grid-template-columns: 1fr 1fr; padding-bottom: 16px; }
+.pairs-view[hidden] { display: none; }
+/* On screen a pair row adds no box: its two cells stay items of the .pairs-view grid. */
+.pair-row { display: contents; }
+
+.pane.target > .thinking { padding: 12px 32px 0; }
+/* Spans both columns so the source side reads as a header band, not a missing cell. The gradient redraws
+   the 1fr 1fr split and the translation cells' 1px border-left, both at exactly 50%. */
+.pairs-view > .thinking {
+  grid-column: 1 / -1;
+  padding: 12px 48px 0 calc(50% + 32px);
+  background: linear-gradient(90deg, var(--surface) 50%, var(--line) 0 calc(50% + 1px), var(--surface-tint) 0);
+}
+.pairs-view > .thinking[open] { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+/* Arbitrary cap: a 1.2k-char summary is ~600px tall at 1280, which would push the first source line a screen down. */
+.pairs-view > .thinking .thinking-text { max-height: min(240px, 40vh); overflow-y: auto; overscroll-behavior: contain; }
+.pair-cell {
+  position: relative;
+  min-width: 0;
+  padding: var(--cell-pad-top) 48px 6px 32px;
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+}
+.pair-cell.source { cursor: text; }
+.pair-cell.translation { background: var(--surface-tint); border-left: 1px solid var(--line); }
+/* Right edge matches the bar's Copy button (16px), so per-cell copies sit in the same column under it. */
+.cell-copy-button {
+  position: absolute;
+  /* Centred on the cell's first line, whatever the type: 28px is the button's height. */
+  top: calc(var(--cell-pad-top) + (var(--first-line) - 28px) / 2);
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.cell-copy-button svg { width: 15px; height: 15px; }
+.pair-cell:hover .cell-copy-button, .cell-copy-button:focus-visible { opacity: 1; }
+.cell-copy-button:hover { background: var(--hover); color: var(--ink); }
+.cell-copy-button.is-done { opacity: 1; color: var(--accent); }
+@media (hover: none) { .cell-copy-button { opacity: 0.7; } }
+.pair-cell.type-heading { padding-bottom: 2px; }
+.pair-cell.type-heading:not(.is-first) { --cell-pad-top: 18px; }
+.pair-cell.type-heading:is(.level-1, .level-2):not(.is-first) { --cell-pad-top: 28px; }
+.pair-cell.type-heading { --first-line: calc(var(--heading-size) * var(--heading-leading)); }
+.pair-cell.type-heading.level-1 { --heading-size: 24px; --heading-leading: 1.3; }
+.pair-cell.type-heading.level-2 { --heading-size: 20px; --heading-leading: 1.35; }
+.pair-cell.type-heading.level-3 { --heading-size: 17px; --heading-leading: 1.45; }
+.pair-cell.type-heading:is(.level-4, .level-5, .level-6) { --heading-size: 16px; --heading-leading: 1.55; }
+.pair-cell.type-heading:is(.level-5, .level-6) { --heading-size: 14.5px; }
+/* A heading right under a rule: the rule already separates it. */
+.pair-row:has(.md-hr) + .pair-row > .pair-cell.type-heading { --cell-pad-top: 10px; }
+.pair-cell.type-list_item { --cell-pad-top: 2px; padding-bottom: 2px; padding-left: calc(32px + (var(--level, 1) - 1) * var(--list-indent)); }
+/* Consecutive list rows read as one list: tight inside, a paragraph's gap before it and a wider one after it. */
+.pair-row:not(:has(> .type-list_item)) + .pair-row > .pair-cell.type-list_item { --cell-pad-top: 6px; }
+.pair-row:has(> .type-list_item) + .pair-row > .pair-cell:not(.type-list_item, .type-heading) { --cell-pad-top: 12px; }
+.pair-cell.is-first { --cell-pad-top: 20px; }
+/* Markdown inside pair cells (the .md-* styles are in base.css). The grid spacing between rows stays on .pair-cell.
+   One flow unit separates blocks inside a cell, the same 12px that separates paragraph rows. The type scale lives on
+   the cell (.pair-cell.type-heading.level-N sets --heading-size and --heading-leading), so the heading and the cell's
+   copy button read the same two numbers. */
+.pair-cell { --md-flow: 0.75em; --list-indent: 1.75em; --cell-pad-top: 6px; --first-line: 26.4px; }
+.pair-content > * + * { margin-top: var(--md-flow); }
+
+/* A table-of-contents or footnote link scrolls its row under the sticky bar and briefly tints it. */
+.pair-content :target { scroll-margin-top: 76px; }
+.pair-row:has(:target) > .pair-cell { animation: target-flash 1.8s ease-out; }
+@keyframes target-flash { from { background-color: color-mix(in oklab, var(--accent) 13%, var(--surface)); } }
+
+@media screen and (max-width: 760px) {
+  .panes { grid-template-columns: 1fr; }
+  .pairs-view { grid-template-columns: 1fr; }
+  .pane.target > .thinking { padding: 10px 16px 0; }
+  /* One column here: a tinted row would read as a translation cell, so it is a plain header row instead. */
+  .pairs-view > .thinking { grid-column: 1; padding: 10px 44px 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .pair-cell { padding-left: 16px; padding-right: 44px; }
+  .cell-copy-button { right: 8px; }
+  .pair-cell.translation { border-left: 0; padding-bottom: 12px; }
+  .pair-cell.type-list_item { padding-left: calc(16px + (var(--level, 1) - 1) * var(--list-indent)); }
+  .pane.target { border-left: 0; border-top: 1px solid var(--line); }
+  .pane-text, .skeleton { min-height: 160px; }
+  .bar-half, .bar-half.target { padding: 6px 16px; }
+  .bar-half.source { padding-right: 24px; }
+  .bar-half.target { padding-left: 24px; }
+  .direction-label { font-size: 14px; }
+  .bar-actions { gap: 6px; }
+  .swap-button { top: 24px; }
+  .pane-text { padding: 16px 16px 8px; }
+  .pane-text.is-error { margin: 16px 16px 8px; }
+  .skeleton { padding: 24px 16px 8px; }
+  .pane-footer { padding: 0 8px 0 16px; }
+  .shortcut-hint, .detected-hint { display: none; }
+}
+
+.bar-half.source .bar-actions { gap: 4px; }
+
+#mode-button { anchor-name: --mode-button; }
+#model-picker-button { anchor-name: --model-picker; }
+#mode-menu { position-anchor: --mode-button; }
+#model-menu { position-anchor: --model-picker; }
+
+/* Phones: the source actions get a full-width row of their own instead of overflowing a 195px half. */
+@media screen and (max-width: 760px) {
+  .direction-bar { grid-template-areas: "source-label target" "source-actions source-actions"; }
+  .bar-half.source { display: contents; }
+  .bar-half.source > .direction-label { grid-area: source-label; align-self: start; min-width: 0; margin-top: 6px; padding-left: 16px; padding-right: 24px; }
+  .bar-half.source > .bar-actions { grid-area: source-actions; justify-content: flex-end; padding: 6px 8px 8px 16px; border-top: 1px solid var(--line); }
+  .bar-half.target { grid-area: target; }
+}
+/* A manual popover, so it renders in the top layer above the modal history drawer too. Fixed at the bottom
+   because at the top it would cover the sticky bar and its Translate button. */
+.alert {
+  position: fixed;
+  inset: auto auto 24px 50%;
+  margin: 0;
+  color: var(--ink);
+  width: min(620px, calc(100% - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 10px 14px 16px;
+  border: 1px solid var(--alert-color);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 100vmax var(--alert-soft), var(--shadow);
+  transform: translateX(-50%);
+  animation: alert-in 0.18s ease-out;
+}
+.alert:not(:popover-open) { display: none; }
+body:has(> #history-sidebar[open]:not(:modal)) .alert { left: calc(var(--sidebar-width) + (100% - var(--sidebar-width)) / 2); }
+.alert.is-info { --alert-color: var(--line-strong); --alert-soft: transparent; width: auto; min-width: 320px; max-width: min(440px, calc(100% - 32px)); }
+.alert.is-info .alert-icon { display: none; }
+.alert.is-error { --alert-color: var(--danger); --alert-soft: var(--danger-soft); }
+.alert.is-warning { --alert-color: var(--warning); --alert-soft: var(--warning-soft); }
+.alert-icon { flex: none; width: 20px; height: 20px; margin-top: 1px; color: var(--alert-color); }
+.alert-text { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.alert-body { margin-top: 3px; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); }
+.alert-detail { margin-top: 6px; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.alert-detail:empty { display: none; }
+.alert-actions { flex: none; display: flex; align-items: center; gap: 4px; }
+.alert-actions .primary-button { height: 30px; padding: 0 12px; font-size: 13px; }
+.alert-actions .primary-button[hidden] { display: none; }
+@keyframes alert-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 18mm 16mm 16mm;
+    @top-left {
+      content: var(--print-source-language, "");
+      width: 50%;
+      vertical-align: bottom;
+      padding-bottom: 5mm;
+      font: 500 6.5pt "Be Vietnam Pro", sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    /* Left padding is half the gutter, so the label starts where the translation text starts; the box is
+       anchored to the right edge, so its width leaves out that padding. */
+    @top-right {
+      content: var(--print-target-language, "");
+      width: calc(50% - 4mm);
+      text-align: left;
+      vertical-align: bottom;
+      padding: 0 0 5mm 4mm;
+      font: 500 6.5pt "Be Vietnam Pro", sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    @bottom-left {
+      content: var(--print-title, "");
+      /* Keeps a long title off the page number; margin boxes ignore overflow and text-overflow. */
+      width: 75%;
+      vertical-align: top;
+      padding-top: 5mm;
+      font: 7pt "Be Vietnam Pro", sans-serif;
+      color: var(--muted);
+    }
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      vertical-align: top;
+      padding-top: 5mm;
+      font: 7pt "Be Vietnam Pro", sans-serif;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+  }
+
+  body { background: none; }
+  #history-sidebar, .masthead, .settings-bar, .settings-menu, .direction-bar, .cell-copy-button, .alert, .thinking { display: none; }
+  .shell { display: block; max-width: none; padding: 0; }
+  .workspace { border: 0; border-radius: 0; box-shadow: none; overflow: visible; background: none; }
+
+  /* Block-level rows, not grid rows: only in block flow does Chrome move a heading to the next page
+     to honour break-after: avoid; in a grid it breaks inside the following pair instead. */
+  .pairs-view { display: block; padding: 0; }
+  .pair-row { display: grid; grid-template-columns: 1fr 1fr; break-inside: avoid; }
+  .pair-row:has(> .type-heading, hr) { break-after: avoid; }
+
+  .pair-cell {
+    --cell-start: 0mm;
+    padding: 0 4mm 2.4mm var(--cell-start);
+    background: none;
+    font-size: 9.5pt;
+    /* 1.5, not the usual 1.3-1.4: stacked Vietnamese diacritics (ễ, ậ) need the room. */
+    line-height: 1.5;
+    orphans: 3;
+    widows: 3;
+    text-wrap: pretty;
+  }
+  /* 4mm padding each side of a hairline = an 8mm gutter with the rule centred in it. */
+  .pair-cell.translation { --cell-start: 4mm; padding-right: 0; border-left: 0.5pt solid var(--line-strong); background: none; }
+  .pair-cell.is-first { padding-top: 0; }
+
+  .pair-cell.type-heading { padding-top: 4.5mm; padding-bottom: 1.6mm; }
+  .pair-cell.type-heading.level-1 { padding-top: 0; padding-bottom: 4mm; }
+  .md-heading { letter-spacing: 0; }
+  .pair-cell.type-heading.level-1 { --heading-size: 15pt; --heading-leading: 1.25; }
+  .pair-cell.type-heading.level-2 { --heading-size: 11pt; --heading-leading: 1.3; }
+  .pair-cell.type-heading.level-3 { --heading-size: 10pt; --heading-leading: 1.35; }
+  .pair-cell.type-heading:is(.level-4, .level-5, .level-6) { --heading-size: 9.5pt; --heading-leading: 1.4; }
+
+  .pair-cell.type-list_item { padding-top: 0; padding-bottom: 1mm; padding-left: calc(var(--cell-start) + (var(--level, 1) - 1) * 4mm); }
+  /* Wide enough for a right-anchored "13." at 9.5pt in the source column, which has no left padding to spill into. */
+  .pair-cell { --list-indent: 7.5mm; }
+  .md-quote { padding-left: 3mm; border-left: 1pt solid var(--faint); }
+  /* overflow-x: auto cannot scroll on paper, so long code lines wrap instead of being cut off. */
+  .md-code-block { border: 0.5pt solid var(--line); border-radius: 0; background: none; }
+  .md-code-block pre { padding: 1.5mm 2mm; overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 7.5pt; line-height: 1.45; }
+  .md-code-language { padding: 1.2mm 2mm 0; font-size: 6.5pt; }
+  .md-code { padding: 0; border: 0; background: none; color: inherit; }
+  .md-table-scroll { overflow: visible; border: 0; border-radius: 0; }
+  .md-table { border-collapse: collapse; font-size: 8pt; }
+  .md-table th, .md-table td { padding: 1mm 1.5mm; border: 0.5pt solid var(--line-strong); }
+  .md-table th { background: none; }
+  .md-link, .md-footnote-ref a, .md-footnote-label { color: inherit; }
+  .md-link { text-decoration-color: var(--faint); }
+  .md-footnote { font-size: 8pt; }
+  .md-caret { display: none; }
+
+  /* A thematic break is one rule across both columns, not "---" printed twice. */
+  .pair-row:has(.md-hr) > .pair-cell.translation { display: none; }
+  .pair-row:has(.md-hr) > .pair-cell.source { grid-column: 1 / -1; padding: 1.2mm 0; }
+  .md-hr { margin: 0; border-top: 0.5pt solid var(--line-strong); }
+}

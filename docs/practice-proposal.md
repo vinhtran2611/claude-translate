@@ -1,8 +1,8 @@
 # Practice: design
 
 Practice is a page of the app (`/practice`) for IELTS Writing, grammar and vocabulary practice. You make exercises with Claude as
-JSON files (format: [practice-import-format.md](practice-import-format.md)), import each file as a **project**, do the exercises,
-and read an evaluation of every answer. It lives in `features/practice/`; common code is in `shared/`.
+JSON files (format: [import-format.md](../src/features/practice/static/import-format.md)), import each file as a **project**, do the exercises,
+and read an evaluation of every answer. It lives in `src/features/practice/`; common code is in `src/shared/`.
 
 ## 1. Screens
 
@@ -30,16 +30,16 @@ shows the attempt and joins its stream.
 
 ## 2. Types and templates
 
-`features/practice/web/templates/` has one module per type (`rewrite`, `write`, `choice`, `fill`, `flashcard`) with the same few
+`src/features/practice/web/templates/` has one module per type (`rewrite`, `write`, `choice`, `fill`, `flashcard`) with the same few
 functions (`empty`, `isBlank`, `isReady`, `problem`, `answer`, `status`, and `evaluation` for a flashcard). The shell
 (`exercise.ts`) owns the layout and the phases: answering, grading, graded, failed. A new type is a module there, a place in
 `import-check.ts`, and a line in `answers.ts`.
 
 ## 3. Grading
 
-Every type but a flashcard is graded by `claude -p` through the shared runner (`shared/server/claude-runner.ts`) with one common
+Every type but a flashcard is graded by `claude -p` through the shared runner (`src/shared/server/claude-runner.ts`) with one common
 prompt (`prompts/grade.md`), the exercise and the answer. The reply is Markdown, stored as it came with the grader's thinking summary
-(`{ text, thinking_text, thinking_ms, model, effort, ms }`) and drawn by Translate's renderer (`shared/web/markdown.ts`, text nodes only).
+(`{ text, thinking_text, thinking_ms, model, effort, ms }`) and drawn by Translate's renderer (`src/shared/web/markdown.ts`, text nodes only).
 The model and effort are the person's choice, from the same options as Translate. The answer is saved before grading starts. The server
 runs the grading and keeps what it has produced so far in memory; `GET attempts/:id/stream` (Server-Sent Events, Translate's wire format)
 sends that first as a `snapshot` and then the rest, so a page can leave and come back, and grading continues if nobody is watching; a server restart turns interrupted gradings
@@ -50,7 +50,7 @@ A flashcard is rated by you (Didn't know, Almost, Knew it); the back is shown in
 ## 4. Data
 
 `data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, schema version 2. See
-[practice-import-format.md](practice-import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
+[import-format.md](../src/features/practice/static/import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
 The old `data/practice.sqlite` is not read; re-import your files.
 
 ## 5. HTTP API (`/api/practice`)
@@ -58,20 +58,20 @@ The old `data/practice.sqlite` is not read; re-import your files.
 The API and its data model are in [practice-api-design.md](practice-api-design.md): projects and exercises addressed by key
 (`/projects/{project}/exercises/{exercise}`), `PUT` to create or replace, `DELETE`, `POST /import` with the file itself as the
 body, export, a list of attempts, one error shape (`{ error: { code, message, problems? } }`) and `?dry_run=true` on every write
-with a body. `GET /api/practice` lists the version, the limits and the JSON Schemas. The shapes are in `features/practice/api.ts`.
+with a body. `GET /api/practice` lists the version, the limits and the JSON Schemas. The shapes are in `src/features/practice/api-types.ts`.
 
 ## 6. Code
 
 | Where | What |
 |---|---|
-| `api.ts`, `text.ts`, `import-check.ts` | shared by server and page: types, kind and preview of an exercise, the file check |
+| `api-types.ts`, `text.ts`, `import-check.ts` | shared by server and page: types, kind and preview of an exercise, the file check |
 | `server/` | `routes.ts`, `store.ts` (the only code that touches the database), `answers.ts` (answer check, flashcard), `ai-grading.ts` |
 | `web/` | `practice.ts` (router: one abort signal per navigation, so a late answer never draws over a newer page), `side.ts`, `exercise.ts`, project and import views, `drafts.ts`, `templates/` |
 | `prompts/grade.md` | the grading prompt |
-| `examples/example-project.json` | a valid file with every type |
+| `static/example-project.json`, `static/import-format.md` | a valid file with every type, and the file format guide |
 
-`shared/web/base.css` holds Translate's tokens, masthead, sidebar, buttons, cards and Markdown styles; translate still has its own
-inline copy (identical values) and may adopt it later. `shared/web/markdown.ts` and `model-picker.ts` are shared the same way. A feature imports only from itself and `shared/` (`test/boundaries.test.ts`).
+`src/shared/web/base.css` holds the tokens, masthead, sidebar, buttons, cards and Markdown styles both pages use; each page adds
+its own stylesheet on top (`translate.css`, `practice.css`). `src/shared/web/markdown.ts` and `model-picker.ts` are shared the same way. A feature imports only from itself and `src/shared/` (`test/boundaries.test.ts`).
 
 ## 7. Not in this version
 

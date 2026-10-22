@@ -103,13 +103,13 @@ export function createGrader(store: PracticeStore): Grader {
     };
     // null until runClaude returns.
     let run: Run | null = null;
-    const servedModelId = (): string => run?.served_model_id() ?? model_id;
+    const servedModelId = (): string => run?.servedModelId() ?? model_id;
     const what_so_far = () => ({ thinkingText: live.thinking_text, thinkingMs: live.thinking_ms, feedbackMarkdown: live.text });
     log('info', request_number, 'grade', `${exercise.content.type}  ${modelLabelOf(model_id)} ${effort}  attempt ${attempt.id}`);
     run = runClaude({
-      request_number,
-      settings: { model_id, effort, system_prompt: systemPrompt() },
-      user_message: userMessageOf(exercise, attempt.answer),
+      requestNumber: request_number,
+      settings: { modelId: model_id, effort, systemPrompt: systemPrompt() },
+      userMessage: userMessageOf(exercise, attempt.answer),
       handlers: {
         onThinkingDelta: (text) => {
           live.thinking_text += text;

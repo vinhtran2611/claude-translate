@@ -105,13 +105,13 @@ function setThinking(text: string, duration_ms: number | null, is_open: boolean)
   thinking_block.open = is_open;
   thinking_block.classList.toggle('is-live', is_live);
   thinking_label.textContent = thinkingLabelOf(text, duration_ms);
-  const blocks = parseCellBlocks('paragraph', '', 0, text.trim(), { is_streaming: false, link_definitions: new Map() });
+  const blocks = parseCellBlocks('paragraph', '', 0, text.trim(), { isStreaming: false, linkDefinitions: new Map() });
   renderCellContent(thinking_body, blocks, {
     side: 'translation',
-    pair_index: -1,
-    document_index: documentIndexOf([]),
-    is_streaming: false,
-    is_document_complete: true,
+    blockIndex: -1,
+    documentIndex: documentIndexOf([]),
+    isStreaming: false,
+    isDocumentComplete: true,
   });
 }
 

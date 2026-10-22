@@ -33,9 +33,9 @@ export function removeStored(key: string): void {
 }
 
 // An element with a class and, optionally, its text: the building block for lists drawn in code.
-export function createElement<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, class_name = '', text = ''): HTMLElementTagNameMap[Tag] {
+export function createElement<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, className = '', text = ''): HTMLElementTagNameMap[Tag] {
   const element = document.createElement(tag);
-  if (class_name !== '') element.className = class_name;
+  if (className !== '') element.className = className;
   if (text !== '') element.textContent = text;
   return element;
 }
@@ -47,16 +47,16 @@ export function foldForSearch(text: string): string {
 
 // The History section a timestamp falls in, counted from local midnight: Today, Yesterday, Previous 7 days, Previous 30 days,
 // then the month ("September", or "April 2025" in another year).
-export function historyGroupOf(created_at: string, now = new Date()): string {
-  const created = new Date(created_at);
-  const today_start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days_before_today = Math.ceil((today_start.getTime() - created.getTime()) / 86400000);
-  if (created >= today_start) return 'Today';
-  if (days_before_today <= 1) return 'Yesterday';
-  if (days_before_today <= 7) return 'Previous 7 days';
-  if (days_before_today <= 30) return 'Previous 30 days';
-  const month_format: Intl.DateTimeFormatOptions = { month: 'long', ...(created.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) };
-  return created.toLocaleDateString('en-US', month_format);
+export function historyGroupOf(createdAt: string, now = new Date()): string {
+  const created = new Date(createdAt);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysBeforeToday = Math.ceil((todayStart.getTime() - created.getTime()) / 86400000);
+  if (created >= todayStart) return 'Today';
+  if (daysBeforeToday <= 1) return 'Yesterday';
+  if (daysBeforeToday <= 7) return 'Previous 7 days';
+  if (daysBeforeToday <= 30) return 'Previous 30 days';
+  const monthFormat: Intl.DateTimeFormatOptions = { month: 'long', ...(created.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) };
+  return created.toLocaleDateString('en-US', monthFormat);
 }
 
 // The inline icons, the same drawings as Claude Translate's. Trusted constants, so they may be set as markup.
@@ -72,11 +72,11 @@ export const ICONS = {
   thinkingChevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6.5l5.5 5.5-5.5 5.5"/></svg>',
 };
 
-export function createIcon(name: keyof typeof ICONS, class_name = ''): SVGSVGElement {
+export function createIcon(name: keyof typeof ICONS, className = ''): SVGSVGElement {
   const template = document.createElement('template');
   template.innerHTML = ICONS[name];
   const icon = template.content.firstElementChild as SVGSVGElement;
-  if (class_name !== '') icon.setAttribute('class', class_name);
+  if (className !== '') icon.setAttribute('class', className);
   icon.setAttribute('aria-hidden', 'true');
   return icon;
 }

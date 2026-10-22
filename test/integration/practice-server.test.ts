@@ -22,7 +22,7 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
     init.headers = { 'Content-Type': 'application/json' };
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
-  return fetch(`${server.base_url}/api/practice${path}`, init);
+  return fetch(`${server.baseUrl}/api/practice${path}`, init);
 }
 
 async function get(path: string): Promise<any> {
@@ -83,33 +83,33 @@ const CANNED_REPLY = '<pair type="paragraph">\n<source>\nHello\n</source>\n<tran
 // ---- The page ----
 
 test('the page, its modules and its stylesheet are served; the shared helpers too', async () => {
-  const page = await fetch(`${server.base_url}/practice`);
+  const page = await fetch(`${server.baseUrl}/practice`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<title>Practice · Claude Translate<\/title>/);
 
-  const css = await fetch(`${server.base_url}/features/practice/web/practice.css`);
+  const css = await fetch(`${server.baseUrl}/features/practice/web/practice.css`);
   assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
-  assert.equal((await fetch(`${server.base_url}/shared/web/ui.ts`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/ui.ts`)).status, 200);
   // A module in a folder under shared/web/ is served too: markdown.ts imports its parts from markdown/.
-  assert.equal((await fetch(`${server.base_url}/shared/web/markdown/inline.ts`)).status, 200);
-  assert.equal((await fetch(`${server.base_url}/shared/web/base.css`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/markdown/inline.ts`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/base.css`)).status, 200);
 
-  const example = await fetch(`${server.base_url}/features/practice/static/example-project.json`);
+  const example = await fetch(`${server.baseUrl}/features/practice/static/example-project.json`);
   assert.equal(example.headers.get('content-type'), 'application/json; charset=utf-8');
   assert.equal(JSON.parse(await example.text()).format, 4);
-  assert.equal((await fetch(`${server.base_url}/features/practice/static/import-format.md`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/static/import-format.md`)).status, 200);
 
   // Server code, prompts and the entry file stay on the server.
-  assert.equal((await fetch(`${server.base_url}/features/practice/web/../../../server.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/server/store.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/prompts/grade.md`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/shared/server/paths.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/web/format.test.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/web/../../../server.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/server/store.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/prompts/grade.md`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/shared/server/paths.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/web/format.test.ts`)).status, 404);
 });
 
 test('every module the page loads, however deep, is served as JavaScript without types', async () => {
   const seen = new Set<string>();
-  const pending = [`${server.base_url}/features/practice/web/practice.ts`];
+  const pending = [`${server.baseUrl}/features/practice/web/practice.ts`];
   while (pending.length > 0) {
     const url = pending.pop() as string;
     if (seen.has(url)) continue;
@@ -130,12 +130,12 @@ test('every module the page loads, however deep, is served as JavaScript without
     'shared/web/ui.ts',
   ];
   for (const name of expected_modules) {
-    assert.ok(seen.has(`${server.base_url}/${name}`), name);
+    assert.ok(seen.has(`${server.baseUrl}/${name}`), name);
   }
 });
 
 test('the translate page links to Practice and keeps its title', async () => {
-  const page = await (await fetch(`${server.base_url}/`)).text();
+  const page = await (await fetch(`${server.baseUrl}/`)).text();
   assert.match(page, /<title>Claude Translate<\/title>/);
   assert.match(page, /href="\/practice"/);
 });
@@ -289,7 +289,7 @@ test('the grading options are the ones Claude Translate offers', async () => {
   assert.deepEqual(options.models.map((model: any) => model.modelId), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
   assert.deepEqual(options.efforts.map((effort: any) => effort.effort), ['low', 'medium', 'high']);
 
-  const translate_options = await (await fetch(`${server.base_url}/translation-options`)).json() as any;
+  const translate_options = await (await fetch(`${server.baseUrl}/translation-options`)).json() as any;
   assert.equal(options.defaultModelId, translate_options.defaultModelId);
   assert.equal(options.defaultEffort, translate_options.defaultEffort);
   assert.deepEqual(options.models, translate_options.models);
@@ -318,7 +318,7 @@ test('a model or effort that is not offered is refused, for an answer and for Gr
 
 // The events of a grading's stream as [name, data], read until it ends.
 async function watch(attempt_id: number): Promise<[string, any][]> {
-  const response = await fetch(`${server.base_url}/api/practice/attempts/${attempt_id}/stream`);
+  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${attempt_id}/stream`);
   assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
   const blocks = (await response.text()).split('\n\n').filter((block) => block.trim() !== '');
   return blocks.map((block) => {
@@ -373,13 +373,13 @@ test('a grading streams its thinking and words, a page that joins midway gets wh
 
   // Once it is over there is nothing to join.
   assert.deepEqual(await watch(started.id), [['finished', {}]]);
-  assert.equal((await fetch(`${server.base_url}/api/practice/attempts/999999/stream`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/api/practice/attempts/999999/stream`)).status, 404);
 });
 
 test('a grading goes on and is saved when nobody is watching, and a failure reaches the watcher and the attempt', async () => {
   const key = await exampleProject();
   const started = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:stream=One two three four.' } });
-  const response = await fetch(`${server.base_url}/api/practice/attempts/${started.id}/stream`);
+  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${started.id}/stream`);
   await response.body!.cancel();
   assert.equal(latestOf(await waitForGrading(started.id)).feedbackMarkdown, 'One two three four.');
 
@@ -426,7 +426,7 @@ test('one malformed row never breaks the lists, and an attempt keeps its exercis
   const key = await exampleProject();
   const card = await answerAndRead(key, 'ex-10', { answer: { type: 'flashcard', rating: 'knew' } });
 
-  const database = new DatabaseSync(join(server.data_directory, 'practice.sqlite'));
+  const database = new DatabaseSync(join(server.dataDirectory, 'practice.sqlite'));
   const project_id = (await get(`/projects/${key}`)).id;
   database.prepare("UPDATE exercises SET content_json = 'null' WHERE project_id = ? AND key = 'ex-01'").run(project_id);
   const changed = JSON.stringify({ type: 'flashcard', front: 'changed', back: 'b', hint: null, example: null, explanationMarkdown: null });
@@ -473,7 +473,7 @@ test('every API error has the one shape: bad JSON, too large, invalid, not found
   assert.deepEqual(await unknown_path.json(), { error: { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' } });
 
   // Outside the API a 404 stays bare.
-  assert.equal((await fetch(`${server.base_url}/nothing`)).headers.get('content-type'), null);
+  assert.equal((await fetch(`${server.baseUrl}/nothing`)).headers.get('content-type'), null);
 });
 
 test('the first API is gone', async () => {

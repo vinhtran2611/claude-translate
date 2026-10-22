@@ -16,9 +16,9 @@ export function sqlList(values: readonly string[]): string {
 }
 
 // The CHECK of a time column: ISO 8601 UTC, as new Date().toISOString() writes it. A nullable column may also be NULL.
-export function timeCheck(column: string, is_nullable = false): string {
+export function timeCheck(column: string, isNullable = false): string {
   const format = `${column} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*Z'`;
-  if (is_nullable) return `CHECK (${column} IS NULL OR ${format})`;
+  if (isNullable) return `CHECK (${column} IS NULL OR ${format})`;
   return `CHECK (${format})`;
 }
 
@@ -37,8 +37,8 @@ export const RUN_CHECKS = `
 // The run_* columns of a table that holds a ModelRun (with RUN_CHECKS after the table's columns). is_model_chosen: the
 // app picks the model and effort (a translation), so they are never NULL; false for an English check (Claude Code picks
 // them) and for a grading (old gradings may not know them).
-export function runColumns(is_model_chosen: boolean): string {
-  const chosen = is_model_chosen ? 'NOT NULL' : '';
+export function runColumns(isModelChosen: boolean): string {
+  const chosen = isModelChosen ? 'NOT NULL' : '';
   return `
     run_status             TEXT    NOT NULL CHECK (run_status IN ${sqlList(RUN_STATUSES)}),
     run_requested_model_id TEXT    ${chosen},

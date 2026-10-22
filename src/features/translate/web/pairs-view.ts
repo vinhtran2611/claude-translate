@@ -42,11 +42,11 @@ function refreshDocumentIndex() {
 function renderPairCell(pair: ShownBlock, side: PairSide): void {
   const is_streaming = streaming_cell !== null && streaming_cell.pair === pair && streaming_cell.side === side;
   const text = side === 'source' ? pair.sourceText : translationTextOf(pair);
-  const inline_options = { is_streaming, link_definitions: document_index.link_definitions };
+  const inline_options = { isStreaming: is_streaming, linkDefinitions: document_index.linkDefinitions };
   const blocks = parseCellBlocks(pair.blockType, pair.marker, pair.level, text, inline_options);
   const content_element = side === 'source' ? pair.source_content : pair.translation_content;
   const is_document_complete = streaming_cell === null;
-  renderCellContent(content_element, blocks, { side, pair_index: pair.blockIndex, document_index, is_streaming, is_document_complete });
+  renderCellContent(content_element, blocks, { side, blockIndex: pair.blockIndex, documentIndex: document_index, isStreaming: is_streaming, isDocumentComplete: is_document_complete });
 }
 
 function renderPairCells(pair: ShownBlock): void {

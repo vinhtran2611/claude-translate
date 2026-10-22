@@ -43,7 +43,7 @@ const PAGE_PATH = join(FEATURES_DIRECTORY, 'translate', 'web', 'translate.html')
 let translate_request_count = 0;
 
 function spawnTranslateProcess({ model_id, effort, sourceFormat }: TranslateSettings): ClaudeProcess {
-  return spawnClaudeProcess({ model_id, effort, system_prompt: systemPromptOf(sourceFormat) });
+  return spawnClaudeProcess({ modelId: model_id, effort, systemPrompt: systemPromptOf(sourceFormat) });
 }
 
 // A fact the request never reached (null, or no tokens) is left out. 10, 6 and 6 fit 'Sonnet 5.5', 'medium' and
@@ -181,7 +181,7 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   const first_token_allowance_ms = Math.round((text.length / CHARS_PER_TOKEN[source_language]) * FIRST_TOKEN_MS_PER_INPUT_TOKEN);
   // null until runClaude returns; its served_model_id is the requested model, or its fallback.
   let run: Run | null = null;
-  const servedModelId = (): string => run?.served_model_id() ?? requested_model_id;
+  const servedModelId = (): string => run?.servedModelId() ?? requested_model_id;
   // What the model has produced so far, in the shape history stores; written only by sendOutputEvents.
   // thinking_duration_ms stays null unless a thinking block closed.
   const translation_output: { blocks: TranslatedBlock[]; text_outside_blocks: string; thinking_text: string; thinking_duration_ms: number | null } =
@@ -286,11 +286,11 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
   const request_line = `${formatCount(text.length)} chars  ${modelLabelOf(requested_model_id)} ${effort}  ${sourceFormat}`;
   log('info', request_number, 'start', `${source_language}->${target_language}  ${request_line}${cold_start_note}`);
   run = runClaude({
-    request_number,
-    settings: { model_id: requested_model_id, effort, system_prompt: systemPromptOf(sourceFormat) },
-    user_message: `${direction_line}\n\n<input_text>\n${text}\n</input_text>`,
-    first_token_allowance_ms,
-    claude_process,
+    requestNumber: request_number,
+    settings: { modelId: requested_model_id, effort, systemPrompt: systemPromptOf(sourceFormat) },
+    userMessage: `${direction_line}\n\n<input_text>\n${text}\n</input_text>`,
+    firstTokenAllowanceMs: first_token_allowance_ms,
+    claudeProcess: claude_process,
     handlers: {
       onThinkingDelta: (thinking_text) => sendOutputEvents([['thinking_delta', { text: thinking_text }]]),
       onThinkingDone: (duration_ms) => sendOutputEvents([['thinking_done', { durationMs: duration_ms }]]),

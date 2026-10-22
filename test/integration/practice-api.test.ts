@@ -23,7 +23,7 @@ async function call(method: string, path: string, body?: unknown): Promise<Reply
     init.headers = { 'Content-Type': 'application/json' };
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
-  const response = await fetch(`${server.base_url}/api/practice${path}`, init);
+  const response = await fetch(`${server.baseUrl}/api/practice${path}`, init);
   const text = await response.text();
   return { status: response.status, body: text === '' ? null : JSON.parse(text), headers: response.headers };
 }

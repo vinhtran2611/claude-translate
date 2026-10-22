@@ -19,13 +19,13 @@ const LOG_LEVEL_COLORS: Record<LogLevel, string> = { info: '', warn: ANSI_YELLOW
 const IS_COLOR_LOG = process.stdout.isTTY === true && process.stdout.hasColors();
 
 // null until configureLogFile: lines then go to the terminal only.
-let log_file_path: string | null = null;
-let last_logged_date_text: string | null = null;
-// Set by the first failed write to log_file_path, so the terminal warns once instead of on every line.
-let is_log_file_failing = false;
+let logFilePath: string | null = null;
+let lastLoggedDateText: string | null = null;
+// Set by the first failed write to logFilePath, so the terminal warns once instead of on every line.
+let isLogFileFailing = false;
 
 export function configureLogFile(path: string): void {
-  log_file_path = path;
+  logFilePath = path;
 }
 
 function padTwoDigits(number: number): string {
@@ -44,67 +44,67 @@ export function formatWeekdayTime(date: Date): string {
   return `${WEEKDAY_NAMES[date.getDay()]} ${padTwoDigits(date.getHours())}:${padTwoDigits(date.getMinutes())}`;
 }
 
-export function formatSeconds(duration_ms: number): string {
-  return `${(duration_ms / 1000).toFixed(1)}s`;
+export function formatSeconds(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 export function formatCount(count: number): string {
   return count.toLocaleString('en-US');
 }
 
-function toOneLine(text: string, max_chars: number): string {
-  const one_line_text = String(text).replace(/\s*[\r\n]+\s*/g, ' ').trim();
-  return one_line_text.length > max_chars ? `${one_line_text.slice(0, max_chars - 3)}...` : one_line_text;
+function toOneLine(text: string, maxChars: number): string {
+  const oneLineText = String(text).replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  return oneLineText.length > maxChars ? `${oneLineText.slice(0, maxChars - 3)}...` : oneLineText;
 }
 
-export function lastLines(text: string, line_count: number): string[] {
-  return text.split('\n').map((line) => line.trimEnd()).filter((line) => line !== '').slice(-line_count);
+export function lastLines(text: string, lineCount: number): string[] {
+  return text.split('\n').map((line) => line.trimEnd()).filter((line) => line !== '').slice(-lineCount);
 }
 
-function paint(text: string, ansi_color: string, is_color: boolean): string {
-  return is_color && ansi_color !== '' ? `${ansi_color}${text}${ANSI_RESET}` : text;
+function paint(text: string, ansiColor: string, isColor: boolean): string {
+  return isColor && ansiColor !== '' ? `${ansiColor}${text}${ANSI_RESET}` : text;
 }
 
 // 5, 4 and 9 fit 'ERROR', '#999' and 'cancelled', the widest values, so the columns line up.
 function formatLogLine(
-  date: Date, level: LogLevel, request_number: number | null, event_name: string, message: string, detail_lines: string[], is_color: boolean,
+  date: Date, level: LogLevel, requestNumber: number | null, eventName: string, message: string, detailLines: string[], isColor: boolean,
 ): string {
-  const time_text = formatClockTime(date);
-  const level_text = LOG_LEVEL_MARKERS[level].padEnd(5);
-  const request_text = (request_number === null ? '' : `#${request_number}`).padEnd(4);
-  const event_text = event_name.padEnd(9);
-  const level_color = LOG_LEVEL_COLORS[level];
+  const timeText = formatClockTime(date);
+  const levelText = LOG_LEVEL_MARKERS[level].padEnd(5);
+  const requestText = (requestNumber === null ? '' : `#${requestNumber}`).padEnd(4);
+  const eventText = eventName.padEnd(9);
+  const levelColor = LOG_LEVEL_COLORS[level];
   const head = [
-    paint(time_text, ANSI_DIM, is_color), paint(level_text, level_color, is_color), request_text, paint(event_text, level_color, is_color),
+    paint(timeText, ANSI_DIM, isColor), paint(levelText, levelColor, isColor), requestText, paint(eventText, levelColor, isColor),
   ].join(' ');
-  const detail_indent = ' '.repeat([time_text, level_text, request_text, event_text].join(' ').length + 1);
+  const detailIndent = ' '.repeat([timeText, levelText, requestText, eventText].join(' ').length + 1);
   return [
     `${head} ${toOneLine(message, LOG_MESSAGE_MAX_CHARS)}`,
-    ...detail_lines.map((line) => `${detail_indent}| ${toOneLine(line, LOG_MESSAGE_MAX_CHARS)}`),
+    ...detailLines.map((line) => `${detailIndent}| ${toOneLine(line, LOG_MESSAGE_MAX_CHARS)}`),
   ].join('\n');
 }
 
-// level: 'info' | 'warn' | 'error'; request_number is null for a line that belongs to no request.
-// message is cut to one line; detail_lines (a stderr tail, a stack) print under it, indented to its column.
-export function log(level: LogLevel, request_number: number | null, event_name: string, message: string, detail_lines: string[] = []): void {
+// level: 'info' | 'warn' | 'error'; requestNumber is null for a line that belongs to no request.
+// message is cut to one line; detailLines (a stderr tail, a stack) print under it, indented to its column.
+export function log(level: LogLevel, requestNumber: number | null, eventName: string, message: string, detailLines: string[] = []): void {
   const now = new Date();
-  const date_text = formatDateText(now);
-  let terminal_text = '';
-  let file_text = '';
-  if (date_text !== last_logged_date_text) {
-    last_logged_date_text = date_text;
-    terminal_text += `${paint(`--- ${date_text} ---`, ANSI_DIM, IS_COLOR_LOG)}\n`;
-    file_text += `--- ${date_text} ---\n`;
+  const dateText = formatDateText(now);
+  let terminalText = '';
+  let fileText = '';
+  if (dateText !== lastLoggedDateText) {
+    lastLoggedDateText = dateText;
+    terminalText += `${paint(`--- ${dateText} ---`, ANSI_DIM, IS_COLOR_LOG)}\n`;
+    fileText += `--- ${dateText} ---\n`;
   }
-  terminal_text += formatLogLine(now, level, request_number, event_name, message, detail_lines, IS_COLOR_LOG);
-  file_text += `${formatLogLine(now, level, request_number, event_name, message, detail_lines, false)}\n`;
-  console.log(terminal_text);
-  if (log_file_path === null) return;
+  terminalText += formatLogLine(now, level, requestNumber, eventName, message, detailLines, IS_COLOR_LOG);
+  fileText += `${formatLogLine(now, level, requestNumber, eventName, message, detailLines, false)}\n`;
+  console.log(terminalText);
+  if (logFilePath === null) return;
   try {
-    appendFileSync(log_file_path, file_text);
+    appendFileSync(logFilePath, fileText);
   } catch (error) {
     // A throw here would escape a stream handler and stop the server; a log file that cannot be written must not.
-    if (!is_log_file_failing) console.log(formatLogLine(now, 'warn', null, 'log', `cannot write ${log_file_path}: ${(error as Error).message}`, [], IS_COLOR_LOG));
-    is_log_file_failing = true;
+    if (!isLogFileFailing) console.log(formatLogLine(now, 'warn', null, 'log', `cannot write ${logFilePath}: ${(error as Error).message}`, [], IS_COLOR_LOG));
+    isLogFileFailing = true;
   }
 }

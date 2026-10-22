@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ModelRun } from '../shared/api.ts';
-import { RUN_INSERT_COLUMNS, RUN_INSERT_VALUES, runColumns, runOf, runRowOf, timeCheck, type RunRow } from '../shared/server/model-run.ts';
+import { RUN_CHECKS, RUN_INSERT_COLUMNS, RUN_INSERT_VALUES, runColumns, runOf, runRowOf, timeCheck, type RunRow } from '../shared/server/model-run.ts';
 import { renameDatabaseOnce } from '../shared/server/sqlite.ts';
 
 function scratchDirectory(): string {
@@ -40,7 +40,7 @@ test('a database file is renamed once, after a backup, and never over an existin
 // A table that holds only a run, to check the run rules the CHECKs enforce.
 function runTable(): DatabaseSync {
   const database = new DatabaseSync(':memory:');
-  database.exec(`CREATE TABLE runs (id INTEGER PRIMARY KEY, ${runColumns(true)}) STRICT`);
+  database.exec(`CREATE TABLE runs (id INTEGER PRIMARY KEY, ${runColumns(true)}, ${RUN_CHECKS}) STRICT`);
   return database;
 }
 

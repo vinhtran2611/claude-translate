@@ -27,9 +27,16 @@ export const TIME_COLUMNS = `
     created_at TEXT NOT NULL ${timeCheck('created_at')},
     updated_at TEXT NOT NULL ${timeCheck('updated_at')}`;
 
-// The run_* columns of a table that holds a ModelRun, with the run rules as CHECKs. is_model_chosen: the app picks the
-// model and effort (a translation), so they are never NULL; false for an English check (Claude Code picks them) and for
-// a grading (old gradings may not know them).
+// The run rules (ModelRun in shared/api.ts) as CHECKs. They are table constraints, so a CREATE TABLE puts them after
+// all of its columns.
+export const RUN_CHECKS = `
+    CHECK ((run_status = 'running') = (run_finished_at IS NULL)),
+    CHECK ((run_status = 'failed') = (run_error_code IS NOT NULL)),
+    CHECK ((run_error_code IS NULL) = (run_error_message IS NULL))`;
+
+// The run_* columns of a table that holds a ModelRun (with RUN_CHECKS after the table's columns). is_model_chosen: the
+// app picks the model and effort (a translation), so they are never NULL; false for an English check (Claude Code picks
+// them) and for a grading (old gradings may not know them).
 export function runColumns(is_model_chosen: boolean): string {
   const chosen = is_model_chosen ? 'NOT NULL' : '';
   return `
@@ -42,10 +49,7 @@ export function runColumns(is_model_chosen: boolean): string {
     run_error_code         TEXT    CHECK (run_error_code IS NULL OR run_error_code IN ${sqlList(RUN_ERROR_CODES)}),
     run_error_message      TEXT,
     run_started_at         TEXT    NOT NULL ${timeCheck('run_started_at')},
-    run_finished_at        TEXT    ${timeCheck('run_finished_at', true)},
-    CHECK ((run_status = 'running') = (run_finished_at IS NULL)),
-    CHECK ((run_status = 'failed') = (run_error_code IS NOT NULL)),
-    CHECK ((run_error_code IS NULL) = (run_error_message IS NULL))`;
+    run_finished_at        TEXT    ${timeCheck('run_finished_at', true)}`;
 }
 
 // The run_* columns as a row holds them.

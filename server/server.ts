@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  Effort, ErrorKind, HistoryEntry, Language, Mode, Outcome, Pair, StreamEvent, TranslateRequest, TranslationOptions,
+  Effort, ErrorKind, Language, Mode, Outcome, Pair, SourceFormat, StreamEvent, TranslatedBlock, TranslateRequest, TranslationOptions,
 } from '../shared/api.ts';
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, lastRateLimitInfo, MODEL_OPTIONS, modelLabelOf, modelOptionOf, runClaude, spawnClaudeProcess,
@@ -11,7 +11,7 @@ import {
 } from '../shared/server/claude-runner.ts';
 import { readJsonBody, sendError, sendFile, sendJson, sendModule, type Feature } from '../shared/server/http.ts';
 import { configureLogFile, formatCount, formatSeconds, lastLines, log, LOG_DETAIL_MAX_LINES, type LogLevel } from '../shared/server/log.ts';
-import { backupDaily } from '../shared/server/sqlite.ts';
+import { backupDaily, renameDatabaseOnce } from '../shared/server/sqlite.ts';
 import { createPracticeFeature } from '../features/practice/server/routes.ts';
 import { openHistoryStore, type HistoryStore } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
@@ -23,14 +23,21 @@ const WEB_DIRECTORY = join(APP_DIRECTORY, 'web');
 const SHARED_WEB_DIRECTORY = join(APP_DIRECTORY, 'shared', 'web');
 const INDEX_HTML_PATH = join(WEB_DIRECTORY, 'index.html');
 const FAVICON_PATH = join(WEB_DIRECTORY, 'favicon.svg');
-const HISTORY_DATABASE_PATH = process.env.HISTORY_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'history.sqlite');
-const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(APP_DIRECTORY, 'data', 'practice-v2.sqlite');
+const DATA_DIRECTORY = join(APP_DIRECTORY, 'data');
+const TRANSLATE_DATABASE_PATH = process.env.TRANSLATE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'translate.sqlite');
+const PRACTICE_DATABASE_PATH = process.env.PRACTICE_DATABASE_PATH ?? join(DATA_DIRECTORY, 'practice.sqlite');
+// The names the files had before the schema version lived only in PRAGMA user_version (the spec's §4 and §5). Each is
+// renamed once, after a backup, when the server uses the default path.
+const RENAMED_DATABASES = [
+  { old_path: join(DATA_DIRECTORY, 'history.sqlite'), new_path: TRANSLATE_DATABASE_PATH, is_default: process.env.TRANSLATE_DATABASE_PATH === undefined },
+  { old_path: join(DATA_DIRECTORY, 'practice-v2.sqlite'), new_path: PRACTICE_DATABASE_PATH, is_default: process.env.PRACTICE_DATABASE_PATH === undefined },
+];
 // Next to the database by default, so a test server on a scratch database never writes into the real log.
-const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(HISTORY_DATABASE_PATH), 'server.log');
-const BACKUPS_DIRECTORY = join(dirname(HISTORY_DATABASE_PATH), 'backups');
+const SERVER_LOG_PATH = process.env.SERVER_LOG_PATH ?? join(dirname(TRANSLATE_DATABASE_PATH), 'server.log');
+const BACKUPS_DIRECTORY = join(dirname(TRANSLATE_DATABASE_PATH), 'backups');
 // Each database gets one copy a day; the check runs at start and then hourly, so a server left running past
 // midnight still makes the next day's copy.
-const DAILY_BACKUPS = [{ path: HISTORY_DATABASE_PATH, name: 'history' }, { path: PRACTICE_DATABASE_PATH, name: 'practice-v2' }];
+const DAILY_BACKUPS = [{ path: TRANSLATE_DATABASE_PATH, name: 'translate' }, { path: PRACTICE_DATABASE_PATH, name: 'practice' }];
 const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const PORT = Number(process.env.PORT ?? 8787);
 
@@ -50,6 +57,16 @@ const CHARS_PER_TOKEN: Record<Language, number> = { en: 4, vi: 1.3 };
 // being mistaken for a silent model.
 const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
+// The page's mode is how a translation stores its source: 'translate_markdown' repairs the layout first.
+const SOURCE_FORMATS: Record<Mode, SourceFormat> = { translate: 'plain_text', translate_markdown: 'markdown' };
+const RUN_STATUS_OF_OUTCOME = { done: 'succeeded', error: 'failed', cancelled: 'cancelled' } as const;
+
+// A pair as the live stream has it, as a stored block: an empty marker is null.
+function blockOf(pair: Pair): TranslatedBlock {
+  let marker: string | null = pair.marker;
+  if (marker === '') marker = null;
+  return { blockType: pair.pair_type, level: pair.level, marker, sourceText: pair.source_text, translatedText: pair.translation_text };
+}
 
 let translate_request_count = 0;
 
@@ -204,6 +221,22 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     { pairs: [], unpaired_text: '', thinking_text: '', thinking_duration_ms: null };
   // null while running; the outcome once the request ended. Written only by finishTranslation.
   let finished_outcome: Outcome | null = null;
+  // The run is saved as it starts (the spec's run rules), so a failure or a cancel is kept too. null when the save
+  // failed; the page then has no entry to mark as open.
+  let history_id: number | null = null;
+  try {
+    history_id = history_store.startTranslation({
+      sourceLanguage: source_language,
+      targetLanguage: target_language,
+      sourceFormat: SOURCE_FORMATS[mode],
+      sourceText: text,
+      requestedModelId: requested_model_id,
+      effort,
+      startedAt: new Date(started_at).toISOString(),
+    });
+  } catch (save_error) {
+    log('error', request_number, 'history', `save failed: ${(save_error as Error).message}`);
+  }
   // null until the run gets that far.
   let first_text_ms: number | null = null;
   let output_tokens: number | null = null;
@@ -229,9 +262,9 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     }
   };
 
-  // The one place a translate request ends: saves it to history when the model produced anything, logs the closing
-  // line, then sends the closing event. When outcome is 'error', error = { error_kind, message } goes to the page and
-  // failure_text (one line) and failure_detail_lines (e.g. a stderr tail) go to the log only.
+  // The one place a translate request ends: saves how it ended with what the model produced, logs the closing line,
+  // then sends the closing event. When outcome is 'error', error = { error_kind, message } goes to the page and the
+  // saved run, and failure_text (one line) and failure_detail_lines (e.g. a stderr tail) go to the log only.
   function finishTranslation(
     outcome: Outcome, error: { error_kind: ErrorKind; message: string } | null = null, failure_text = '', failure_detail_lines: string[] = [],
   ): void {
@@ -241,16 +274,17 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, histor
     const duration_ms = Date.now() - started_at;
     const pair_count = translation_output.pairs.length;
     const unpaired_char_count = translation_output.unpaired_text.length;
-    const has_output = pair_count > 0 || translation_output.unpaired_text.trim() !== '';
-    // null when nothing was saved (no output, or the save failed); the page then has no entry to mark as open.
-    let history_id: number | null = null;
-    if (has_output) {
+    if (history_id !== null) {
       try {
-        history_id = history_store.saveEntry({
-          created_at: new Date(started_at).toISOString(), source_language, target_language, input_text: text,
-          pairs: translation_output.pairs, unpaired_text: translation_output.unpaired_text,
-          thinking_text: translation_output.thinking_text, thinking_duration_ms: translation_output.thinking_duration_ms,
-          outcome, served_model_id, requested_model_id, effort, mode, duration_ms,
+        history_store.finishTranslation(history_id, {
+          status: RUN_STATUS_OF_OUTCOME[outcome],
+          blocks: translation_output.pairs.map(blockOf),
+          textOutsideBlocks: translation_output.unpaired_text.trim() === '' ? '' : translation_output.unpaired_text,
+          servedModelId: served_model_id,
+          thinkingText: translation_output.thinking_text,
+          thinkingMs: translation_output.thinking_duration_ms,
+          errorCode: error?.error_kind ?? null,
+          errorMessage: error?.message ?? null,
         });
       } catch (save_error) {
         log('error', request_number, 'history', `save failed: ${(save_error as Error).message}`);
@@ -325,10 +359,6 @@ function runDailyBackups(): void {
   }
 }
 
-function toHistoryResponse(entry: Omit<HistoryEntry, 'is_fallback'>): HistoryEntry {
-  return { ...entry, is_fallback: entry.served_model_id !== entry.requested_model_id };
-}
-
 // What the page offers in its settings menus. quota_warning: the latest reply's rate limit when it is a warning or a
 // rejection, else null (also before the first reply since the server started).
 function translationOptionsResponse(): TranslationOptions {
@@ -348,7 +378,12 @@ function translationOptionsResponse(): TranslationOptions {
 // Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
 mkdirSync(dirname(SERVER_LOG_PATH), { recursive: true });
 configureLogFile(SERVER_LOG_PATH);
-const history_store = openHistoryStore(HISTORY_DATABASE_PATH);
+for (const { old_path, new_path, is_default } of RENAMED_DATABASES) {
+  if (is_default && renameDatabaseOnce(old_path, new_path)) log('info', null, 'data', `${basename(old_path)} renamed to ${basename(new_path)}`);
+}
+const history_store = openHistoryStore(TRANSLATE_DATABASE_PATH);
+const interrupted_count = history_store.failInterruptedTranslations();
+if (interrupted_count > 0) log('warn', null, 'history', `${interrupted_count} translation(s) were interrupted by a restart`);
 // Every feature but translate, which is still served from server/ and web/ (see docs/practice-proposal.md §6).
 const features: Feature[] = [createPracticeFeature({ database_path: PRACTICE_DATABASE_PATH })];
 // URLs mirror the folders, so a page module's relative import of shared/web/ui.ts resolves the same for tsc and the browser.
@@ -394,13 +429,13 @@ const server = createServer(async (req, res) => {
     } else if (req.method === 'POST' && pathname === '/translate') {
       await handleTranslate(req, res, history_store);
     } else if (req.method === 'GET' && pathname === '/history') {
-      sendJson(res, 200, history_store.listEntries());
+      sendJson(res, 200, history_store.listTranslations());
     } else if (req.method === 'GET' && history_entry_match) {
-      const entry = history_store.readEntry(Number(history_entry_match[1]));
-      if (entry) sendJson(res, 200, toHistoryResponse(entry));
+      const translation = history_store.readTranslation(Number(history_entry_match[1]));
+      if (translation) sendJson(res, 200, translation);
       else res.writeHead(404).end('No such history entry');
     } else if (req.method === 'DELETE' && history_entry_match) {
-      const is_deleted = history_store.deleteEntry(Number(history_entry_match[1]));
+      const is_deleted = history_store.deleteTranslation(Number(history_entry_match[1]));
       res.writeHead(is_deleted ? 204 : 404).end();
     } else {
       let is_handled = false;

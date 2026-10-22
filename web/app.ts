@@ -2,7 +2,9 @@
 // its types as it serves it. The settings menus live in settings-menus.ts.
 import { documentIndexOf, parseCellBlocks, parseInline, plainTextOf, renderCellContent } from '../shared/web/markdown.ts';
 import { foldForSearch, historyGroupOf, ICONS, readStored, requiredElement, writeStored } from '../shared/web/ui.ts';
-import type { HistoryEntry, HistorySummary, Language, Mode, Outcome, Pair, StreamEvent } from '../shared/api.ts';
+import type {
+  Language, Mode, ModelRun, Outcome, Pair, SourceFormat, StreamEvent, TranslatedBlock, Translation, TranslationSummary,
+} from '../shared/api.ts';
 import { alertForError, type PageErrorKind } from './alert-text.ts';
 import { detectSourceLanguage } from './detect-language.ts';
 import { fetchJson } from './fetch-json.ts';
@@ -343,8 +345,34 @@ const HISTORY_LIST_LIMIT = 200;
 const DELETE_UNDO_MS = 5000;
 const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/></svg>';
 
+// A stored translation's source format, as the mode the page names it by.
+const MODE_OF_SOURCE_FORMAT: Record<SourceFormat, Mode> = { plain_text: 'translate', markdown: 'translate_markdown' };
+
+// How a stored run ended, in the words of a live run's outcome. A run still going (another tab's) reads as stopped.
+function outcomeOf(run: Pick<ModelRun, 'status'>): Outcome {
+  if (run.status === 'succeeded') return 'done';
+  if (run.status === 'cancelled') return 'cancelled';
+  return 'error';
+}
+
+// The model that answered; the requested one while that is not known yet.
+function servedModelOf(run: Pick<ModelRun, 'servedModelId' | 'requestedModelId'>): string {
+  return run.servedModelId ?? run.requestedModelId ?? '';
+}
+
+// A stored block as the live stream's pair, so it is drawn by the same path.
+function pairOf(block: TranslatedBlock): Pair {
+  return {
+    pair_type: block.blockType,
+    level: block.level,
+    marker: block.marker ?? '',
+    source_text: block.sourceText,
+    translation_text: block.translatedText,
+  };
+}
+
 // Summaries from the last GET /history, newest first; written only by loadHistory.
-let history_summaries: HistorySummary[] = [];
+let history_summaries: TranslationSummary[] = [];
 // The entry on screen, marked in the list; null when the workspace holds anything else. Written only by setShownHistoryId.
 let shown_history_id: number | null = null;
 // Deletes waiting out their Undo window: entry id -> timer. The row stays hidden while its id is here.
@@ -367,20 +395,21 @@ function historyTitleOf(input_preview: string): string {
     .trim();
 }
 
-function describeHistoryTooltip(summary: HistorySummary): string {
-  const created = new Date(summary.created_at);
+function describeHistoryTooltip(summary: TranslationSummary): string {
+  const created = new Date(summary.createdAt);
   const time = created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const day = historyGroupOf(summary.created_at);
+  const day = historyGroupOf(summary.createdAt);
   let day_label = day;
   if (day !== 'Today' && day !== 'Yesterday') day_label = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const partial_note = summary.outcome === 'done' ? '' : ' · partial';
-  const choice_label = `${modeNoteOf(summary.mode)}${choiceLabelOf({ model_id: summary.served_model_id, effort: summary.effort })}`;
-  const direction = `${summary.source_language.toUpperCase()} → ${summary.target_language.toUpperCase()}`;
+  const partial_note = summary.run.status === 'succeeded' ? '' : ' · partial';
+  const choice = { model_id: servedModelOf(summary.run), effort: summary.run.effort ?? '' };
+  const choice_label = `${modeNoteOf(MODE_OF_SOURCE_FORMAT[summary.sourceFormat])}${choiceLabelOf(choice)}`;
+  const direction = `${summary.sourceLanguage.toUpperCase()} → ${summary.targetLanguage.toUpperCase()}`;
   return `${direction} · ${day_label} ${time} · ${choice_label}${partial_note}`;
 }
 
-function matchesHistorySearch(summary: HistorySummary, folded_query_words: string[]): boolean {
-  const haystack = foldForSearch(`${summary.input_preview} ${summary.output_preview}`);
+function matchesHistorySearch(summary: TranslationSummary, folded_query_words: string[]): boolean {
+  const haystack = foldForSearch(`${summary.sourcePreview} ${summary.outputPreview}`);
   return folded_query_words.every((word) => haystack.includes(word));
 }
 
@@ -390,22 +419,23 @@ function showHistoryStatus(text: string): void {
   history_status.hidden = text === '';
 }
 
-function createHistoryItem(summary: HistorySummary): HTMLLIElement {
+function createHistoryItem(summary: TranslationSummary): HTMLLIElement {
   const item = document.createElement('li');
   item.className = 'history-item';
   const open_button = document.createElement('button');
   open_button.className = 'history-open-button';
   open_button.dataset.entryId = String(summary.id);
   open_button.tabIndex = -1;
-  const title = historyTitleOf(summary.input_preview);
+  const title = historyTitleOf(summary.sourcePreview);
+  const is_complete = summary.run.status === 'succeeded';
   open_button.title = describeHistoryTooltip(summary);
-  open_button.setAttribute('aria-label', summary.outcome === 'done' ? title : `${title} (partial)`);
+  open_button.setAttribute('aria-label', is_complete ? title : `${title} (partial)`);
   if (summary.id === shown_history_id) open_button.setAttribute('aria-current', 'true');
   const title_element = document.createElement('span');
   title_element.className = 'history-item-title';
   title_element.textContent = title;
   open_button.append(title_element);
-  if (summary.outcome !== 'done') {
+  if (!is_complete) {
     const partial_mark = document.createElement('span');
     partial_mark.className = 'history-partial-mark';
     partial_mark.setAttribute('aria-hidden', 'true');
@@ -434,7 +464,7 @@ function renderHistoryList(): void {
   const list_children: HTMLLIElement[] = [];
   let previous_group = null;
   for (const summary of visible_summaries) {
-    const group = historyGroupOf(summary.created_at);
+    const group = historyGroupOf(summary.createdAt);
     if (group !== previous_group) {
       const group_label = document.createElement('li');
       group_label.className = 'history-group-label';
@@ -462,7 +492,7 @@ function renderHistoryList(): void {
 
 async function loadHistory(): Promise<void> {
   try {
-    history_summaries = await fetchJson<HistorySummary[]>('/history');
+    history_summaries = await fetchJson<TranslationSummary[]>('/history');
     renderHistoryList();
   } catch (error) {
     history_list.replaceChildren();
@@ -510,7 +540,7 @@ function isSidebarModal(): boolean {
 
 async function openHistoryEntry(entry_id: number): Promise<void> {
   try {
-    showHistoryEntry(await fetchJson<HistoryEntry>(`/history/${entry_id}`));
+    showHistoryEntry(await fetchJson<Translation>(`/history/${entry_id}`));
     if (isSidebarModal()) closeSidebar();
   } catch (error) {
     showHistoryStatus(`Could not open it: ${errorText(error)}`);
@@ -557,7 +587,7 @@ function deleteHistoryEntry(entry_id: number): void {
 
 // Shows a stored translation without calling Claude. Text typed but never translated is kept for Undo,
 // the same way Clear keeps it. Assigning .value fires no input event, so detection keeps the stored direction.
-function showHistoryEntry(entry: HistoryEntry): void {
+function showHistoryEntry(translation: Translation): void {
   if (active_request) active_request.abort();
   hideAlert();
   const has_unsaved_input = source_text.value.trim() !== '' && shown_history_id === null && current_target_state !== 'done';
@@ -567,18 +597,34 @@ function showHistoryEntry(entry: HistoryEntry): void {
   } else {
     forgetClearedSnapshot();
   }
-  source_text.value = entry.input_text;
-  source_language = entry.source_language;
+  const { run } = translation;
+  const pairs = translation.blocks.map(pairOf);
+  const text_outside_blocks = translation.textOutsideBlocks ?? '';
+  const mode = MODE_OF_SOURCE_FORMAT[translation.sourceFormat];
+  source_text.value = translation.sourceText;
+  source_language = translation.sourceLanguage;
   is_direction_auto = false;
   renderLanguages();
   renderSource();
-  renderStoredPairs(entry.pairs);
-  renderTarget('done', entry.pairs.length > 0 ? '' : entry.unpaired_text);
-  shown_result_mode = entry.mode;
-  setThinking(entry.thinking_text, entry.thinking_duration_ms, false);
-  setRunInfo(`From history · ${runInfoTextOf({ has_output: true, ...entry, is_from_history: true })}`);
-  setViewMode(entry.pairs.length > 0 ? 'pairs' : 'edit');
-  setShownHistoryId(entry.id);
+  renderStoredPairs(pairs);
+  renderTarget('done', pairs.length > 0 ? '' : text_outside_blocks);
+  shown_result_mode = mode;
+  setThinking(run.thinkingText ?? '', run.thinkingMs, false);
+  // The run's duration is worked out, never stored: finishedAt - startedAt.
+  const finished_at = run.finishedAt ?? run.startedAt;
+  const run_info: RunInfo = {
+    outcome: outcomeOf(run),
+    has_output: pairs.length > 0 || text_outside_blocks !== '',
+    duration_ms: Date.parse(finished_at) - Date.parse(run.startedAt),
+    served_model_id: servedModelOf(run),
+    effort: run.effort ?? '',
+    mode,
+    is_fallback: run.servedModelId !== null && run.servedModelId !== run.requestedModelId,
+    is_from_history: true,
+  };
+  setRunInfo(`From history · ${runInfoTextOf(run_info)}`);
+  setViewMode(pairs.length > 0 ? 'pairs' : 'edit');
+  setShownHistoryId(translation.id);
 }
 
 function snapshotWorkspace(): WorkspaceSnapshot {

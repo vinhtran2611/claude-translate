@@ -137,31 +137,45 @@ export type StreamEventName = keyof StreamEvents;
 // One event as [name, data], with data typed by name: switching on the name narrows the data.
 export type StreamEvent = { [Name in StreamEventName]: [Name, StreamEvents[Name]] }[StreamEventName];
 
-// GET /history, newest first. effort is a string: the database accepts every CLI effort, not only the offered ones.
-export interface HistorySummary {
+// ---- Translate: the stored translation (docs/data-model-proposal.md §3.5) ----
+
+// 'markdown' also repairs broken layout (the 'translate_markdown' mode); 'plain_text' keeps the text as pasted.
+export type SourceFormat = 'plain_text' | 'markdown';
+export type BlockType = PairType;
+
+// One translate run. The row is saved when the run starts and updated when it ends, whatever the outcome.
+export interface Translation {
   id: number;
-  created_at: string;
-  source_language: Language;
-  target_language: Language;
-  outcome: Outcome;
-  served_model_id: string;
-  requested_model_id: string;
-  effort: string;
-  mode: Mode;
-  input_preview: string;
-  output_preview: string;
+  sourceLanguage: Language;
+  targetLanguage: Language;
+  sourceFormat: SourceFormat;
+  // Exactly what was pasted.
+  sourceText: string;
+  // The output.
+  blocks: TranslatedBlock[];
+  // Reply text the model put in no block.
+  textOutsideBlocks: string | null;
+  run: ModelRun;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
-// GET /history/:id. input_text is what was pasted; in mode translate_markdown pairs[].source_text is the tidied form.
-export interface HistoryEntry extends Omit<HistorySummary, 'input_preview' | 'output_preview'> {
-  input_text: string;
-  pairs: Pair[];
-  unpaired_text: string;
-  duration_ms: number;
-  is_fallback: boolean;
-  // '' and null when the model did not think.
-  thinking_text: string;
-  thinking_duration_ms: number | null;
+// One heading, paragraph or list item next to its translation.
+export interface TranslatedBlock {
+  blockType: BlockType;
+  // Heading or list depth; 0 when none.
+  level: number;
+  // A list marker: "-", "1.".
+  marker: string | null;
+  // With 'markdown', the repaired text.
+  sourceText: string;
+  translatedText: string;
+}
+
+// GET /history, newest first: a translation without its texts, with a preview of each side (worked out when read).
+export interface TranslationSummary extends Omit<Translation, 'sourceText' | 'blocks' | 'textOutsideBlocks'> {
+  sourcePreview: string;
+  outputPreview: string;
 }
 
 // One problem of a rejected request. path is a JSON Pointer into the body ("/exercises/5/content/options"), "?name" for a

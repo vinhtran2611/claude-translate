@@ -23,14 +23,19 @@ At 1280 px and wider the sidebar is docked beside the page and stays open or clo
 left it. On narrower windows it opens as a drawer over the page and closes once you pick an
 entry.
 
-- Stored in SQLite at `data/history.sqlite` (built into Node, no install). Set
-  `HISTORY_DATABASE_PATH` to use another file, e.g. for tests.
+- Stored in SQLite at `data/translate.sqlite` (built into Node, no install). Set
+  `TRANSLATE_DATABASE_PATH` to use another file, e.g. for tests. The old `data/history.sqlite` is
+  renamed to it once, after a copy to `data/backups/history-before-rename.sqlite`.
+- Every run is saved when it starts and updated when it ends, so a failed or cancelled run is kept
+  with its reason (`run.errorCode`, `run.errorMessage`). A run the server was stopped in becomes
+  failed with `interrupted` at the next start. The shape is the spec's `Translation`
+  ([data-model-proposal.md](data-model-proposal.md) §3.5).
 - The list shows the newest 200 entries. Everything is kept until you delete it; to wipe all
-  history, stop the server and delete `data/history.sqlite`.
+  history, stop the server and delete `data/translate.sqlite`.
 - The server refuses to start if the file was written by a newer schema than the code knows.
-  An older file is upgraded in place on start: schema 2 adds the thinking columns (older entries
-  have no thinking), schema 3 the model and effort columns (older entries were all Sonnet 5.5 at Low),
-  schema 4 the mode column (older entries were all As pasted).
+  An older file is upgraded in place on start, after a backup: schemas 2 to 4 added the thinking,
+  model, effort and mode columns; schema 5 is the new data model (old failed runs get
+  `claude_error` with "Unknown (saved before error details were kept).").
 
 ## Thinking
 
@@ -188,7 +193,8 @@ POST /translate
     event: error  data: { "error_kind": string, "message": string, "served_model_id": string, "effort": string,
                           "is_fallback": boolean, "history_id": number | null }
                   error_kind: no_response | stalled | claude_error | output_limit | start_failed | exited
-                  history_id: the saved history entry, null when there was no text to save
+                  history_id: the saved translation (saved at the start, whatever the outcome), null only when saving failed
+                  The stream keeps its snake_case fields: it is the live protocol, not the stored model.
 ```
 
 Closing the request (pressing **Translate** again, **Clear**, ⇄ or `Esc` mid-translation)
@@ -218,13 +224,14 @@ tokens, so a long think is never mistaken for a stuck model.
 Once a model has started streaming it is never replaced.
 
 ```
-GET    /history       -> [{ id, created_at, source_language, target_language, outcome, served_model_id, requested_model_id,
-                            effort, mode, input_preview, output_preview }]  newest 200
-GET    /history/:id   -> { ...summary, input_text, pairs, unpaired_text, duration_ms, is_fallback,
-                            thinking_text, thinking_duration_ms }  | 404
-                          served_model_id answered; requested_model_id was chosen; is_fallback when they differ
-                          thinking_text '' and thinking_duration_ms null when the model did not think
-                          input_text is what was pasted; in mode translate_markdown pairs[].source_text is tidied
+GET    /history       -> [{ id, sourceLanguage, targetLanguage, sourceFormat, run, createdAt, updatedAt,
+                            sourcePreview, outputPreview }]  newest 200 (run.thinkingText is left out: null)
+GET    /history/:id   -> Translation: { id, sourceLanguage, targetLanguage, sourceFormat, sourceText, blocks,
+                            textOutsideBlocks, run, createdAt, updatedAt }  | 404
+                          run is a ModelRun: servedModelId answered, requestedModelId was chosen (a fallback when
+                          they differ); thinkingText null when the model did not think; the duration is
+                          finishedAt - startedAt. sourceText is what was pasted; with sourceFormat markdown,
+                          blocks[].sourceText is tidied
 DELETE /history/:id   -> 204 | 404
 ```
 
@@ -294,5 +301,6 @@ traced word by word. Changes to the skill do not reach this app; copy them over 
 The modes, models and efforts the menus offer, their descriptions, fallbacks and defaults are the
 `MODE_OPTIONS` table in `server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
 `shared/server/claude-runner.ts`; restart after
-changing them. A new mode also needs its value in the `mode` CHECK of `server/history-store.ts`.
+changing them. A new mode also needs a source format: `SOURCE_FORMATS` in `server/server.ts` and the
+`source_format` CHECK of `server/history-store.ts`.
 

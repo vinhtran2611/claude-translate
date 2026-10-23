@@ -1,4 +1,5 @@
-// The practice database's tables (docs/data-model-proposal.md §4), and the migrations from schema 1 and schema 2 (§5).
+// The practice database's tables (docs/data-model-proposal.md §4), and the migrations from schema 1, 2 (§5) and 3
+// (docs/practice-from-translation-design.md §3).
 import type { DatabaseSync } from 'node:sqlite';
 import type { Effort, ModelRun, RunErrorCode } from '../../../shared/api-types.ts';
 import {
@@ -9,11 +10,32 @@ import { answerFromFormat3, contentFromFormat3, type Format3Content, type Format
 import { EXERCISE_TYPES } from '../import-check.ts';
 import { slugOf } from '../text.ts';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 // A key: a-z, 0-9 and -, not starting with -, 1 to 64 characters (KEY_PATTERN in import-check.ts).
 const KEY_CHECK = "CHECK (length(key) BETWEEN 1 AND 64 AND key NOT GLOB '*[^a-z0-9-]*' AND key NOT GLOB '-*')";
 // What a grading interrupted by a restart says (and what schema 2 wrote in attempts.error).
 export const INTERRUPTED_MESSAGE = 'The server stopped while grading.';
+export const GENERATION_INTERRUPTED_MESSAGE = 'The server stopped while generating.';
+
+// Schema 4 (docs/practice-from-translation-design.md §3): a project made from a translated post. translation_id names a
+// row in Translate's own file, so it is no foreign key. post_json keeps the post as sent, for Try again. Deleting the
+// project keeps the generation, with project_id NULL.
+const GENERATION_TABLES = [
+  `CREATE TABLE generations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    translation_id INTEGER NOT NULL CHECK (translation_id > 0),
+    title          TEXT    NOT NULL CHECK (title <> ''),
+    post_json      TEXT    NOT NULL CHECK (json_valid(post_json)),
+    target_count   INTEGER NOT NULL CHECK (target_count BETWEEN 1 AND 50),
+    project_id     INTEGER REFERENCES projects (id) ON DELETE SET NULL,
+    reply_text     TEXT    CHECK (reply_text IS NULL OR reply_text <> ''),
+    dropped_count  INTEGER CHECK (dropped_count IS NULL OR dropped_count >= 0),${runColumns(true)},${TIME_COLUMNS},${RUN_CHECKS}
+  ) STRICT`,
+  'CREATE INDEX generations_by_translation_id_id ON generations (translation_id, id)',
+  'CREATE INDEX generations_by_run_status ON generations (run_status)',
+  // At most one generation of a translation is running.
+  "CREATE UNIQUE INDEX generations_by_translation_id_running ON generations (translation_id) WHERE run_status = 'running'",
+];
 
 // An attempt keeps a snapshot of its exercise, so nothing done to an exercise later can change what it shows. Deleting
 // an exercise or a project deletes its attempts and their gradings (the store asks first: rule 8). AUTOINCREMENT: an id
@@ -62,6 +84,7 @@ export const CREATE_TABLES = [
   'CREATE INDEX gradings_by_run_status ON gradings (run_status)',
   // Rule 7: at most one grading of an attempt is running.
   "CREATE UNIQUE INDEX gradings_by_attempt_id_running ON gradings (attempt_id) WHERE run_status = 'running'",
+  ...GENERATION_TABLES,
 ];
 
 // ---- Schema 1 -> 2 ----
@@ -422,4 +445,12 @@ export function migrateFrom2(database: DatabaseSync): void {
     setSequence.run({ name, seq });
     addSequence.run({ name, seq });
   }
+}
+
+// ---- Schema 3 -> 4 ----
+
+// Schema 3 -> 4: only adds the generations table and its indexes. migrateFrom2 already makes them (it runs CREATE_TABLES),
+// so this runs only on a schema 3 file.
+export function migrateFrom3(database: DatabaseSync): void {
+  for (const statement of GENERATION_TABLES) database.exec(statement);
 }

@@ -26,6 +26,8 @@ export type RunErrorCode =
   | 'empty_reply'
   // English check: the reply had no check block.
   | 'no_check_block'
+  // Practice generation: the reply was not the JSON asked for, or too few of its exercises passed the check.
+  | 'invalid_reply'
   // The server stopped during the run.
   | 'interrupted';
 
@@ -87,6 +89,22 @@ export interface GenerationRequest {
   // Only 'en' is accepted.
   sourceLanguage: Language;
   blocks: GenerationBlock[];
+}
+
+// One generation: a model run that writes a project from a post. Its post is kept on the server, for Try again.
+export interface GenerationDetail {
+  id: number;
+  translationId: number;
+  title: string;
+  // The number of exercises asked for.
+  targetCount: number;
+  // The project it made: null until it succeeds, and again once that project is deleted.
+  projectKey: string | null;
+  // The exercises left out because they failed the check; null until it succeeds.
+  droppedCount: number | null;
+  run: ModelRun;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface ModelOption {

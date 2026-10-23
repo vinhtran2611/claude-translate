@@ -14,8 +14,8 @@ function sampleReply(exercises: unknown[] = SAMPLE.exercises): string {
 }
 
 // A copy of the sample's exercises, so a test can break one.
-function sampleExercises(): Record<string, any>[] {
-  return structuredClone(SAMPLE.exercises);
+function sampleExercises() {
+  return structuredClone(SAMPLE.exercises) as typeof SAMPLE.exercises;
 }
 
 function goodReplyOf(reply: string, plan: GenerationPlan = FULL_PLAN) {

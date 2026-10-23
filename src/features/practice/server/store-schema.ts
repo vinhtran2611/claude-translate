@@ -7,6 +7,7 @@ import {
 import type { Answer, ExerciseContent, ExerciseSnapshot } from '../api-types.ts';
 import { answerFromFormat3, contentFromFormat3, type Format3Content, type Format3Type } from '../format-3.ts';
 import { EXERCISE_TYPES } from '../import-check.ts';
+import { slugOf } from '../text.ts';
 
 export const SCHEMA_VERSION = 3;
 // A key: a-z, 0-9 and -, not starting with -, 1 to 64 characters (KEY_PATTERN in import-check.ts).
@@ -122,17 +123,7 @@ const SCHEMA_2_TABLES = [
 // A key made from a name: "Day 1 - 19/10/2026" -> "day-1-19-10-2026". When it is taken (or the name has no letters
 // or digits), "-{id}" is added, so the key is unique without asking anyone.
 export function keyFromName(name: string, id: number, isTaken: (key: string) => boolean): string {
-  const asciiName = name
-    .toLowerCase()
-    .replaceAll('đ', 'd')
-    // Splits each accented letter into the letter and its accents, then drops the accents: "ế" -> "e".
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '');
-  const base = asciiName
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .slice(0, 64)
-    .replace(/-+$/, '');
+  const base = slugOf(name);
   if (base !== '' && !isTaken(base)) return base;
   const suffix = `-${id}`;
   const shortenedBase = (base || 'project').slice(0, 64 - suffix.length).replace(/-+$/, '');

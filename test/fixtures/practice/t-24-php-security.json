@@ -1,0 +1,729 @@
+{
+  "format": 4,
+  "project": {
+    "key": "t-24-php-security",
+    "name": "PHP Security Release (Oct 2026)",
+    "description": "Made from translation 24: \"Today's PHP Security Release, and How We're Strengthening PHP Security\". 50 flashcards and multiple-choice questions on the post's vocabulary, grammar and meaning."
+  },
+  "exercises": [
+    {
+      "key": "fc-1-right-conditions",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "under the right conditions",
+        "hint": "phrase",
+        "back": "trong điều kiện phù hợp: only when certain things are true at the same time",
+        "example": "These releases fix two critical vulnerabilities that, under the right conditions, allow an unauthenticated attacker to execute code on servers running PHP."
+      }
+    },
+    {
+      "key": "fc-2-imperative",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "it is imperative that ...",
+        "hint": "formal phrase · followed by the base verb",
+        "back": "bắt buộc phải ...: it is extremely important that something happens",
+        "example": "If you run PHP, it is imperative that you update now.",
+        "explanationMarkdown": "After *imperative that*, *essential that* and *vital that*, use the **base verb** for every subject: *it is imperative that he **update***, not *updates*."
+      }
+    },
+    {
+      "key": "fc-3-overshadow",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "overshadow",
+        "hint": "verb · /ˌəʊvəˈʃædəʊ/",
+        "back": "lấn át, làm lu mờ: to make something seem less important",
+        "example": "Other concrete issues with clear impact overshadowed these concerns."
+      }
+    },
+    {
+      "key": "fc-4-stall",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "stall",
+        "hint": "verb · work, talks, a project",
+        "back": "đình trệ: to stop making progress",
+        "example": "This decision process caused work on a fix to stall and restart repeatedly over months."
+      }
+    },
+    {
+      "key": "fc-5-repercussions",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "repercussions",
+        "hint": "noun, usually plural · /ˌriːpəˈkʌʃnz/",
+        "back": "hậu quả (thường là xấu): bad results of an action that come later",
+        "example": "The PHP security team struggled to choose between these and feared the repercussions of shipping the wrong choice.",
+        "explanationMarkdown": "Stronger and more formal than *consequences*. Common pattern: *the repercussions **of** something*, ***serious** repercussions*."
+      }
+    },
+    {
+      "key": "fc-6-bring-forward",
+      "topic": "security",
+      "tags": ["vocab", "vocab:phrasal-verb"],
+      "content": {
+        "type": "flashcard",
+        "front": "bring something forward",
+        "hint": "phrasal verb · a date, a meeting, an announcement",
+        "back": "đẩy sớm lên: to move an event to an earlier time",
+        "example": "In response, the PHP project brought its pre-announcement forward and published it at 19:30 UTC.",
+        "explanationMarkdown": "The opposite is **push something back** (dời lại sau). The object can go in the middle: *brought **the release** forward*."
+      }
+    },
+    {
+      "key": "fc-7-turn-out",
+      "topic": "security",
+      "tags": ["vocab", "vocab:phrasal-verb"],
+      "content": {
+        "type": "flashcard",
+        "front": "turn out to be",
+        "hint": "phrasal verb",
+        "back": "hoá ra là: to be found to be something in the end",
+        "example": "The team worked through more than 100 reports that turned out to be invalid, duplicates, or not reproducible."
+      }
+    },
+    {
+      "key": "fc-8-trade-offs",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "come with trade-offs",
+        "hint": "collocation · noun: a trade-off",
+        "back": "có đánh đổi: to bring a cost or a downside together with the benefit",
+        "example": "The PHP security team developed several competing approaches, but each came with its own trade-offs.",
+        "explanationMarkdown": "Other collocations: **weigh** the trade-offs, **make** a trade-off, a trade-off **between** speed and safety."
+      }
+    },
+    {
+      "key": "fc-9-undergo",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "undergo",
+        "hint": "verb · undergo, underwent, undergone",
+        "back": "trải qua: to experience a process, often a check or a change",
+        "example": "In 2024, PHP underwent its first external security audit in years.",
+        "explanationMarkdown": "Used with processes: *undergo **an audit / surgery / a change / training***. It is irregular: *underwent*, *undergone*."
+      }
+    },
+    {
+      "key": "fc-10-carry-out",
+      "topic": "security",
+      "tags": ["vocab", "vocab:phrasal-verb"],
+      "content": {
+        "type": "flashcard",
+        "front": "carry out",
+        "hint": "phrasal verb · often passive",
+        "back": "thực hiện: to do a planned piece of work",
+        "example": "The PHP Foundation secured funding to organize this audit through OSTIF, and it was carried out by Quarkslab.",
+        "explanationMarkdown": "Common objects: *carry out **an audit / research / a test / an attack***. Passive: *it was carried out **by** ...*."
+      }
+    },
+    {
+      "key": "fc-11-secure-funding",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "secure funding",
+        "hint": "collocation · secure = verb here",
+        "back": "xin được / có được nguồn tài trợ: to succeed in getting money for a project",
+        "example": "The PHP Foundation secured funding from the Sovereign Tech Agency to organize this audit.",
+        "explanationMarkdown": "*Secure* as a verb means *get something after effort*: *secure **a deal / a job / funding / a place***."
+      }
+    },
+    {
+      "key": "fc-12-unilaterally",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "unilaterally",
+        "hint": "adverb · /ˌjuːnɪˈlætrəli/",
+        "back": "đơn phương: done by one side alone, without the agreement of the others",
+        "example": "On October 21st at 07:41 UTC, more than six hours before the coordinated release, Chainguard unilaterally broke the embargo and published built images containing the fix.",
+        "explanationMarkdown": "*Break an embargo* = publish something before the agreed time. The opposite of *unilateral* is *multilateral* or *joint*."
+      }
+    },
+    {
+      "key": "fc-13-disregard",
+      "topic": "security",
+      "tags": ["vocab", "vocab:formal-word"],
+      "content": {
+        "type": "flashcard",
+        "front": "disregard",
+        "hint": "verb and noun",
+        "back": "coi nhẹ, phớt lờ: to pay no attention to something, or treat it as unimportant",
+        "example": "This disregarded weeks of work by many parties toward a coordinated disclosure.",
+        "explanationMarkdown": "As a noun: *a **disregard for** safety*. Note the preposition **for** after the noun."
+      }
+    },
+    {
+      "key": "fc-14-root-cause",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "root cause",
+        "hint": "noun phrase",
+        "back": "nguyên nhân gốc: the main, deepest reason for a problem",
+        "example": "Researcher Ryan A at Calif reported an unconditional remote code execution with the same root cause as the OOM problem we had found in 2024."
+      }
+    },
+    {
+      "key": "fc-15-around-the-clock",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "around the clock",
+        "hint": "idiom",
+        "back": "xuyên ngày đêm: all day and all night, without stopping",
+        "example": "Without the Foundation's funding it would have been impossible to have multiple people work on this issue full time, eventually through weekends and around the clock."
+      }
+    },
+    {
+      "key": "fc-16-deeply-rooted",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "deeply rooted",
+        "hint": "adjective phrase",
+        "back": "ăn sâu, bám rễ sâu: existing for a long time and hard to change or remove",
+        "example": "The security team, the foundation, and the release managers delivered a fix for this deeply rooted problem across all supported branches."
+      }
+    },
+    {
+      "key": "fc-17-take-on",
+      "topic": "security",
+      "tags": ["vocab", "vocab:phrasal-verb"],
+      "content": {
+        "type": "flashcard",
+        "front": "take on",
+        "hint": "phrasal verb · work, a role, responsibility",
+        "back": "đảm nhận: to accept a job or responsibility",
+        "example": "Daniel Scherzer joined in September to take on hardening work.",
+        "explanationMarkdown": "*Take on* has other meanings too: *take on staff* (hire), *take on a rival* (compete against)."
+      }
+    },
+    {
+      "key": "fc-18-get-in-touch",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "flashcard",
+        "front": "get in touch",
+        "hint": "phrase · get in touch with someone",
+        "back": "liên hệ: to contact someone",
+        "example": "If your organization would like to talk about a larger commitment, get in touch.",
+        "explanationMarkdown": "Related: **keep / stay in touch** (giữ liên lạc), **lose touch** (mất liên lạc)."
+      }
+    },
+    {
+      "key": "vo-1-execute-code",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "choice",
+        "question": "These releases fix two critical vulnerabilities that allow an unauthenticated attacker to ____ code on servers running PHP.",
+        "options": [
+          { "text": "execute", "isCorrect": true, "explanationMarkdown": "The fixed collocation is *execute code* (chạy code)." },
+          { "text": "do", "explanationMarkdown": "*Do code* is not English; *do* is too general here." },
+          { "text": "make", "explanationMarkdown": "*Make code* would mean write it, not run it." },
+          { "text": "perform", "explanationMarkdown": "You *perform* a task or an action, not code." }
+        ]
+      }
+    },
+    {
+      "key": "vo-2-alike",
+      "topic": "security",
+      "tags": ["vocab", "vocab:synonym"],
+      "content": {
+        "type": "choice",
+        "question": "Tools now find bugs faster than ever, for defenders and attackers ____.",
+        "options": [
+          { "text": "alike", "isCorrect": true, "explanationMarkdown": "*X and Y **alike*** = both X and Y, in the same way. It comes after the nouns." },
+          { "text": "both", "explanationMarkdown": "*Both* goes before: *for both defenders and attackers*." },
+          { "text": "together", "explanationMarkdown": "*Together* means they act as one group, which is not the meaning." },
+          { "text": "same", "explanationMarkdown": "*Same* needs *the* and a noun; it cannot end the phrase." }
+        ]
+      }
+    },
+    {
+      "key": "vo-3-long-standing",
+      "topic": "security",
+      "tags": ["vocab", "vocab:synonym"],
+      "content": {
+        "type": "choice",
+        "question": "What tools cannot do is decide on the right fix for a ____ design decision in the engine.",
+        "options": [
+          { "text": "long-standing", "isCorrect": true, "explanationMarkdown": "*Long-standing* = has existed for a long time (có từ lâu)." },
+          { "text": "long-term", "explanationMarkdown": "*Long-term* looks forward: a *long-term plan* lasts into the future." },
+          { "text": "long-lasting", "explanationMarkdown": "*Long-lasting* = keeps working for a long time, like a battery." },
+          { "text": "longtime", "explanationMarkdown": "*Longtime* is for people and relationships: *a longtime friend*." }
+        ]
+      }
+    },
+    {
+      "key": "vo-4-addressed",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "choice",
+        "question": "Sponsoring the PHP Foundation is the most direct way to ensure structural issues like the OOM vulnerability are ____ sustainably.",
+        "options": [
+          { "text": "addressed", "isCorrect": true, "explanationMarkdown": "*Address an issue / a problem* = deal with it (xử lý)." },
+          { "text": "answered", "explanationMarkdown": "You *answer* a question, not an issue." },
+          { "text": "talked", "explanationMarkdown": "*Talk* needs *about*, and talking does not fix anything." },
+          { "text": "replied", "explanationMarkdown": "*Reply* needs *to* and is for messages." }
+        ]
+      }
+    },
+    {
+      "key": "vo-5-ahead-of",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "choice",
+        "question": "The coordinated disclosure of these vulnerabilities worked well until 2 days ____ of the targeted release date.",
+        "options": [
+          { "text": "ahead", "isCorrect": true, "explanationMarkdown": "*Ahead of* + a date = before it." },
+          { "text": "before", "explanationMarkdown": "*Before* takes no *of*: *2 days before the date*." },
+          { "text": "early", "explanationMarkdown": "*Early of* is not English." },
+          { "text": "prior", "explanationMarkdown": "The phrase is *prior **to***, not *prior of*." }
+        ]
+      }
+    },
+    {
+      "key": "vo-6-circulating",
+      "topic": "security",
+      "tags": ["vocab", "vocab:collocation"],
+      "content": {
+        "type": "choice",
+        "question": "Copies of the deleted video started ____ on social media soon after.",
+        "options": [
+          { "text": "circulating", "isCorrect": true, "explanationMarkdown": "*Circulate* = pass from person to person (lan truyền); used for news, rumours, copies." },
+          { "text": "travelling", "explanationMarkdown": "*Travel* is for people and vehicles moving to places." },
+          { "text": "flowing", "explanationMarkdown": "*Flow* is for liquids, traffic or money moving smoothly." },
+          { "text": "sharing", "explanationMarkdown": "*Share* needs a person who shares: people shared the copies; copies do not share." }
+        ]
+      }
+    },
+    {
+      "key": "vo-7-considerably",
+      "topic": "security",
+      "tags": ["vocab", "vocab:word-form"],
+      "content": {
+        "type": "choice",
+        "question": "Over the last months the way PHP security work is organized has changed ____.",
+        "options": [
+          { "text": "considerably", "isCorrect": true, "explanationMarkdown": "An adverb describes the verb *changed*: *considerably* = a lot (đáng kể)." },
+          { "text": "considerable", "explanationMarkdown": "*Considerable* is an adjective; it needs a noun: *a considerable change*." },
+          { "text": "considerate", "explanationMarkdown": "*Considerate* = kind to others (chu đáo), a different word." },
+          { "text": "considering", "explanationMarkdown": "*Considering* means *taking into account*; it does not describe how much." }
+        ]
+      }
+    },
+    {
+      "key": "vo-8-collaboration",
+      "topic": "security",
+      "tags": ["vocab", "vocab:synonym"],
+      "content": {
+        "type": "choice",
+        "question": "Volker Dusch's work has significantly improved communication and ____ between the PHP security team and the Foundation.",
+        "options": [
+          { "text": "collaboration", "isCorrect": true, "explanationMarkdown": "*Collaboration* = working together (phối hợp)." },
+          { "text": "collision", "explanationMarkdown": "*Collision* = a crash between two things." },
+          { "text": "collection", "explanationMarkdown": "*Collection* = a group of things gathered together." },
+          { "text": "correlation", "explanationMarkdown": "*Correlation* = a statistical link between two facts." }
+        ]
+      }
+    },
+    {
+      "key": "vo-9-reflects",
+      "topic": "security",
+      "tags": ["vocab", "vocab:synonym"],
+      "content": {
+        "type": "choice",
+        "question": "Companies that build products and services on PHP: please sponsor the PHP Foundation at a level that ____ how much you rely on it.",
+        "options": [
+          { "text": "reflects", "isCorrect": true, "explanationMarkdown": "*Reflect* = show or match (tương xứng với)." },
+          { "text": "reveals", "explanationMarkdown": "*Reveal* = make a secret known, which is not the idea." },
+          { "text": "repeats", "explanationMarkdown": "*Repeat* = say or do again." },
+          { "text": "returns", "explanationMarkdown": "*Return* = give back or come back." }
+        ]
+      }
+    },
+    {
+      "key": "vo-10-inspected",
+      "topic": "security",
+      "tags": ["vocab", "vocab:synonym"],
+      "content": {
+        "type": "choice",
+        "question": "The PHP security team closely monitored and ____ appearing PoCs after the leak.",
+        "options": [
+          { "text": "inspected", "isCorrect": true, "explanationMarkdown": "*Inspect* = look at carefully to check (kiểm tra)." },
+          { "text": "expected", "explanationMarkdown": "*Expect* = think something will happen." },
+          { "text": "suspected", "explanationMarkdown": "*Suspect* = think something bad may be true." },
+          { "text": "respected", "explanationMarkdown": "*Respect* = admire or treat well." }
+        ]
+      }
+    },
+    {
+      "key": "gr-1-subjunctive",
+      "topic": "security",
+      "tags": ["grammar", "grammar:subjunctive"],
+      "content": {
+        "type": "choice",
+        "question": "If you run PHP, it is imperative that you ____ now.",
+        "options": [
+          { "text": "update", "isCorrect": true, "explanationMarkdown": "After *imperative that*, use the base verb (the subjunctive)." },
+          { "text": "updated", "explanationMarkdown": "A past form does not fit an urgent instruction about now." },
+          { "text": "will update", "explanationMarkdown": "*Will* is not used after *it is imperative that*." },
+          { "text": "are updating", "explanationMarkdown": "The continuous says what is happening, not what must happen." }
+        ]
+      }
+    },
+    {
+      "key": "gr-2-passive",
+      "topic": "security",
+      "tags": ["grammar", "grammar:passive"],
+      "content": {
+        "type": "choice",
+        "question": "This post is about how these vulnerabilities ____ and fixed.",
+        "options": [
+          { "text": "were found", "isCorrect": true, "explanationMarkdown": "Passive past: someone found the vulnerabilities; they did not find anything." },
+          { "text": "found", "explanationMarkdown": "Active: it would mean the vulnerabilities found something." },
+          { "text": "have found", "explanationMarkdown": "Active present perfect: the subject would be the finder." },
+          { "text": "were finding", "explanationMarkdown": "Past continuous active: wrong voice and wrong aspect." }
+        ]
+      }
+    },
+    {
+      "key": "gr-3-would-have",
+      "topic": "security",
+      "tags": ["grammar", "grammar:conditional"],
+      "content": {
+        "type": "choice",
+        "context": "Distributors were still packaging the fix.",
+        "question": "So releasing immediately ____ many users without an easy way to update.",
+        "options": [
+          { "text": "would have left", "isCorrect": true, "explanationMarkdown": "An imagined past result that did not happen: *would have* + past participle." },
+          { "text": "will leave", "explanationMarkdown": "*Will* is for a real future; this is about a past choice." },
+          { "text": "would leave", "explanationMarkdown": "*Would* + verb is for an imagined present or future." },
+          { "text": "had left", "explanationMarkdown": "Past perfect states a real earlier event; this one never happened." }
+        ]
+      }
+    },
+    {
+      "key": "gr-4-present-perfect",
+      "topic": "security",
+      "tags": ["grammar", "grammar:present-perfect"],
+      "content": {
+        "type": "choice",
+        "question": "Since July 1st, the team ____ 15 CVEs.",
+        "options": [
+          { "text": "has published", "isCorrect": true, "explanationMarkdown": "*Since* + a past point up to now needs the present perfect." },
+          { "text": "published", "explanationMarkdown": "Past simple does not go with *since*: the period is not finished." },
+          { "text": "is publishing", "explanationMarkdown": "The present continuous does not count a total up to now." },
+          { "text": "had published", "explanationMarkdown": "Past perfect needs a later past moment; here the period runs to now." }
+        ]
+      }
+    },
+    {
+      "key": "gr-5-article",
+      "topic": "security",
+      "tags": ["grammar", "grammar:article"],
+      "content": {
+        "type": "choice",
+        "question": "PHP runs ____ large share of the web, including government services, online stores, banks and media sites.",
+        "options": [
+          { "text": "a", "isCorrect": true, "explanationMarkdown": "*Share* is a singular countable noun, mentioned for the first time: *a large share **of***." },
+          { "text": "the", "explanationMarkdown": "*The large share* would point to one share we already know about." },
+          { "text": "- (no article)", "explanationMarkdown": "A singular countable noun cannot stand without an article." },
+          { "text": "an", "explanationMarkdown": "*An* goes before a vowel sound; *large* starts with /l/." }
+        ]
+      }
+    },
+    {
+      "key": "gr-6-yet",
+      "topic": "security",
+      "tags": ["grammar", "grammar:linking-word"],
+      "content": {
+        "type": "choice",
+        "context": "PHP runs a large share of the web, including government services, online stores and banks.",
+        "question": "____ security work on PHP itself still depends on a small group of foundation-funded developers.",
+        "options": [
+          { "text": "Yet", "isCorrect": true, "explanationMarkdown": "*Yet* starts a sentence that contrasts with the one before: important, **but** under-resourced." },
+          { "text": "Therefore", "explanationMarkdown": "*Therefore* shows a result; a small team is not a result of PHP being popular." },
+          { "text": "Moreover", "explanationMarkdown": "*Moreover* adds a point in the same direction, not a contrast." },
+          { "text": "Because", "explanationMarkdown": "*Because* starts a reason clause and cannot make a sentence alone here." }
+        ]
+      }
+    },
+    {
+      "key": "gr-7-past-perfect",
+      "topic": "security",
+      "tags": ["grammar", "grammar:past-perfect"],
+      "content": {
+        "type": "choice",
+        "context": "On August 11th, researcher Ryan A at Calif reported an unconditional remote code execution.",
+        "question": "It had the same root cause as the OOM problem we ____ in 2024.",
+        "options": [
+          { "text": "had found", "isCorrect": true, "explanationMarkdown": "Past perfect: 2024 is **before** the other past event (August 2026)." },
+          { "text": "have found", "explanationMarkdown": "Present perfect cannot go with a finished time like *in 2024*." },
+          { "text": "were finding", "explanationMarkdown": "The continuous describes an action in progress, not a finished discovery." },
+          { "text": "would find", "explanationMarkdown": "*Would find* looks forward from the past; the finding was earlier." }
+        ]
+      }
+    },
+    {
+      "key": "gr-8-present-perfect-continuous",
+      "topic": "security",
+      "tags": ["grammar", "grammar:present-perfect"],
+      "content": {
+        "type": "choice",
+        "question": "More recently, Trail of Bits ____ PHP too.",
+        "options": [
+          { "text": "has been auditing", "isCorrect": true, "explanationMarkdown": "Present perfect continuous: it started recently and is still going on." },
+          { "text": "is audited", "explanationMarkdown": "Passive: it would mean someone audits Trail of Bits." },
+          { "text": "had been auditing", "explanationMarkdown": "Past perfect continuous needs a later past moment; *more recently* points to now." },
+          { "text": "audits", "explanationMarkdown": "Present simple is for habits, not a recent piece of work that is going on." }
+        ]
+      }
+    },
+    {
+      "key": "gr-9-relative-clause",
+      "topic": "security",
+      "tags": ["grammar", "grammar:relative-clause"],
+      "content": {
+        "type": "choice",
+        "question": "Both issues sit in parts of PHP ____ nearly every request touches: memory management and error handling.",
+        "options": [
+          { "text": "that", "isCorrect": true, "explanationMarkdown": "*That* (or *which*) starts a relative clause about a thing: *parts **that** requests touch*." },
+          { "text": "what", "explanationMarkdown": "*What* already includes its noun (= the thing that); it cannot follow *parts*." },
+          { "text": "where", "explanationMarkdown": "*Where* needs a full clause; *touches* still needs its object." },
+          { "text": "who", "explanationMarkdown": "*Who* is for people, not parts of a program." }
+        ]
+      }
+    },
+    {
+      "key": "gr-10-without-ing",
+      "topic": "security",
+      "tags": ["grammar", "grammar:verb-form"],
+      "content": {
+        "type": "choice",
+        "question": "Their central place in PHP made both vulnerabilities so hard to fix without ____ compatibility.",
+        "options": [
+          { "text": "breaking", "isCorrect": true, "explanationMarkdown": "After a preposition like *without*, use the **-ing** form." },
+          { "text": "break", "explanationMarkdown": "The base verb cannot follow a preposition." },
+          { "text": "to break", "explanationMarkdown": "*To* + verb cannot follow *without*." },
+          { "text": "broken", "explanationMarkdown": "The past participle is passive or perfect; neither fits here." }
+        ]
+      }
+    },
+    {
+      "key": "gr-11-agreement",
+      "topic": "security",
+      "tags": ["grammar", "grammar:subject-verb-agreement"],
+      "content": {
+        "type": "choice",
+        "question": "The growth of AI-assisted research also ____ the PHP security team receives far more reports than before.",
+        "options": [
+          { "text": "means", "isCorrect": true, "explanationMarkdown": "The subject is *the growth* (singular), not *research*: so *means*." },
+          { "text": "mean", "explanationMarkdown": "*Mean* is for a plural subject; *the growth* is singular." },
+          { "text": "are meaning", "explanationMarkdown": "*Mean* in this sense is not used in the continuous, and *are* is plural." },
+          { "text": "meaning", "explanationMarkdown": "An *-ing* form alone leaves the sentence without a main verb." }
+        ]
+      }
+    },
+    {
+      "key": "gr-12-than",
+      "topic": "security",
+      "tags": ["grammar", "grammar:comparison"],
+      "content": {
+        "type": "choice",
+        "question": "Tools now find bugs faster ____ ever, for defenders and attackers alike.",
+        "options": [
+          { "text": "than", "isCorrect": true, "explanationMarkdown": "A comparative (*faster*) is followed by **than**. *Faster than ever* = faster than at any time before." },
+          { "text": "then", "explanationMarkdown": "*Then* means *after that* or *at that time*. It looks like *than* but is a different word." },
+          { "text": "as", "explanationMarkdown": "*As* goes with *as ... as*: *as fast as ever*." },
+          { "text": "from", "explanationMarkdown": "*Faster from* is not English." }
+        ]
+      }
+    },
+    {
+      "key": "gr-13-too-few",
+      "topic": "security",
+      "tags": ["grammar", "grammar:noun-number"],
+      "content": {
+        "type": "choice",
+        "question": "Making those decisions takes experienced engineers who know the entire PHP codebase, and today there are too ____ of them.",
+        "options": [
+          { "text": "few", "isCorrect": true, "explanationMarkdown": "*Engineers* is a countable plural noun, so **few** (quá ít người)." },
+          { "text": "little", "explanationMarkdown": "*Little* is for uncountable nouns: *too little time*." },
+          { "text": "less", "explanationMarkdown": "*Less* is a comparative for uncountable nouns; *too less* is wrong." },
+          { "text": "much", "explanationMarkdown": "*Much* is for uncountable nouns and means a large amount." }
+        ]
+      }
+    },
+    {
+      "key": "me-1-structural-failure",
+      "topic": "security",
+      "tags": ["meaning", "meaning:inference"],
+      "content": {
+        "type": "choice",
+        "context": "We won't pretend otherwise: the delay was a structural failure, caused by both the security team's decision process and its lack of resources.",
+        "question": "What does the writer mean by \"a structural failure\"?",
+        "options": [
+          { "text": "The way the team was organised and funded caused the delay, not one person's mistake.", "isCorrect": true, "explanationMarkdown": "*Structural* = about how something is organised (mang tính cấu trúc)." },
+          { "text": "The memory structure inside the PHP engine failed.", "explanationMarkdown": "It is about the team's process, not the code." },
+          { "text": "One developer made a bad decision.", "explanationMarkdown": "The writer blames the process and the resources, not a person." },
+          { "text": "The fix broke the structure of third-party extensions.", "explanationMarkdown": "That was a risk of some fixes, not the reason for the delay." }
+        ]
+      }
+    },
+    {
+      "key": "me-2-release-one-day",
+      "topic": "security",
+      "tags": ["meaning", "meaning:sentence"],
+      "content": {
+        "type": "choice",
+        "context": "Distributors were still packaging the fix, so releasing immediately would have left many users without an easy way to update. Moving the release forward by one day was the best compromise.",
+        "question": "Why did the PHP project move the release forward by one day instead of releasing at once?",
+        "options": [
+          { "text": "Many users could not have updated easily, because distributors were not ready yet.", "isCorrect": true, "explanationMarkdown": "One day gave distributors time to finish their packages (đóng gói bản vá)." },
+          { "text": "The fix was not finished yet.", "explanationMarkdown": "The fix existed; distributors were *packaging* it." },
+          { "text": "The leak gave the wrong release time.", "explanationMarkdown": "The leak had a wrong time, but that is not why they waited a day." },
+          { "text": "Attackers had no exploit yet, so there was no hurry.", "explanationMarkdown": "They did hurry: they moved the release **earlier**." }
+        ]
+      }
+    },
+    {
+      "key": "me-3-broke-embargo",
+      "topic": "security",
+      "tags": ["meaning", "meaning:sentence"],
+      "content": {
+        "type": "choice",
+        "context": "More than six hours before the coordinated release, Chainguard unilaterally broke the embargo and published built images containing the fix.",
+        "question": "What did Chainguard do?",
+        "options": [
+          { "text": "It published the fix early, on its own decision, against the agreement with the others.", "isCorrect": true, "explanationMarkdown": "*Unilaterally broke the embargo* = đơn phương phá thoả thuận giữ bí mật đến giờ đã hẹn." },
+          { "text": "It found a new vulnerability in PHP.", "explanationMarkdown": "It published a fix; it did not find a bug." },
+          { "text": "It refused to publish the fix.", "explanationMarkdown": "The opposite: it published too early." },
+          { "text": "It blocked the leaked video.", "explanationMarkdown": "The video was Calif's, and *embargo* is not about blocking." }
+        ]
+      }
+    },
+    {
+      "key": "me-4-makes-every-call",
+      "topic": "security",
+      "tags": ["meaning", "meaning:phrase"],
+      "content": {
+        "type": "choice",
+        "context": "AI helps the team validate reports and group reports sharing the same root cause, but a person makes every call and works on every patch.",
+        "question": "What does \"makes every call\" mean here?",
+        "options": [
+          { "text": "Makes every decision.", "isCorrect": true, "explanationMarkdown": "*Make a call* = make a decision (đưa ra quyết định)." },
+          { "text": "Makes every phone call.", "explanationMarkdown": "That is the literal meaning, not the one here." },
+          { "text": "Checks every function call in the code.", "explanationMarkdown": "A tempting tech meaning, but the sentence is about who decides." },
+          { "text": "Calls every reporter back.", "explanationMarkdown": "Nothing in the sentence is about contacting reporters." }
+        ]
+      }
+    },
+    {
+      "key": "me-5-cautiously-optimistic",
+      "topic": "security",
+      "tags": ["meaning", "meaning:phrase"],
+      "content": {
+        "type": "choice",
+        "context": "A cautiously optimistic outlook. Today's release shows the progress we're making in how PHP security is handled.",
+        "question": "What does \"cautiously optimistic\" mean?",
+        "options": [
+          { "text": "Hopeful about the future, but careful not to expect too much.", "isCorrect": true, "explanationMarkdown": "*Cautiously optimistic* = lạc quan một cách thận trọng." },
+          { "text": "Sure that every problem is solved.", "explanationMarkdown": "*Cautiously* means they are **not** completely sure." },
+          { "text": "Worried that things will get worse.", "explanationMarkdown": "That is pessimistic, the opposite of *optimistic*." },
+          { "text": "Happy, but keeping the news secret.", "explanationMarkdown": "*Cautious* is about being careful, not secret." }
+        ]
+      }
+    },
+    {
+      "key": "me-6-theorized",
+      "topic": "security",
+      "tags": ["meaning", "meaning:sentence"],
+      "content": {
+        "type": "choice",
+        "context": "In 2024, a potential exploit for the OOM problem was theorized, but no concrete vectors were found.",
+        "question": "What does this sentence tell us about 2024?",
+        "options": [
+          { "text": "People thought an attack might be possible, but nobody found a real way to do it.", "isCorrect": true, "explanationMarkdown": "*Theorized* = suggested in theory (đưa ra giả thuyết); *no concrete vectors* = no real attack path." },
+          { "text": "Attackers used the OOM problem to break into servers.", "explanationMarkdown": "No real attack was found in 2024." },
+          { "text": "The OOM problem was fixed in 2024.", "explanationMarkdown": "It was only fixed in October 2026." },
+          { "text": "Nobody knew about the OOM problem in 2024.", "explanationMarkdown": "They knew about it; they just could not show an exploit." }
+        ]
+      }
+    },
+    {
+      "key": "me-7-post-about",
+      "topic": "security",
+      "tags": ["meaning", "meaning:sentence"],
+      "content": {
+        "type": "choice",
+        "context": "This post isn't about how to update. It's about how these vulnerabilities were found and fixed, what has changed in how PHP security is handled over the past two years, and what we need from the organizations that depend on PHP.",
+        "question": "What is the post mainly about?",
+        "options": [
+          { "text": "The story behind the fix, the changes in PHP security work, and a request for support.", "isCorrect": true, "explanationMarkdown": "The second sentence lists exactly these three things." },
+          { "text": "Step-by-step instructions to update PHP.", "explanationMarkdown": "The first sentence says the post is **not** about that." },
+          { "text": "A technical guide to the two vulnerabilities.", "explanationMarkdown": "The technical details are on php.net, not in this post." },
+          { "text": "A complaint about AI tools finding too many bugs.", "explanationMarkdown": "AI tools are mentioned, but they are not the main topic." }
+        ]
+      }
+    },
+    {
+      "key": "me-8-defenders-attackers",
+      "topic": "security",
+      "tags": ["meaning", "meaning:inference"],
+      "content": {
+        "type": "choice",
+        "context": "Tools now find bugs faster than ever, for defenders and attackers alike, and the number of reports will keep growing. What tools cannot do is decide on the right fix.",
+        "question": "What is the writer's main point?",
+        "options": [
+          { "text": "Tools find bugs for both sides, so experienced people are needed more than ever to fix them.", "isCorrect": true, "explanationMarkdown": "The paragraph moves from *tools find bugs* to *people must decide the fix*: it argues for more engineers." },
+          { "text": "Tools will soon replace security engineers.", "explanationMarkdown": "The writer says the opposite: tools cannot decide the fix." },
+          { "text": "Only attackers use bug-finding tools.", "explanationMarkdown": "*Defenders and attackers alike* = both sides." },
+          { "text": "The number of reports will go down.", "explanationMarkdown": "It *will keep growing*." }
+        ]
+      }
+    },
+    {
+      "key": "me-9-without-funding",
+      "topic": "security",
+      "tags": ["meaning", "meaning:inference"],
+      "content": {
+        "type": "choice",
+        "context": "Without the Foundation's funding it would have been impossible to have multiple people work on this issue full time.",
+        "question": "What does this sentence imply?",
+        "options": [
+          { "text": "The funding existed, and it let several people work full time on the issue.", "isCorrect": true, "explanationMarkdown": "*Without X it would have been impossible* = X happened, and it made the work possible." },
+          { "text": "There was no funding, so nobody worked full time.", "explanationMarkdown": "*Would have been* describes an imagined past; in reality the funding was there." },
+          { "text": "The Foundation will stop funding the work.", "explanationMarkdown": "The sentence is about the past, not a future plan." },
+          { "text": "Volunteers did all the work for free.", "explanationMarkdown": "The point is that **paid** full-time work was possible." }
+        ]
+      }
+    }
+  ]
+}

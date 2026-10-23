@@ -70,6 +70,25 @@ export interface TranslatedBlock {
   translatedText: string;
 }
 
+// ---- Practice from a translation (docs/practice-from-translation-design.md) ----
+// Shared because two features read them: the Translate page sends the request, the Practice server answers it.
+
+// One block of the post: the English and the owner's Vietnamese.
+export interface GenerationBlock {
+  sourceText: string;
+  translatedText: string;
+}
+
+// POST /api/practice/generations: make a Practice project from a finished en->vi translation.
+export interface GenerationRequest {
+  // The translation's id in Translate's history.
+  translationId: number;
+  title: string;
+  // Only 'en' is accepted.
+  sourceLanguage: Language;
+  blocks: GenerationBlock[];
+}
+
 export interface ModelOption {
   modelId: string;
   label: string;

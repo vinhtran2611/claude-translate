@@ -91,6 +91,12 @@ export interface GenerationRequest {
   blocks: GenerationBlock[];
 }
 
+// The 409 of POST /api/practice/generations: the error shape, naming the generation that is running (code "generating")
+// or the project the translation already made (code "already_made").
+export interface GenerationConflictBody {
+  error: ApiErrorBody['error'] & { generationId?: number; projectKey?: string };
+}
+
 // One generation: a model run that writes a project from a post. Its post is kept on the server, for Try again.
 export interface GenerationDetail {
   id: number;

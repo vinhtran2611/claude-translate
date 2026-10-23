@@ -3,7 +3,7 @@
 // same code.
 import type { GenerationBlock, GenerationRequest } from '../../shared/api-types.ts';
 import type { FileExercise, ProjectFile } from './api-types.ts';
-import { checkExerciseInput, isObject, KEY_PATTERN, problemLine, type Problem } from './import-check.ts';
+import { checkExerciseInput, fieldProblems, isObject, KEY_PATTERN, problemLine, type Fields, type Problem } from './import-check.ts';
 import { countWords, slugOf } from './text.ts';
 
 // The sample (data/practice-imports/t-24-php-security.json) has 50 exercises for 1,860 words.
@@ -43,6 +43,36 @@ export interface GoodReply {
   droppedCount: number;
   droppedLines: string[];
   warnings: string[];
+}
+
+// The body of POST /generations (GenerationRequest). A block's texts may be as long as a whole post (Translate takes
+// 100,000 characters).
+const GENERATION_REQUEST_FIELDS: Fields = {
+  translationId: { kind: 'whole', min: 1, max: Number.MAX_SAFE_INTEGER, required: true },
+  title: { kind: 'text', max: 1_000, required: true },
+  sourceLanguage: { kind: 'oneOf', values: ['en'], required: true, about: 'Only English posts can be practised.' },
+  blocks: {
+    kind: 'list',
+    min: 1,
+    max: 5_000,
+    required: true,
+    of: {
+      kind: 'object',
+      fields: { sourceText: { kind: 'text', max: 100_000, required: true }, translatedText: { kind: 'text', max: 100_000, required: true } },
+    },
+  },
+};
+
+// Every problem of a generation request: its fields, then a post too short to practise.
+export function generationRequestProblems(body: Record<string, unknown>): Problem[] {
+  const problems = fieldProblems(body, GENERATION_REQUEST_FIELDS);
+  if (problems.length > 0) return problems;
+  const words = postWordCount(body.blocks as GenerationBlock[]);
+  if (words < MIN_POST_WORDS) {
+    const message = `The post has ${words} English words; at least ${MIN_POST_WORDS} are needed to make exercises.`;
+    problems.push({ path: '/blocks', code: 'too_short', message });
+  }
+  return problems;
 }
 
 export function postWordCount(blocks: GenerationBlock[]): number {

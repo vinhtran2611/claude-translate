@@ -46,6 +46,7 @@ export const flashcard: Template<'flashcard'> = {
       renderDocument(explanation, content.explanationMarkdown);
       parts.push(h('p', 'label', 'Explanation'), explanation);
     }
-    return { title: 'Answer', content: parts };
+    // Centred under the word, like the card's front.
+    return { title: 'Answer', content: [h('div', 'card-back', ...parts)] };
   },
 };

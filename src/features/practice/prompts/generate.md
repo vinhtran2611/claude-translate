@@ -36,13 +36,13 @@ tense, present-perfect, past-perfect, passive, conditional, subjunctive, relativ
 
 <diversity>
 - No two grammar exercises test the same grammar point, unless the plan asks for more grammar exercises than the post has points. Aim for as many distinct grammar subkinds as there are grammar exercises.
-- Spread the exercises over the whole post: the beginning, the middle and the end. Within each kind, follow the order of the post.
+- Spread the exercises over the whole post: the beginning, the middle and the end. Split the blocks into four quarters by their number n, and take each kind's exercises from every quarter, roughly in proportion to the English in it; the last quarter counts as much as the first. Within each kind, follow the order of the post.
 - Test each word or phrase once. A phrase on a flashcard is not tested again by a vocab choice, a meaning choice, or another flashcard.
 - Pick what is useful: words and structures a band-7 writer would use, and passages a reader could misread. Skip code, product and people's names, URLs, version numbers and dates.
 </diversity>
 
 <fields>
-Every exercise is one JSON object: { "key", "tags", "content" }, and "topic" only when it differs from the project's topic.
+Every exercise is one JSON object: { "key", "tags", "content" }, and "topic" only when it differs from the project's topic. No other field: everything else, "context" included, goes inside "content".
 
 key: the kind's prefix, the exercise's number within its kind (from 1), and a short slug of what it tests, all lowercase a-z, 0-9 and -, at most 64 characters, each key used once: "fc-1-root-cause", "vo-3-long-standing", "gr-2-passive", "me-4-makes-every-call". The prefixes are fc (flashcard), vo (vocab), gr (grammar), me (meaning).
 

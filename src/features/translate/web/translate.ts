@@ -1,7 +1,8 @@
 // The page: the text box, the translation run and the keyboard. Loaded by translate.html; the server strips its types
 // as it serves it. The pairs live in pairs-view.ts, the history in history-sidebar.ts, the alert in alert.ts and the
 // settings menus in settings-menus.ts.
-import type { ModelRun, TranslatedBlock } from '../../../shared/api-types.ts';
+import type { GenerationDetail, GenerationRequest, ModelRun, TranslatedBlock } from '../../../shared/api-types.ts';
+import { ApiError, fetchJson } from '../../../shared/web/fetch-json.ts';
 import { documentIndexOf, parseCellBlocks, renderCellContent } from '../../../shared/web/markdown.ts';
 import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type { Language, Outcome, SourceFormat, StreamEvent, TranslateRequest, Translation } from '../api-types.ts';
@@ -69,6 +70,7 @@ const swapButton = requiredElement('#swap-button', HTMLButtonElement);
 const clearButton = requiredElement('#clear-button', HTMLButtonElement);
 const translateButton = requiredElement('#translate-button', HTMLButtonElement);
 const copyButton = requiredElement('#copy-button', HTMLButtonElement);
+const practiceButton = requiredElement('#practice-button', HTMLButtonElement);
 const copySourceButton = requiredElement('#copy-source-button', HTMLButtonElement);
 const charCount = requiredElement('#char-count', HTMLSpanElement);
 const runInfo = requiredElement('#run-info', HTMLSpanElement);
@@ -204,7 +206,7 @@ function showHistoryEntry(translation: Translation): void {
   };
   setRunInfo(`From history · ${runInfoTextOf(runInfo)}`);
   setViewMode(pairs.length > 0 ? 'pairs' : 'edit');
-  setShownHistoryId(translation.id);
+  setShownEntry(translation.id);
 }
 
 function snapshotWorkspace(): WorkspaceSnapshot {
@@ -302,6 +304,66 @@ function renderTarget(targetState: TargetState, text = ''): void {
   copyButton.hidden = targetState === 'empty' || targetState === 'error';
   copyButton.style.visibility = targetState === 'done' ? 'visible' : 'hidden';
   if (targetState === 'empty' || targetState === 'error') setRunInfo('');
+  updatePracticeButton();
+}
+
+// Every change of the entry on screen goes through here, so the Practice button follows it.
+function setShownEntry(historyId: number | null): void {
+  setShownHistoryId(historyId);
+  updatePracticeButton();
+}
+
+// Practice is offered for a finished English post that is saved in the history (docs/practice-from-translation-design.md §7).
+function updatePracticeButton(): void {
+  const isPractisable = currentTargetState === 'done' && shownHistoryId() !== null && sourceLanguage === 'en' && shownBlocks().length > 0;
+  practiceButton.hidden = !isPractisable;
+}
+
+// The post's title: its first heading, or else the start of its text.
+function postTitleOf(blocks: TranslatedBlock[]): string {
+  const heading = blocks.find((block) => block.blockType === 'heading');
+  if (heading !== undefined) return heading.sourceText;
+  return sourceText.value.trim().slice(0, 80);
+}
+
+// Asks Practice to make exercises from the post on screen, and opens the run (or the project it already made) in a new
+// tab. The tab is opened at the click, so the browser does not block it as a pop-up.
+async function makePractice(): Promise<void> {
+  const translationId = shownHistoryId();
+  if (translationId === null) return;
+  const blocks = shownBlocks();
+  const practiceTab = window.open('about:blank', '_blank');
+  practiceButton.disabled = true;
+  const request: GenerationRequest = {
+    translationId,
+    title: postTitleOf(blocks),
+    sourceLanguage: 'en',
+    // Practice wants both texts of each block; an empty one (a code block left as it is, say) teaches nothing.
+    blocks: blocks
+      .filter((block) => block.sourceText.trim() !== '' && block.translatedText.trim() !== '')
+      .map((block) => ({ sourceText: block.sourceText, translatedText: block.translatedText })),
+  };
+  let practiceUrl: string | null = null;
+  try {
+    const { generation } = await fetchJson<{ generation: GenerationDetail }>('/api/practice/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    practiceUrl = `/practice#/g/${generation.id}`;
+  } catch (error) {
+    const isConflict = error instanceof ApiError && error.status === 409;
+    if (isConflict && error.code === 'generating') practiceUrl = `/practice#/g/${error.fields.generationId}`;
+    else if (isConflict && error.code === 'already_made') practiceUrl = `/practice#/p/${error.fields.projectKey}`;
+    else showAlert({ severity: 'error', title: 'Practice could not start', body: 'The exercises were not made.', detail: errorText(error) });
+  }
+  practiceButton.disabled = false;
+  if (practiceUrl === null) {
+    practiceTab?.close();
+    return;
+  }
+  if (practiceTab === null) window.open(practiceUrl, '_blank');
+  else practiceTab.location.href = practiceUrl;
 }
 
 function cancelTranslation(): void {
@@ -349,7 +411,7 @@ async function translate(): Promise<void> {
   showSkeleton(text);
   hideAlert();
   forgetClearedSnapshot();
-  setShownHistoryId(null);
+  setShownEntry(null);
   resetPairs();
   shownResultMode = requestSettings.sourceFormat;
   setViewMode('edit');
@@ -413,7 +475,7 @@ async function translate(): Promise<void> {
     } else if (eventName === 'done') {
       setStreamingCell(null);
       renderTarget('done', plainTextAfterRun(unpairedText));
-      setShownHistoryId(data.translationId);
+      setShownEntry(data.translationId);
       if (isSidebarOpen()) loadHistory();
       setRunInfo(runInfoTextOf({ outcome: 'done', hasOutput: true, ...data }));
       refreshQuotaWarning();
@@ -426,7 +488,7 @@ async function translate(): Promise<void> {
       const silenceText = silenceTextOf(requestSettings.modelId, data.servedModelId, data.isFallback);
       showErrorAlert(data.errorCode, data.message, hasOutput, silenceText);
       refreshQuotaWarning();
-      setShownHistoryId(data.translationId);
+      setShownEntry(data.translationId);
       if (isSidebarOpen()) loadHistory();
     }
   };
@@ -491,7 +553,7 @@ sourceText.addEventListener('input', () => {
     restoreClearedTranslation();
   } else {
     if (clearedSnapshot && sourceText.value !== '') forgetClearedSnapshot();
-    setShownHistoryId(null);
+    setShownEntry(null);
   }
   renderLanguages();
   renderSource();
@@ -511,7 +573,7 @@ editButton.addEventListener('click', () => {
     sourceText.select();
     document.execCommand('insertText', false, reformattedSourceText);
     sourceText.setSelectionRange(0, 0);
-    setShownHistoryId(shownEntryId);
+    setShownEntry(shownEntryId);
     sourceLanguage = shownSourceLanguage;
     isDirectionAuto = wasDirectionAuto;
     renderLanguages();
@@ -529,7 +591,7 @@ function clearWorkspace(): void {
   sourceText.select();
   document.execCommand('insertText', false, '');
   renderTarget('empty');
-  setShownHistoryId(null);
+  setShownEntry(null);
   if (clearedSnapshot.sourceText !== '') undoClearButton.hidden = false;
 }
 
@@ -572,6 +634,7 @@ window.addEventListener('scroll', () => {
   directionBar.classList.toggle('is-stuck', directionBar.getBoundingClientRect().top <= 0 && window.scrollY > 0);
 }, { passive: true });
 copyButton.addEventListener('click', () => copyWithFeedback(copyButton, composeCopyText()));
+practiceButton.addEventListener('click', () => void makePractice());
 copySourceButton.addEventListener('click', () => copyWithFeedback(copySourceButton, composeSourceCopyText()));
 
 function startNewTranslation(): void {

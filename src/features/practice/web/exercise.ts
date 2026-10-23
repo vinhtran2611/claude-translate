@@ -4,6 +4,7 @@
 // this file draws the cards, the buttons and the phases.
 import { createModelPicker, type ModelPicker } from '../../../shared/web/model-picker.ts';
 import type { Answer, AttemptDetail, ExerciseContent, ExerciseType, Grading, GradingSettings } from '../api-types.ts';
+import { createIcon } from '../../../shared/web/ui.ts';
 import { labelOf } from '../text.ts';
 import {
   ApiError, deleteExercise, errorText, readAttempt, readExercise, readGradingOptions, readProjectView, regrade, submitAttempt, watchGrading, type ProjectView,
@@ -157,10 +158,58 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
 
   const retryHref = `#/p/${projectKey}/x/${exerciseKey}`;
 
-  // The chips; while answering, also Delete for this exercise.
+  // The chips, then Previous · 3 / 50 · Next at the far end.
   function createToolbar(): HTMLElement {
-    if (isReview) return projectToolbar(view);
-    return projectToolbar(view, button('ghost-button', 'Delete exercise', () => void deleteThisExercise()));
+    return projectToolbar(view, createStepper());
+  }
+
+  // While answering, a small Delete at the right of the Problem bar: on the exercise it deletes, far from the arrows.
+  function createDeleteButtons(): HTMLElement[] {
+    if (isReview) return [];
+    const remove = Object.assign(h('button', 'ghost-button icon-button is-danger', createIcon('trash')), { type: 'button' as const });
+    remove.setAttribute('aria-label', 'Delete exercise');
+    remove.title = 'Delete exercise';
+    remove.addEventListener('click', () => void deleteThisExercise());
+    return [remove];
+  }
+
+  // The exercise next to this one in the project's order, or null at either end.
+  function neighbourHref(step: -1 | 1): string | null {
+    const index = view.exercises.findIndex((candidate) => candidate.key === exerciseKey);
+    if (index === -1) return null;
+    const neighbour = view.exercises[index + step];
+    if (neighbour === undefined) return null;
+    return `#/p/${projectKey}/x/${neighbour.key}`;
+  }
+
+  // A link to the neighbour; at an end, a disabled button in its place, so the counter does not move.
+  function stepButton(step: -1 | 1, label: string): HTMLElement {
+    const icon = createIcon(step === -1 ? 'back' : 'thinkingChevron');
+    const href = neighbourHref(step);
+    if (href === null) {
+      const disabled = Object.assign(h('button', 'ghost-button icon-button', icon), { type: 'button' as const, disabled: true });
+      disabled.setAttribute('aria-label', label);
+      return disabled;
+    }
+    const element = link(href, 'ghost-button icon-button', icon);
+    element.setAttribute('aria-label', label);
+    element.title = `${label} (${step === -1 ? '←' : '→'})`;
+    return element;
+  }
+
+  function createStepper(): HTMLElement {
+    const index = view.exercises.findIndex((candidate) => candidate.key === exerciseKey);
+    const position = index === -1 ? '' : `${index + 1} / ${view.exercises.length}`;
+    return h('div', 'exercise-stepper',
+      stepButton(-1, 'Previous exercise'),
+      h('span', 'stepper-position', position),
+      stepButton(1, 'Next exercise'));
+  }
+
+  // ← and → step through the project, unless the learner is typing.
+  function isTyping(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.isContentEditable || target.closest('input, textarea, select') !== null;
   }
 
   // Asks first. An exercise with answers asks a second time, because its answers are deleted with it (rule 8).
@@ -221,13 +270,13 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
     if (isSingle) {
       problemPane.append(createFooter());
       card.replaceChildren(
-        h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', problemLabel, h('div', 'bar-actions', ...actions))),
+        h('div', 'direction-bar is-single', h('div', 'bar-half is-actions', problemLabel, h('div', 'bar-actions', ...actions, ...createDeleteButtons()))),
         h('div', 'panes is-single', problemPane));
     } else {
       const answerPane = h('div', 'pane', ...answerContent!, createFooter());
       card.replaceChildren(
         h('div', 'direction-bar',
-          h('div', 'bar-half is-tinted', problemLabel),
+          h('div', 'bar-half is-tinted is-actions', problemLabel, h('div', 'bar-actions', ...createDeleteButtons())),
           h('div', 'bar-half is-actions', h('div', 'direction-label', h('span', 'language-name', 'Your answer')), h('div', 'bar-actions', ...actions))),
         h('div', 'panes', problemPane, answerPane));
     }
@@ -394,6 +443,15 @@ function openScreen(page: Page, firstView: ProjectView, start: Start, modelPicke
       event.preventDefault();
       submitButton.click();
     }
+  }, { signal });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || isTyping(event.target)) return;
+    const href = neighbourHref(event.key === 'ArrowLeft' ? -1 : 1);
+    if (href === null) return;
+    event.preventDefault();
+    location.hash = href;
   }, { signal });
 
   showSide(view, { attemptId: reopened?.id, draftExerciseId: draftId ?? undefined });

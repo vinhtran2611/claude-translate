@@ -127,6 +127,10 @@ a.primary-button, a.ghost-button { text-decoration: none; }
 .earlier-gradings > * + * { margin-top: 12px; }
 .earlier-toggle { cursor: pointer; font-size: 14px; color: var(--muted); }
 .answer-text { font-size: 20px; line-height: 1.5; font-weight: 500; }
+/* A flashcard's back: centred like its front. A long explanation reads better left-aligned, so it keeps that. */
+.card-back { max-width: 40em; margin: 0 auto; padding: 8px 0 4px; text-align: center; }
+.card-back > * + * { margin-top: 12px; }
+.card-back .doc-content { text-align: left; }
 
 /* ---- Projects, and a project's home ---- */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

@@ -127,10 +127,15 @@ a.primary-button, a.ghost-button { text-decoration: none; }
 .earlier-gradings > * + * { margin-top: 12px; }
 .earlier-toggle { cursor: pointer; font-size: 14px; color: var(--muted); }
 .answer-text { font-size: 20px; line-height: 1.5; font-weight: 500; }
-/* A flashcard's back: centred like its front. A long explanation reads better left-aligned, so it keeps that. */
-.card-back { max-width: 40em; margin: 0 auto; padding: 8px 0 4px; text-align: center; }
-.card-back > * + * { margin-top: 12px; }
-.card-back .doc-content { text-align: left; }
+/* A flashcard's back: a sheet of paper centred under the card's front, its text left-aligned. Wide enough to hold its own in
+   a wide pane; the side padding keeps lines near 75 characters. */
+.card-back { max-width: 880px; margin: 8px auto; padding: 36px 56px 40px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 18px; line-height: 1.65; }
+.card-back > * + * { margin-top: 14px; }
+.card-back > .label { margin-top: 28px; font-size: 15px; }
+.card-back .answer-text { font-size: 24px; line-height: 1.45; }
+/* Long explanations are the main read, so they get the same comfortable size as the sheet. */
+.card-back .eval-text { font-size: 18px; line-height: 1.7; }
+.card-back .eval-text .md-h2 { --heading-size: 20px; }
 
 /* ---- Projects, and a project's home ---- */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -200,6 +205,9 @@ textarea.field { resize: vertical; }
   .options { padding: 16px; }
   .pane-footer { padding: 0 8px 0 16px; }
   .evaluation-body, .card-section { padding: 16px; }
+  .card-back { padding: 18px 18px 20px; font-size: 17px; }
+  .card-back .answer-text { font-size: 21px; }
+  .card-back .eval-text { font-size: 17px; }
   .list-row { padding-inline: 16px; }
   .page > h1 { font-size: 24px; }
 }

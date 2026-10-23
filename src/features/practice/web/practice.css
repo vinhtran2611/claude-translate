@@ -31,6 +31,17 @@ a { color: var(--link); }
 .bar-actions > .run-info { margin-right: 4px; }
 .bar-actions .settings-chip { flex: none; }
 
+/* Previous · 3 / 50 · Next, at the end of the exercise toolbar. */
+/* One pill, drawn like the chips beside it: ‹ | 3 / 50 | › */
+.exercise-stepper { display: inline-flex; flex: none; align-items: stretch; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.exercise-stepper .icon-button { display: inline-flex; align-items: center; height: 100%; border-radius: 0; }
+.exercise-stepper .icon-button svg { width: 16px; height: 16px; }
+.stepper-position { display: inline-flex; align-items: center; justify-content: center; min-width: 4.5em; padding: 0 4px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); font-size: 13px; font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+/* Delete is small and quiet next to the progress, far from the arrows; red only on hover. */
+.ghost-button.icon-button.is-danger { width: 30px; height: 30px; }
+.ghost-button.icon-button.is-danger svg { width: 15px; height: 15px; }
+.ghost-button.icon-button.is-danger:hover { color: #b3261e; }
+
 .panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .panes.is-single { grid-template-columns: minmax(0, 1fr); }
 .pane { display: flex; flex-direction: column; min-width: 0; }

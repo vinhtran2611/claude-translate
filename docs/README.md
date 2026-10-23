@@ -13,6 +13,7 @@ Every doc here is one of three kinds:
 | [practice-api-design.md](practice-api-design.md) | built | The Practice HTTP API and database. Steps 1 to 5 are built; step 6, the agent guide, is not |
 | [practice-from-translation-design.md](practice-from-translation-design.md) | built | Making a Practice project from a finished translation: the prompt, the reply check, the `generations` table, the API and the two pages |
 | [llm-gateway-design.md](llm-gateway-design.md) | proposal | One way for every feature to call an LLM |
+| [translate-background-jobs-design.md](translate-background-jobs-design.md) | built | Translations as server-owned jobs: several run at once, a page re-attaches to a running one, checkpoints, the unread dot. Phases 1 to 3 are built |
 | [code-review.md](code-review.md) | report | The readability review and what was changed after it |
 | [structure-review.md](structure-review.md) | report | The folder-structure review and its move plan; the plan is built |
 

@@ -11,6 +11,23 @@ cancelled or stopped part way (marked with an amber dot). The sidebar on the lef
 grouped by Today, Yesterday, Previous 7 days, Previous 30 days, then by month. Click an entry
 to bring it back instantly, without calling Claude; the open entry is highlighted.
 
+A translation runs on the server, not in the page ([translate-background-jobs-design.md](translate-background-jobs-design.md)).
+Opening another entry, **New translation**, **Clear**, ⇄, a reload or closing the tab only stops
+watching it; it keeps going. Only **Cancel** (beside Translate while it runs), `Esc`, or deleting
+the entry stops it. Up to 3 run at once; a fourth is refused with an alert. While the page shows a
+running translation, its text box is read-only and Translate is disabled: click **New translation**
+to start another.
+
+Each row shows at most one dot:
+
+| Dot | Means |
+|---|---|
+| pulsing accent | still translating; click it to watch it live from where it is |
+| solid accent | finished while no page was watching it (or a restart cut it short); cleared when you open it |
+| amber | cancelled or stopped part way |
+
+While a listed row is running, the open sidebar reads the list again every 3 s.
+
 | Action | How |
 |---|---|
 | Show or hide the sidebar | sidebar button top left, or `⌘\` |
@@ -27,15 +44,17 @@ entry.
   `TRANSLATE_DATABASE_PATH` to use another file, e.g. for tests. The old `data/history.sqlite` is
   renamed to it once, after a copy to `data/backups/history-before-rename.sqlite`.
 - Every run is saved when it starts and updated when it ends, so a failed or cancelled run is kept
-  with its reason (`run.errorCode`, `run.errorMessage`). A run the server was stopped in becomes
-  failed with `interrupted` at the next start. The shape is the spec's `Translation`
-  ([data-model-proposal.md](data-model-proposal.md) §3.5).
+  with its reason (`run.errorCode`, `run.errorMessage`). While it runs, its output so far is saved
+  at most every 5 s (`CHECKPOINT_INTERVAL_MS`), so a run the server was stopped in keeps all but the
+  last few seconds; it becomes failed with `interrupted` at the next start. The shape is the spec's
+  `Translation` ([data-model-proposal.md](data-model-proposal.md) §3.5).
 - The list shows the newest 200 entries. Everything is kept until you delete it; to wipe all
   history, stop the server and delete `data/translate.sqlite`.
 - The server refuses to start if the file was written by a newer schema than the code knows.
   An older file is upgraded in place on start, after a backup: schemas 2 to 4 added the thinking,
   model, effort and mode columns; schema 5 is the new data model (old failed runs get
-  `claude_error` with "Unknown (saved before error details were kept).").
+  `claude_error` with "Unknown (saved before error details were kept)."); schema 6 adds `is_unread`
+  (a schema 5 file gains the column in place; an older file goes straight to 6).
 
 ## Thinking
 
@@ -122,8 +141,9 @@ as it is.
    A file under `src/` is served at its path under `src/` (`src/shared/web/markdown.ts` at `/shared/web/markdown.ts`),
    except the entry file and anything in a `server/` or `prompts/` folder. Every `.ts` file is served as JavaScript
    with its types stripped by Node (`stripTypeScriptTypes`), so there is no build step.
-3. Each translation is handed to a `claude -p` process. The server reads the `<pair>` tags as
-   they stream (`src/features/translate/server/pair-stream-parser.ts`) and forwards them to the page as Server-Sent Events.
+3. Each translation is a job (`src/features/translate/server/translation-jobs.ts`) handed to a `claude -p`
+   process. The server reads the `<pair>` tags as they stream (`src/features/translate/server/pair-stream-parser.ts`),
+   keeps what has arrived in memory, and forwards it to every page watching as Server-Sent Events.
 
 ### The `claude` command
 
@@ -178,9 +198,15 @@ POST /translate
   body: { "sourceLanguage": "en" | "vi", "targetLanguage": "vi" | "en", "sourceText": string,
           "modelId": string, "effort": "low" | "medium" | "high", "sourceFormat": "plain_text" | "markdown" }
         sourceText: non-empty, at most 100000 characters; modelId, effort and sourceFormat: one of /translation-options'
-        (checked by the server, since the CLI silently ignores an unknown effort); anything else is a 400
-  response: text/event-stream. Event names are lowercase snake_case; data is camelCase, in the words of the
-  stored Translation (docs/data-model-proposal.md §3.5).
+        (checked by the server, since the CLI silently ignores an unknown effort); anything else is a 400.
+        429 (plain-text reason) when 3 translations are already running; no row is saved
+  response: text/event-stream: the row is saved, the job starts, and this request watches it. Event names are
+  lowercase snake_case; data is camelCase, in the words of the stored Translation (docs/data-model-proposal.md §3.5).
+  A live run's stream is always snapshot, the events below, then one closing event (done, error or cancelled).
+    event: snapshot  data: { "translation": Translation, "notice": RunNotice | null, "elapsedMs": number }
+                     first: the row with everything so far (it names the new id), the latest retry or fallback
+                     ({ kind: "retry", attempt, maxRetries, error } | { kind: "fallback", fromModelId, toModelId }),
+                     and the time since the run started
     event: block_start         data: { "blockIndex": number, "blockType": string, "level": number, "marker": string | null }
     event: source_delta        data: { "blockIndex": number, "text": string }
     event: translation_delta   data: { "blockIndex": number, "text": string }
@@ -192,15 +218,24 @@ POST /translate
     event: fallback  data: { "fromModelId": string, "toModelId": string }
                                                     the chosen model sent no token in 10 s; the next one down takes over
     event: done   data: { "durationMs": number, "servedModelId": string, "effort": string, "isFallback": boolean,
-                          "translationId": number | null }
+                          "translationId": number }
     event: error  data: { "errorCode": string, "message": string, "servedModelId": string, "effort": string,
-                          "isFallback": boolean, "translationId": number | null }
+                          "isFallback": boolean, "translationId": number }
                   errorCode: no_response | stalled | claude_error | output_limit | start_failed | exited
-                  translationId: the saved translation (saved at the start, whatever the outcome), null only when saving failed
+                  translationId: the saved translation (saved at the start, whatever the outcome)
+    event: cancelled  data: { "durationMs": number, "translationId": number }   Cancel, Esc or a delete stopped it
+    event: finished   data: {}   the run is not live: read GET /history/:id (only from GET /history/:id/events)
+
+GET  /history/:id/events   -> the same stream for a run that is live, so a page can re-attach (a new page, another
+                              tab, a reload); or one `finished` event for any other id, known or not
+POST /history/:id/cancel   -> 204, and every page watching gets `cancelled` | 409 not_running
+POST /history/:id/read     -> 204, clears the entry's unread dot | 404
 ```
 
-Closing the request (pressing **Translate** again, **Clear**, ⇄ or `Esc` mid-translation)
-stops its `claude` process: SIGINT first, SIGKILL if it is still alive 3 s later.
+Closing the request only stops watching: the job runs on, and the page can re-attach with
+`GET /history/:id/events`. Only `POST /history/:id/cancel` (**Cancel**, `Esc`) or `DELETE /history/:id`
+stops its `claude` process: SIGINT first, SIGKILL if it is still alive 3 s later. A stopped server
+cannot resume a run: its rows are marked `interrupted` at the next start, with their last checkpoint.
 
 Timeouts are measured on text, not on the whole run, so a long translation can take as long
 as it needs while it keeps streaming:
@@ -227,14 +262,16 @@ Once a model has started streaming it is never replaced.
 
 ```
 GET    /history       -> [{ id, sourceLanguage, targetLanguage, sourceFormat, run, createdAt, updatedAt,
-                            sourcePreview, outputPreview }]  newest 200 (run.thinkingText is left out: null)
+                            sourcePreview, outputPreview, isUnread }]  newest 200 (run.thinkingText is left out: null)
+                          isUnread: the run ended with no page watching (or a restart cut it short), not opened since
 GET    /history/:id   -> Translation: { id, sourceLanguage, targetLanguage, sourceFormat, sourceText, blocks,
                             textOutsideBlocks, run, createdAt, updatedAt }  | 404
                           run is a ModelRun: servedModelId answered, requestedModelId was chosen (a fallback when
                           they differ); thinkingText null when the model did not think; the duration is
                           finishedAt - startedAt. sourceText is what was pasted; with sourceFormat markdown,
-                          blocks[].sourceText is tidied
-DELETE /history/:id   -> 204 | 404
+                          blocks[].sourceText is tidied. A running row's output is its last checkpoint (at most 5 s
+                          old); its events give the live output
+DELETE /history/:id   -> 204 | 404; a running translation is cancelled first
 ```
 
 Requests whose `Host` header is not `localhost:<PORT>` or `127.0.0.1:<PORT>` get 403, so another
@@ -275,10 +312,10 @@ only; `NO_COLOR=1 npm start` turns it off.
 | `continue` | WARN | the reply reached the output-token limit and `claude` asked the model to continue |
 | `done` | none, WARN | finished. WARN when the reply had no blocks or text outside them (`chars outside blocks`) |
 | `error` | ERROR | `errorCode: reason` (see the API section). `last_event` is the last stream-json event `claude` sent; an `exited` error shows its stderr tail below |
-| `cancelled` | none | the page closed the request: `Esc`, **Translate** again, **Clear**, ⇄, or the tab closed |
-| `history` | ERROR | saving to history failed; the closing line then has no `history` id |
+| `cancelled` | none | the run was stopped: **Cancel**, `Esc`, or deleting the entry. A page that only stops watching logs nothing |
+| `history` | ERROR | saving to history failed: the final save, or a checkpoint (`checkpoint failed`, logged once per run) |
 | `stdout` | WARN | `claude` printed a line that is not JSON |
-| `http` | WARN, ERROR | 400 bad request, 403 wrong `Host` (once per Host), 500 with the first stack frames |
+| `http` | WARN, ERROR | 400 bad request, 429 `POST /translate: 3 translations running`, 403 wrong `Host` (once per Host), 500 with the first stack frames (also when a new run's row cannot be saved) |
 
 The closing line lists, in this order and only as far as the request got: model, effort, total time, the
 failure, `first text` (time to the first translated text), `thought` (thinking time), blocks,

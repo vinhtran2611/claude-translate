@@ -1,6 +1,6 @@
 // The one place that reads and writes the practice database (docs/data-model-proposal.md §3.4 and §4).
 import type { DatabaseSync } from 'node:sqlite';
-import type { ModelRun, RunErrorCode, RunStatus } from '../../../shared/api-types.ts';
+import type { GenerationBlock, GenerationDetail, ModelRun, RunErrorCode, RunStatus } from '../../../shared/api-types.ts';
 import {
   RUN_FINISH_SET, RUN_INSERT_COLUMNS, RUN_INSERT_VALUES, runOf, runRowOf, thinkingTextOf, type RunRow,
 } from '../../../shared/server/model-run.ts';
@@ -10,7 +10,9 @@ import type {
   GradingSettings, ImportFile, ImportResult, List, ProjectFile, ProjectInput, ProjectSummary,
 } from '../api-types.ts';
 import { historyLineOf, labelOf, previewOf } from '../text.ts';
-import { CREATE_TABLES, INTERRUPTED_MESSAGE, migrateFrom1, migrateFrom2, SCHEMA_VERSION } from './store-schema.ts';
+import {
+  CREATE_TABLES, GENERATION_INTERRUPTED_MESSAGE, INTERRUPTED_MESSAGE, migrateFrom1, migrateFrom2, migrateFrom3, SCHEMA_VERSION,
+} from './store-schema.ts';
 
 // What createAttempt stores. grading: the settings of the AI grading it starts; null for a flashcard (rule 6).
 interface NewAttempt {
@@ -44,6 +46,33 @@ interface StartedAttempt {
   attempt: AttemptDetail;
   gradingId: number | null;
 }
+
+// What startGeneration stores: the post as the Translate page sent it, and how many exercises to ask for.
+export interface NewGeneration {
+  translationId: number;
+  title: string;
+  blocks: GenerationBlock[];
+  targetCount: number;
+}
+
+// A generation that started, or why none did: one of the translation is running, or its latest one made a project that is
+// still there.
+export type GenerationStart =
+  | { outcome: 'started'; generation: GenerationDetail }
+  | { outcome: 'generating'; generationId: number }
+  | { outcome: 'made'; projectKey: string };
+
+// How a generation ended: the project to write (its key is the wanted one; a free one is picked), or why it failed. The
+// reply is kept either way.
+export type GenerationOutcome =
+  | {
+    status: 'succeeded'; servedModelId: string; thinkingText: string; thinkingMs: number | null; replyText: string;
+    file: ProjectFile; droppedCount: number;
+  }
+  | {
+    status: 'failed'; servedModelId: string | null; thinkingText: string; thinkingMs: number | null; replyText: string;
+    errorCode: RunErrorCode; errorMessage: string;
+  };
 
 // Every write that takes a body can be a dry run: it reports what would happen and writes nothing.
 export interface PracticeStore {
@@ -82,6 +111,20 @@ export interface PracticeStore {
   finishGrading(gradingId: number, outcome: GradingOutcome): void;
   // A server stopped mid-grading leaves running gradings nobody will finish: they become failed with 'interrupted'.
   failInterruptedGradings(): number;
+  // Saves a running generation of a translation, unless one is running or its latest one made a project that still exists.
+  startGeneration(input: NewGeneration, settings: GradingSettings): GenerationStart;
+  // Ends a running generation; on success writes its project under a free key (never over an existing project), in the same
+  // transaction. The project's key, or null when it failed or was no longer running.
+  finishGeneration(generationId: number, outcome: GenerationOutcome): string | null;
+  readGeneration(generationId: number): GenerationDetail | null;
+  // Newest first.
+  listGenerations(translationId: number): GenerationDetail[];
+  // The post of a generation, as it was sent; null: no such generation.
+  readGenerationPost(generationId: number): NewGeneration | null;
+  // A new running generation from the same post; refused while one of the translation is running.
+  retryGeneration(generationId: number, settings: GradingSettings): GenerationStart | 'not_found';
+  // A server stopped mid-generation leaves running generations nobody will finish: they become failed with 'interrupted'.
+  failInterruptedGenerations(): number;
 }
 
 interface ProjectRow {
@@ -146,6 +189,32 @@ interface GradingRow extends RunRow {
   feedback_markdown: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface GenerationRow extends RunRow {
+  id: number;
+  translation_id: number;
+  title: string;
+  target_count: number;
+  dropped_count: number | null;
+  created_at: string;
+  updated_at: string;
+  // Joined from projects; null when there is no project.
+  project_key: string | null;
+}
+
+function generationOf(row: GenerationRow): GenerationDetail {
+  return {
+    id: row.id,
+    translationId: row.translation_id,
+    title: row.title,
+    targetCount: row.target_count,
+    projectKey: row.project_key,
+    droppedCount: row.dropped_count,
+    run: runOf(row),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function bodyOf(row: Pick<ExerciseRow, 'topic' | 'tags_json' | 'content_json'>): ExerciseBody {
@@ -230,6 +299,11 @@ const ATTEMPT_COLUMNS = `
   JOIN projects ON projects.id = exercises.project_id`;
 // The status of an attempt's latest grading (the one shown: rule 7); NULL for a flashcard.
 const LATEST_GRADING_STATUS = '(SELECT run_status FROM gradings WHERE attempt_id = attempts.id ORDER BY id DESC LIMIT 1)';
+// Every column but the post and the reply, which only the generator needs.
+const GENERATION_COLUMNS = `
+  generations.id, translation_id, title, target_count, dropped_count, ${RUN_INSERT_COLUMNS},
+  generations.created_at, generations.updated_at, projects.key AS project_key
+  FROM generations LEFT JOIN projects ON projects.id = generations.project_id`;
 
 export function openPracticeStore(databasePath: string): PracticeStore {
   const database: DatabaseSync = openDatabase(databasePath, SCHEMA_VERSION, (migratingDatabase, fileSchemaVersion) => {
@@ -240,6 +314,8 @@ export function openPracticeStore(databasePath: string): PracticeStore {
     }
     if (fileSchemaVersion === 1) migrateFrom1(migratingDatabase);
     if (fileSchemaVersion <= 2) migrateFrom2(migratingDatabase);
+    // migrateFrom2 makes schema 4's tables already.
+    if (fileSchemaVersion === 3) migrateFrom3(migratingDatabase);
   });
   database.exec('PRAGMA foreign_keys = ON');
 
@@ -332,6 +408,28 @@ export function openPracticeStore(databasePath: string): PracticeStore {
     WHERE id = $id AND run_status = 'running'`);
   const failInterrupted = database.prepare(`
     UPDATE gradings
+    SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, updated_at = $now
+    WHERE run_status = 'running'`);
+
+  // ---- generations ----
+  const insertGeneration = database.prepare(`
+    INSERT INTO generations (translation_id, title, post_json, target_count, ${RUN_INSERT_COLUMNS}, created_at, updated_at)
+    VALUES ($translation_id, $title, $post_json, $target_count, ${RUN_INSERT_VALUES}, $now, $now)`);
+  const selectGeneration = database.prepare(`SELECT ${GENERATION_COLUMNS} WHERE generations.id = $id`);
+  const selectGenerations = database.prepare(`SELECT ${GENERATION_COLUMNS} WHERE translation_id = $translation_id ORDER BY generations.id DESC`);
+  const selectGenerationPost = database.prepare('SELECT translation_id, title, post_json, target_count FROM generations WHERE id = $id');
+  const selectRunningGeneration = database.prepare("SELECT id FROM generations WHERE translation_id = $translation_id AND run_status = 'running'");
+  const selectLatestSucceededGeneration = database.prepare(`
+    SELECT projects.key AS project_key FROM generations LEFT JOIN projects ON projects.id = generations.project_id
+    WHERE translation_id = $translation_id AND run_status = 'succeeded' ORDER BY generations.id DESC LIMIT 1`);
+  // Only a running generation is finished, so a late outcome can never overwrite a finished one.
+  const finishGenerationRow = database.prepare(`
+    UPDATE generations
+    SET ${RUN_FINISH_SET}, project_id = $project_id, reply_text = $reply_text, dropped_count = $dropped_count, updated_at = $run_finished_at
+    WHERE id = $id AND run_status = 'running'`);
+  const selectIsGenerationRunning = database.prepare("SELECT EXISTS (SELECT 1 FROM generations WHERE id = $id AND run_status = 'running') AS is_running");
+  const failInterruptedGenerationRows = database.prepare(`
+    UPDATE generations
     SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, updated_at = $now
     WHERE run_status = 'running'`);
 
@@ -545,29 +643,35 @@ export function openPracticeStore(databasePath: string): PracticeStore {
     return 'deleted';
   }
 
-  function importFile(file: ProjectFile, isDryRun: boolean): ImportResult {
+  // Upserts the project and its exercises by key. No transaction of its own: BEGIN IMMEDIATE cannot nest, so each caller
+  // runs it inside its own.
+  function writeProjectFile(file: ProjectFile, now: string): Omit<ImportResult, 'dryRun'> {
     const { key } = file;
+    const row = projectRowOf(key);
+    let projectChange: Change = 'unchanged';
+    if (row === undefined) {
+      insertProject.run({ key, name: file.name, description: file.description, archived_at: null, now });
+      projectChange = 'created';
+    } else if (row.name !== file.name || row.description !== file.description) {
+      updateProject.run({ id: row.id, name: file.name, description: file.description, archived_at: row.archived_at, now });
+      projectChange = 'updated';
+    }
+    const projectId = (projectRowOf(key) as ProjectRow).id;
+    const exercises: ImportResult['exercises'] = { created: [], updated: [], unchanged: [] };
+    for (const exercise of file.exercises) {
+      const { key: exerciseKey, ...body } = exercise;
+      const change = upsertExercise(projectId, exerciseKey, body, now);
+      exercises[change].push(exerciseKey);
+    }
+    const keys = file.exercises.map((exercise) => exercise.key);
+    setOrder(projectId, keys, now);
+    return { project: readProject(key) as ProjectSummary, projectChange, exercises };
+  }
+
+  function importFile(file: ProjectFile, isDryRun: boolean): ImportResult {
     return inTransaction(database, () => {
-      const now = new Date().toISOString();
-      const row = projectRowOf(key);
-      let projectChange: Change = 'unchanged';
-      if (row === undefined) {
-        insertProject.run({ key, name: file.name, description: file.description, archived_at: null, now });
-        projectChange = 'created';
-      } else if (row.name !== file.name || row.description !== file.description) {
-        updateProject.run({ id: row.id, name: file.name, description: file.description, archived_at: row.archived_at, now });
-        projectChange = 'updated';
-      }
-      const projectId = (projectRowOf(key) as ProjectRow).id;
-      const exercises: ImportResult['exercises'] = { created: [], updated: [], unchanged: [] };
-      for (const exercise of file.exercises) {
-        const { key: exerciseKey, ...body } = exercise;
-        const change = upsertExercise(projectId, exerciseKey, body, now);
-        exercises[change].push(exerciseKey);
-      }
-      const keys = file.exercises.map((exercise) => exercise.key);
-      setOrder(projectId, keys, now);
-      return { dryRun: isDryRun, project: readProject(key) as ProjectSummary, projectChange, exercises };
+      const written = writeProjectFile(file, new Date().toISOString());
+      return { dryRun: isDryRun, ...written };
     }, isDryRun);
   }
 
@@ -706,9 +810,144 @@ export function openPracticeStore(databasePath: string): PracticeStore {
     return Number(result.changes);
   }
 
+  // ---- generations ----
+
+  function readGeneration(generationId: number): GenerationDetail | null {
+    const row = selectGeneration.get({ id: generationId }) as GenerationRow | undefined;
+    if (row === undefined) return null;
+    return generationOf(row);
+  }
+
+  function listGenerations(translationId: number): GenerationDetail[] {
+    const rows = selectGenerations.all({ translation_id: translationId }) as unknown as GenerationRow[];
+    return rows.map(generationOf);
+  }
+
+  function readGenerationPost(generationId: number): NewGeneration | null {
+    const row = selectGenerationPost.get({ id: generationId }) as
+      | { translation_id: number; title: string; post_json: string; target_count: number }
+      | undefined;
+    if (row === undefined) return null;
+    return { translationId: row.translation_id, title: row.title, blocks: JSON.parse(row.post_json), targetCount: row.target_count };
+  }
+
+  // A running generation of the translation, saved now; its id. The caller has checked that none is running.
+  function insertRunningGeneration({ translationId, title, blocks, targetCount }: NewGeneration, { modelId, effort }: GradingSettings): number {
+    const now = new Date().toISOString();
+    const run: ModelRun = {
+      status: 'running',
+      requestedModelId: modelId,
+      servedModelId: null,
+      effort,
+      thinkingText: null,
+      thinkingMs: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: now,
+      finishedAt: null,
+    };
+    const inserted = insertGeneration.run({
+      translation_id: translationId,
+      title,
+      post_json: JSON.stringify(blocks),
+      target_count: targetCount,
+      ...runRowOf(run),
+      now,
+    });
+    return Number(inserted.lastInsertRowid);
+  }
+
+  // The running generation of a translation, as a refusal; null when none is running.
+  function runningRefusal(translationId: number): GenerationStart | null {
+    const running = selectRunningGeneration.get({ translation_id: translationId }) as { id: number } | undefined;
+    if (running === undefined) return null;
+    return { outcome: 'generating', generationId: running.id };
+  }
+
+  function startGeneration(input: NewGeneration, settings: GradingSettings): GenerationStart {
+    const started = inTransaction(database, (): GenerationStart | number => {
+      const refusal = runningRefusal(input.translationId);
+      if (refusal !== null) return refusal;
+      const latest = selectLatestSucceededGeneration.get({ translation_id: input.translationId }) as { project_key: string | null } | undefined;
+      const madeProjectKey = latest?.project_key ?? null;
+      if (madeProjectKey !== null) return { outcome: 'made', projectKey: madeProjectKey };
+      return insertRunningGeneration(input, settings);
+    });
+    if (typeof started !== 'number') return started;
+    return { outcome: 'started', generation: readGeneration(started) as GenerationDetail };
+  }
+
+  function retryGeneration(generationId: number, settings: GradingSettings): GenerationStart | 'not_found' {
+    const started = inTransaction(database, (): GenerationStart | number | 'not_found' => {
+      const post = readGenerationPost(generationId);
+      if (post === null) return 'not_found';
+      const refusal = runningRefusal(post.translationId);
+      if (refusal !== null) return refusal;
+      return insertRunningGeneration(post, settings);
+    });
+    if (typeof started !== 'number') return started;
+    return { outcome: 'started', generation: readGeneration(started) as GenerationDetail };
+  }
+
+  // key, then key-2, key-3...: the first that no project has, at most 64 characters.
+  function freeProjectKey(key: string): string {
+    let candidate = key;
+    for (let count = 2; projectRowOf(candidate) !== undefined; count++) {
+      const suffix = `-${count}`;
+      const base = key.slice(0, 64 - suffix.length).replace(/-+$/, '');
+      candidate = `${base}${suffix}`;
+    }
+    return candidate;
+  }
+
+  function finishGeneration(generationId: number, outcome: GenerationOutcome): string | null {
+    return inTransaction(database, () => {
+      const { is_running: isRunning } = selectIsGenerationRunning.get({ id: generationId }) as { is_running: number };
+      if (isRunning !== 1) return null;
+      const now = new Date().toISOString();
+      let projectKey: string | null = null;
+      let projectId: number | null = null;
+      let droppedCount: number | null = null;
+      let errorCode: RunErrorCode | null = null;
+      let errorMessage: string | null = null;
+      if (outcome.status === 'succeeded') {
+        projectKey = freeProjectKey(outcome.file.key);
+        const written = writeProjectFile({ ...outcome.file, key: projectKey }, now);
+        projectId = written.project.id;
+        droppedCount = outcome.droppedCount;
+      } else {
+        errorCode = outcome.errorCode;
+        errorMessage = outcome.errorMessage;
+      }
+      // A failed generation keeps what it had written, if anything (the output is "none, or partial").
+      let replyText: string | null = outcome.replyText;
+      if (replyText === '') replyText = null;
+      finishGenerationRow.run({
+        id: generationId,
+        run_status: outcome.status,
+        run_served_model_id: outcome.servedModelId,
+        run_thinking_text: thinkingTextOf(outcome.thinkingText),
+        run_thinking_ms: outcome.thinkingMs,
+        run_error_code: errorCode,
+        run_error_message: errorMessage,
+        run_finished_at: now,
+        project_id: projectId,
+        reply_text: replyText,
+        dropped_count: droppedCount,
+      });
+      return projectKey;
+    });
+  }
+
+  function failInterruptedGenerations(): number {
+    const result = failInterruptedGenerationRows.run({ message: GENERATION_INTERRUPTED_MESSAGE, now: new Date().toISOString() });
+    return Number(result.changes);
+  }
+
   return {
     listProjects, readProject, putProject, renameProject, deleteProject, listExercises, readExercise, putExercise, renameExercise, moveExercise,
     reorderExercises, deleteExercise, importFile, exportProject, createAttempt, listAttempts, readAttempt, deleteAttempt, regrade,
-    finishGrading, failInterruptedGradings,
+    finishGrading, failInterruptedGradings, startGeneration, finishGeneration, readGeneration, listGenerations, readGenerationPost,
+    retryGeneration, failInterruptedGenerations,
   };
 }

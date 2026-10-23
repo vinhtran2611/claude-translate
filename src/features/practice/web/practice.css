@@ -183,6 +183,10 @@ textarea.field { resize: vertical; }
 .form-error:empty { display: none; }
 .pane-body .drop-zone + *, .pane-body .found, .pane-body .problems { margin-top: 12px; }
 .ghost-button.is-done { color: var(--accent); }
+/* #/g/<generation>: a project being made from a translation. */
+.generation-line { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.generation-progress { font-variant-numeric: tabular-nums; }
+.pane-body .is-error-text, .generation-status:not(:empty) { margin-top: 12px; }
 
 @media (max-width: 1100px) { .project-grid { grid-template-columns: minmax(0, 1fr); } }
 @media screen and (max-width: 760px) {

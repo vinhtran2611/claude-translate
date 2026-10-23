@@ -1,4 +1,4 @@
-// The practice database (store.ts) on scratch files, and its migrations from schema 1 and 2.
+// The practice database (store.ts) on scratch files, and its migrations from schema 1, 2 and 3.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ExerciseBody, ExerciseContent, FileExercise, ProjectFile } from '../api-types.ts';
-import { openPracticeStore, type AttemptFilter, type GradingOutcome, type PracticeStore } from './store.ts';
+import {
+  openPracticeStore, type AttemptFilter, type GenerationOutcome, type GradingOutcome, type NewGeneration, type PracticeStore,
+} from './store.ts';
 import { keyFromName } from './store-schema.ts';
 
 // ---- Helpers ----
@@ -414,6 +416,147 @@ test('the database keeps at most one running grading per attempt', () => {
   database.close();
 });
 
+// ---- Generations (docs/practice-from-translation-design.md §3 and §5) ----
+
+const POST: NewGeneration = {
+  translationId: 24,
+  title: 'A post',
+  blocks: [{ sourceText: 'Hello.', translatedText: 'Xin chào.' }],
+  targetCount: 10,
+};
+const GENERATION_SETTINGS = { modelId: 'claude-opus-5-5', effort: 'medium' as const };
+
+// A generation that has just started.
+function startOne(store: PracticeStore, post: NewGeneration = POST) {
+  const started = store.startGeneration(post, GENERATION_SETTINGS);
+  assert.equal(started.outcome, 'started');
+  if (started.outcome !== 'started') throw new Error('not started');
+  return started.generation;
+}
+
+// A good reply's project, wanting the key key.
+function generated(key: string, ...exercises: FileExercise[]): GenerationOutcome {
+  const projectFile: ProjectFile = { key, name: 'Made', description: 'From a post.', exercises };
+  return {
+    status: 'succeeded', servedModelId: 'claude-opus-5-5', thinkingText: 'Planning.', thinkingMs: 900, replyText: '{"name":"Made"}',
+    file: projectFile, droppedCount: 2,
+  };
+}
+
+const GENERATION_FAILED: GenerationOutcome = {
+  status: 'failed', servedModelId: 'claude-opus-5-5', thinkingText: '', thinkingMs: null, replyText: 'not json',
+  errorCode: 'invalid_reply', errorMessage: 'The reply is not a JSON object with name, topic and exercises.',
+};
+
+test('a schema 3 file gets the generations table, after a backup, and keeps its data', () => {
+  const { store, databasePath } = scratchStore();
+  store.importFile(file(card('k1', 'cheap')), false);
+  const database = new DatabaseSync(databasePath);
+  database.exec('DROP TABLE generations; PRAGMA user_version = 3');
+  database.close();
+  const reopened = openPracticeStore(databasePath);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 4 }]);
+  const backupPath = join(databasePath, '..', 'backups', 'practice-before-schema-4.sqlite');
+  assert.deepEqual(readRows(backupPath, 'PRAGMA user_version'), [{ user_version: 3 }]);
+  const indexes = readRows(databasePath, "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'generations' ORDER BY name");
+  const indexNames = indexes.map((row) => row.name);
+  assert.deepEqual(indexNames, ['generations_by_run_status', 'generations_by_translation_id_id', 'generations_by_translation_id_running']);
+  assert.equal(reopened.readProject('week-1')?.exerciseCount, 1);
+  assert.equal(startOne(reopened).run.status, 'running');
+});
+
+test('a generation starts running with its settings; a second one of the translation is refused while it runs', () => {
+  const { store } = scratchStore();
+  const generation = startOne(store);
+  assert.equal(generation.translationId, 24);
+  assert.equal(generation.title, 'A post');
+  assert.equal(generation.targetCount, 10);
+  assert.equal(generation.projectKey, null);
+  assert.equal(generation.run.requestedModelId, 'claude-opus-5-5');
+  assert.equal(generation.run.effort, 'medium');
+  assert.deepEqual(store.startGeneration(POST, GENERATION_SETTINGS), { outcome: 'generating', generationId: generation.id });
+  assert.equal(startOne(store, { ...POST, translationId: 25 }).translationId, 25);
+  assert.deepEqual(store.readGenerationPost(generation.id), POST);
+});
+
+test('a finished generation writes its project in the same transaction; then the translation is made', () => {
+  const { store, databasePath } = scratchStore();
+  const generation = startOne(store);
+  const projectKey = store.finishGeneration(generation.id, generated('t-24-made', card('fc-1-a', 'a'), card('fc-2-b', 'b')));
+  assert.equal(projectKey, 't-24-made');
+  const project = store.readProject('t-24-made')!;
+  assert.equal(project.exerciseCount, 2);
+  assert.equal(project.description, 'From a post.');
+  const finished = store.readGeneration(generation.id)!;
+  assert.equal(finished.run.status, 'succeeded');
+  assert.equal(finished.run.thinkingText, 'Planning.');
+  assert.equal(finished.projectKey, 't-24-made');
+  assert.equal(finished.droppedCount, 2);
+  assert.deepEqual(readRows(databasePath, 'SELECT reply_text FROM generations'), [{ reply_text: '{"name":"Made"}' }]);
+  assert.deepEqual(store.startGeneration(POST, GENERATION_SETTINGS), { outcome: 'made', projectKey: 't-24-made' });
+  // Only a running generation is finished.
+  assert.equal(store.finishGeneration(generation.id, GENERATION_FAILED), null);
+  assert.equal(store.readGeneration(generation.id)!.run.status, 'succeeded');
+});
+
+test('a generation never overwrites a project: a taken key gets -2, -3', () => {
+  const { store } = scratchStore();
+  store.importFile({ ...file(card('k1', 'cheap')), key: 't-24-made' }, false);
+  const first = startOne(store);
+  assert.equal(store.finishGeneration(first.id, generated('t-24-made', card('fc-1-a', 'a'))), 't-24-made-2');
+  const second = store.retryGeneration(first.id, GENERATION_SETTINGS);
+  if (typeof second === 'string' || second.outcome !== 'started') throw new Error('not started');
+  assert.equal(store.finishGeneration(second.generation.id, generated('t-24-made', card('fc-1-a', 'a'))), 't-24-made-3');
+  assert.equal(store.readProject('t-24-made')!.exerciseCount, 1);
+  assert.equal(store.readExercise('t-24-made', 'k1')!.version, 1);
+  const longKey = 'x'.repeat(64);
+  store.importFile({ ...file(card('k1', 'cheap')), key: longKey }, false);
+  const third = startOne(store, { ...POST, translationId: 30 });
+  assert.equal(store.finishGeneration(third.id, generated(longKey, card('fc-1-a', 'a'))), `${'x'.repeat(62)}-2`);
+});
+
+test('a project that cannot be written leaves nothing: the generation stays running', () => {
+  const { store } = scratchStore();
+  const generation = startOne(store);
+  assert.throws(() => store.finishGeneration(generation.id, generated('t-24-made', card('fc-1-a', 'a'), card('Bad Key', 'b'))), /CHECK constraint failed/);
+  assert.equal(store.readProject('t-24-made'), null);
+  assert.equal(store.readGeneration(generation.id)!.run.status, 'running');
+});
+
+test('a failed generation keeps its reply and reason; deleting a made project sets its link to null', () => {
+  const { store, databasePath } = scratchStore();
+  const failed = startOne(store);
+  assert.equal(store.finishGeneration(failed.id, GENERATION_FAILED), null);
+  const run = store.readGeneration(failed.id)!.run;
+  assert.equal(run.status, 'failed');
+  assert.equal(run.errorCode, 'invalid_reply');
+  assert.equal(run.thinkingText, null);
+  assert.deepEqual(readRows(databasePath, 'SELECT reply_text, project_id, dropped_count FROM generations'), [{ reply_text: 'not json', project_id: null, dropped_count: null }]);
+
+  const retried = store.retryGeneration(failed.id, GENERATION_SETTINGS);
+  if (typeof retried === 'string' || retried.outcome !== 'started') throw new Error('not started');
+  assert.deepEqual(store.retryGeneration(failed.id, GENERATION_SETTINGS), { outcome: 'generating', generationId: retried.generation.id });
+  assert.equal(store.retryGeneration(999, GENERATION_SETTINGS), 'not_found');
+  store.finishGeneration(retried.generation.id, generated('t-24-made', card('fc-1-a', 'a')));
+  assert.equal(store.deleteProject('t-24-made', false), 'deleted');
+  assert.equal(store.readGeneration(retried.generation.id)!.projectKey, null);
+  // The project is gone, so making it again is allowed.
+  assert.equal(startOne(store).translationId, 24);
+  const listed = store.listGenerations(24).map((generation) => generation.run.status);
+  assert.deepEqual(listed, ['running', 'succeeded', 'failed']);
+});
+
+test('a server restart fails the generations it interrupted', () => {
+  const { store } = scratchStore();
+  const generation = startOne(store);
+  assert.equal(store.failInterruptedGenerations(), 1);
+  const { run } = store.readGeneration(generation.id)!;
+  assert.equal(run.status, 'failed');
+  assert.equal(run.errorCode, 'interrupted');
+  assert.equal(run.errorMessage, 'The server stopped while generating.');
+  assert.equal(store.failInterruptedGenerations(), 0);
+});
+
 // ---- Migration from schema 2 (the spec's §5) ----
 
 // Schema 2 as it shipped, to test the migration on a file that looks like the real one.
@@ -519,10 +662,12 @@ function gradingRows(databasePath: string): Record<string, unknown>[] {
 test('the schema 2 migration copies the file to backups/ first, and sets the schema version', () => {
   const { directory, databasePath } = schema2File();
   openPracticeStore(databasePath);
-  const backupPath = join(directory, 'backups', 'practice-before-schema-3.sqlite');
+  const backupPath = join(directory, 'backups', 'practice-before-schema-4.sqlite');
   assert.deepEqual(readRows(backupPath, 'PRAGMA user_version'), [{ user_version: 2 }]);
   assert.deepEqual(readRows(backupPath, 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
-  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 3 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 4 }]);
+  // migrateFrom2 makes schema 4's generations table too.
+  assert.deepEqual(readRows(databasePath, 'SELECT count(*) AS count FROM generations'), [{ count: 0 }]);
 });
 
 test('the schema 2 migration: projects lose last_activity_at, and an empty description becomes null', () => {
@@ -645,7 +790,7 @@ test('after the schema 2 migration an id is never given twice, the delete rules 
   const rules = readRows(databasePath, 'PRAGMA foreign_key_list(attempts)').map((row) => `${row.table} ${row.on_delete}`);
   assert.deepEqual(rules, ['exercises CASCADE']);
   assert.equal(openPracticeStore(databasePath).listProjects('all').length, 2);
-  assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-3.sqlite'), 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
+  assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-4.sqlite'), 'SELECT count(*) AS count FROM attempts'), [{ count: 7 }]);
 });
 
 test('the schema 2 migration stops, and changes nothing, when an attempt has no exercise', () => {
@@ -714,11 +859,11 @@ function schema1File() {
   return { directory, databasePath };
 }
 
-test('a schema 1 file goes through schema 2 to schema 3: keys from names, then the new model', () => {
+test('a schema 1 file goes through schema 2 to schema 4: keys from names, then the new model', () => {
   const { directory, databasePath } = schema1File();
   const store = openPracticeStore(databasePath);
-  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 3 }]);
-  assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-3.sqlite'), 'PRAGMA user_version'), [{ user_version: 1 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 4 }]);
+  assert.deepEqual(readRows(join(directory, 'backups', 'practice-before-schema-4.sqlite'), 'PRAGMA user_version'), [{ user_version: 1 }]);
   assert.deepEqual(readRows(databasePath, 'SELECT id, key FROM projects ORDER BY id'), [
     { id: 1, key: 'test' },
     { id: 2, key: 'day-1-19-10-2026' },

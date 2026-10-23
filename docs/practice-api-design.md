@@ -820,7 +820,8 @@ Exercises that are not in the file keep their order after the file's ones.
 (any other is a `400`).
 
 The list is made from the server's own route table: each route is written with this readable path and its line, and the
-URL pattern is made from the path. So the list cannot miss an endpoint or show a wrong path. 23 endpoints today.
+URL pattern is made from the path. So the list cannot miss an endpoint or show a wrong path. 28 endpoints today (with the
+five generation endpoints of §11).
 
 ### 10.6 The new endpoints, together
 
@@ -843,4 +844,22 @@ All four take `?dry_run=true`.
 | Redirects from an old key to the new one | Needs a table of old keys forever. Keys change rarely, by you, on purpose. |
 | Moving many exercises in one call | Not needed yet; one call per exercise is fine at this size. |
 | The page UI for rename, move and order | The task is the API; the page can call these endpoints later. |
+
+## 11. Generations: a project from a translation
+
+Built from [practice-from-translation-design.md](practice-from-translation-design.md) (schema 4). A generation is a
+model run that writes a project of flashcards and multiple-choice questions from a finished en→vi translation. It runs
+in the background like a grading; the post is kept in the row, so Try again needs only the id.
+
+| Method and path | Body | Success | Typical errors |
+|---|---|---|---|
+| `POST /api/practice/generations` | `GenerationRequest { translationId, title, sourceLanguage: "en", blocks: [{ sourceText, translatedText }] }` | `202 { generation }` | `400 invalid` (not `en`, no blocks, under 150 English words), `409 generating` (with `generationId`), `409 already_made` (with `projectKey`), `413 too_large` |
+| `GET /api/practice/generations?translation={id}` | — | `200 { items: GenerationDetail[] }`, newest first | `400 invalid` |
+| `GET /api/practice/generations/{id}` | — | `200 GenerationDetail` (no post, no reply) | `404` |
+| `POST /api/practice/generations/{id}/retry` | none | `202 { generation }` | `404`, `409 generating` |
+| `GET /api/practice/generations/{id}/stream` | — | `200 text/event-stream`: `snapshot`, `progress { exerciseCount }`, `retry`, `fallback`, `done { projectKey }`, `error { message }`, `finished` | `404` |
+
+The body limit is 1 MB (`limits.generationBodyBytes`). A made project gets the key `t-{translationId}-{slug of its name}`,
+or that key with `-2`, `-3`... when it is taken: a generation never overwrites a project. Deleting the project sets the
+generation's `projectKey` to null, and the translation can then make a project again.
 

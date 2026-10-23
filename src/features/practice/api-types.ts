@@ -264,6 +264,7 @@ export interface ApiIndex {
     exercisesPerImport: number;
     exerciseBodyBytes: number;
     attemptBodyBytes: number;
+    generationBodyBytes: number;
     keyPattern: string;
     attemptsPageMax: number;
   };
@@ -377,6 +378,21 @@ export interface GradingStreamEvents {
   done: Record<string, never>;
   error: { message: string };
   // The attempt is not being graded (its grading ended, or it is a flashcard).
+  finished: Record<string, never>;
+}
+
+// GET /api/practice/generations/:id/stream: Server-Sent Events, as for a grading. A running generation sends `snapshot`
+// first, then `progress` each time another exercise starts in the reply. `done`, `error` and `finished` mean the same: read
+// the generation for the final state.
+export interface GenerationStreamEvents {
+  snapshot: { exerciseCount: number; targetCount: number; modelId: ModelId; effort: Effort; elapsedMs: number };
+  progress: { exerciseCount: number };
+  retry: { attempt: number; maxRetries: number; error: string };
+  fallback: { fromModelId: ModelId; toModelId: ModelId };
+  // The project it made.
+  done: { projectKey: string };
+  error: { message: string };
+  // The generation is not running.
   finished: Record<string, never>;
 }
 

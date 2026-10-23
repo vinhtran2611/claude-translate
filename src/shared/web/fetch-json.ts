@@ -7,12 +7,15 @@ export class ApiError extends Error {
   status: number;
   code: string;
   problems: ApiProblem[];
+  // The error object as sent, for the fields a code adds: a 409 "generating" names its generationId.
+  fields: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string, problems: ApiProblem[] = []) {
+  constructor(status: number, code: string, message: string, problems: ApiProblem[] = [], fields: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
     this.code = code;
     this.problems = problems;
+    this.fields = fields;
   }
 }
 
@@ -22,7 +25,7 @@ async function apiErrorOf(response: Response): Promise<ApiError> {
   const text = await response.text();
   try {
     const { error } = JSON.parse(text) as ApiErrorBody;
-    return new ApiError(response.status, error.code, error.message, error.problems);
+    return new ApiError(response.status, error.code, error.message, error.problems, error);
   } catch {
     return new ApiError(response.status, 'http', text || `HTTP ${response.status}`);
   }

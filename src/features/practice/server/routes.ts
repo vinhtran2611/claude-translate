@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DEFAULT_EFFORT, DEFAULT_MODEL_ID, EFFORT_OPTIONS, isEffort, MODEL_OPTIONS, modelOptionOf } from '../../../shared/server/claude-runner.ts';
 import { readRequestJson, sendError, sendFile, sendJson, type Feature } from '../../../shared/server/http.ts';
 import { log } from '../../../shared/server/log.ts';
-import type { RunStatus } from '../../../shared/api-types.ts';
+import type { GenerationConflictBody, GenerationRequest, RunStatus } from '../../../shared/api-types.ts';
 import { RUN_STATUSES } from '../../../shared/server/model-run.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { ApiIndex, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, RegradeRequest } from '../api-types.ts';
@@ -12,14 +12,18 @@ import {
   checkExerciseInput, checkImportValue, checkProjectInput, EXERCISE_TYPES, IMPORT_FORMATS, KEY_PATTERN, keyProblems, MAX_EXERCISES,
   MAX_FILE_CHARS, type Problem,
 } from '../import-check.ts';
+import { generationRequestProblems, planOf, postWordCount } from '../generation-check.ts';
 import { createGrader } from './ai-grading.ts';
 import { checkAnswer, isGradedByAi } from './answers.ts';
+import { createGenerator, GENERATION_SETTINGS } from './generation.ts';
 import {
   choiceParam, DRY_RUN, isWholeNumber, keyTaken, MAX_EXERCISE_BODY_BYTES, notFound, readKeyBody, readObjectBody, sendProblems,
   unknownParameterProblems, wholeNumberParam,
 } from './request-checks.ts';
 import { exerciseSchema, importSchema } from './schemas.ts';
-import { openPracticeStore, type AttemptFilter, type PracticeStore } from './store.ts';
+import {
+  openPracticeStore, type AttemptFilter, type GenerationStart, type NewGeneration, type PracticeStore,
+} from './store.ts';
 
 const FEATURE_DIRECTORY = join(FEATURES_DIRECTORY, 'practice');
 const WEB_DIRECTORY = join(FEATURE_DIRECTORY, 'web');
@@ -35,6 +39,8 @@ FILES.set('/practice', {
 const MAX_IMPORT_BODY_BYTES = MAX_FILE_CHARS;
 // Arbitrary: far above the longest answer, below anything that could hurt the server.
 const MAX_ATTEMPT_BODY_BYTES = 256 * 1024;
+// A post of Translate's longest input (100,000 characters), with its Vietnamese and the JSON around it, is about 250 KB.
+const MAX_GENERATION_BODY_BYTES = 1_000_000;
 const ATTEMPTS_PAGE_DEFAULT = 50;
 const ATTEMPTS_PAGE_MAX = 200;
 
@@ -51,6 +57,7 @@ const API_INDEX: Omit<ApiIndex, 'endpoints'> = {
     exercisesPerImport: MAX_EXERCISES,
     exerciseBodyBytes: MAX_EXERCISE_BODY_BYTES,
     attemptBodyBytes: MAX_ATTEMPT_BODY_BYTES,
+    generationBodyBytes: MAX_GENERATION_BODY_BYTES,
     keyPattern: KEY_PATTERN.source,
     attemptsPageMax: ATTEMPTS_PAGE_MAX,
   },
@@ -100,8 +107,13 @@ export function createPracticeFeature({ databasePath }: { databasePath: string }
   const store: PracticeStore = openPracticeStore(databasePath);
   const interruptedCount = store.failInterruptedGradings();
   if (interruptedCount > 0) log('warn', null, 'practice', `${interruptedCount} grading(s) were interrupted by a restart; Grade again redoes them`);
+  const interruptedGenerationCount = store.failInterruptedGenerations();
+  if (interruptedGenerationCount > 0) {
+    log('warn', null, 'practice', `${interruptedGenerationCount} generation(s) were interrupted by a restart; Try again redoes them`);
+  }
 
   const grader = createGrader(store);
+  const generator = createGenerator(store);
   const gradingOptions: GradingOptions = {
     models: MODEL_OPTIONS.map(({ modelId, label, shortLabel, description }) => ({ modelId, label, shortLabel, description })),
     efforts: EFFORT_OPTIONS,
@@ -409,8 +421,71 @@ export function createPracticeFeature({ databasePath }: { databasePath: string }
     grader.watch(res, attemptId);
   }
 
+  // ---- generations (docs/practice-from-translation-design.md §6) ----
+
+  // 202 with the started generation, which then runs in the background; or the 409 that names what is in the way.
+  function answerGenerationStart(res: ServerResponse, started: GenerationStart, post: NewGeneration): void {
+    if (started.outcome === 'generating') {
+      const conflict: GenerationConflictBody = {
+        error: { code: 'generating', message: 'A generation of this translation is running.', generationId: started.generationId },
+      };
+      return sendJson(res, 409, conflict);
+    }
+    if (started.outcome === 'made') {
+      const conflict: GenerationConflictBody = {
+        error: { code: 'already_made', message: `This translation already made project "${started.projectKey}".`, projectKey: started.projectKey },
+      };
+      return sendJson(res, 409, conflict);
+    }
+    const { generation } = started;
+    log('info', null, 'practice', `generation ${generation.id} of translation ${generation.translationId} started`);
+    sendJson(res, 202, { generation });
+    generator.start(generation, post);
+  }
+
+  // Makes a project from a finished en->vi translation: the Translate page sends the post it shows.
+  async function createGeneration(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await readObjectBody(req, res, MAX_GENERATION_BODY_BYTES, ['translationId', 'title', 'sourceLanguage', 'blocks']);
+    if (body === null) return;
+    const problems = generationRequestProblems(body);
+    if (problems.length > 0) return sendProblems(res, problems);
+    const request = body as unknown as GenerationRequest;
+    const plan = planOf(postWordCount(request.blocks));
+    const post: NewGeneration = {
+      translationId: request.translationId,
+      title: request.title.trim(),
+      blocks: request.blocks.map(({ sourceText, translatedText }) => ({ sourceText, translatedText })),
+      targetCount: plan.total,
+    };
+    answerGenerationStart(res, store.startGeneration(post, GENERATION_SETTINGS), post);
+  }
+
+  // A new run from the same post (Try again, or Make again once the project was deleted).
+  function retryGeneration(_req: IncomingMessage, res: ServerResponse, [id]: string[]): void {
+    const generationId = Number(id);
+    const started = store.retryGeneration(generationId, GENERATION_SETTINGS);
+    if (started === 'not_found') return notFound(res, 'generation');
+    answerGenerationStart(res, started, store.readGenerationPost(generationId) as NewGeneration);
+  }
+
+  function listGenerations(_req: IncomingMessage, res: ServerResponse, _params: string[], query: URLSearchParams): void {
+    const problems: Problem[] = [];
+    const translationId = wholeNumberParam(query, 'translation', 1, Number.MAX_SAFE_INTEGER, problems);
+    if (translationId === null && problems.length === 0) {
+      problems.push({ path: '?translation', code: 'required', message: 'translation is missing: the id of a translation.' });
+    }
+    if (problems.length > 0) return sendProblems(res, problems);
+    sendJson(res, 200, { items: store.listGenerations(translationId as number) });
+  }
+
+  function watchGeneration(_req: IncomingMessage, res: ServerResponse, [id]: string[]): void {
+    const generationId = Number(id);
+    if (store.readGeneration(generationId) === null) return notFound(res, 'generation');
+    generator.watch(res, generationId);
+  }
+
   // The parts of a readable path: {p} a project key and {e} an exercise key (checked by the handler that needs it), {id} an
-  // attempt's number, {name} a schema's name.
+  // attempt's or a generation's number, {name} a schema's name.
   function patternOf(path: string): RegExp {
     const pattern = path
       .replaceAll('.', '\\.')
@@ -452,6 +527,12 @@ export function createPracticeFeature({ databasePath }: { databasePath: string }
     route('DELETE', '/attempts/{id}', 'Delete an attempt (not while it is graded).', deleteAttempt),
     route('POST', '/attempts/{id}/regrade', 'Grade an attempt again, as a new grading: { modelId?, effort? }.', regrade),
     route('GET', '/attempts/{id}/stream', 'Follow a grading as server-sent events.', watchAttempt),
+
+    route('POST', '/generations', 'Make a project from an en->vi translation: { translationId, title, sourceLanguage, blocks }.', createGeneration),
+    route('GET', '/generations', 'List the generations of a translation, newest first.', listGenerations, ['translation']),
+    route('GET', '/generations/{id}', 'Read one generation.', (_req, res, [id]) => found(res, store.readGeneration(Number(id)), 'generation')),
+    route('POST', '/generations/{id}/retry', 'Run a generation again from the same post.', retryGeneration),
+    route('GET', '/generations/{id}/stream', 'Follow a generation as server-sent events.', watchGeneration),
   ];
   const apiIndex: ApiIndex = {
     ...API_INDEX,

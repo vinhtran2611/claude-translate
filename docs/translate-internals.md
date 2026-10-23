@@ -23,14 +23,19 @@ At 1280 px and wider the sidebar is docked beside the page and stays open or clo
 left it. On narrower windows it opens as a drawer over the page and closes once you pick an
 entry.
 
-- Stored in SQLite at `data/history.sqlite` (built into Node, no install). Set
-  `HISTORY_DATABASE_PATH` to use another file, e.g. for tests.
+- Stored in SQLite at `data/translate.sqlite` (built into Node, no install). Set
+  `TRANSLATE_DATABASE_PATH` to use another file, e.g. for tests. The old `data/history.sqlite` is
+  renamed to it once, after a copy to `data/backups/history-before-rename.sqlite`.
+- Every run is saved when it starts and updated when it ends, so a failed or cancelled run is kept
+  with its reason (`run.errorCode`, `run.errorMessage`). A run the server was stopped in becomes
+  failed with `interrupted` at the next start. The shape is the spec's `Translation`
+  ([data-model-proposal.md](data-model-proposal.md) §3.5).
 - The list shows the newest 200 entries. Everything is kept until you delete it; to wipe all
-  history, stop the server and delete `data/history.sqlite`.
+  history, stop the server and delete `data/translate.sqlite`.
 - The server refuses to start if the file was written by a newer schema than the code knows.
-  An older file is upgraded in place on start: schema 2 adds the thinking columns (older entries
-  have no thinking), schema 3 the model and effort columns (older entries were all Sonnet 5.5 at Low),
-  schema 4 the mode column (older entries were all As pasted).
+  An older file is upgraded in place on start, after a backup: schemas 2 to 4 added the thinking,
+  model, effort and mode columns; schema 5 is the new data model (old failed runs get
+  `claude_error` with "Unknown (saved before error details were kept).").
 
 ## Thinking
 
@@ -163,34 +168,35 @@ Two translations at the same moment work; the second starts a fresh process.
 
 ```
 GET /translation-options
-  -> { models: [{ model_id, label, short_label, description }], efforts: [{ effort, label, description }],
-       modes: [{ mode, label, description }],
-       default_model_id, default_effort, default_mode,
-       quota_warning: { status, rate_limit_type, utilization, resets_at } | null }
-       quota_warning: the latest reply's rate limit when it warns or rejects; null before the first reply
+  -> { models: [{ modelId, label, shortLabel, description }], efforts: [{ effort, label, description }],
+       sourceFormats: [{ sourceFormat, label, description }],
+       defaultModelId, defaultEffort, defaultSourceFormat,
+       quotaWarning: { status, rateLimitType, utilization, resetsAt } | null }
+       quotaWarning: the latest reply's rate limit when it warns or rejects; null before the first reply
 
 POST /translate
-  body: { "source_language": "en" | "vi", "target_language": "vi" | "en", "text": string,
-          "model_id": string, "effort": "low" | "medium" | "high", "mode": "translate" | "translate_markdown" }
-        text: non-empty, at most 100000 characters; model_id, effort and mode: one of /translation-options'
+  body: { "sourceLanguage": "en" | "vi", "targetLanguage": "vi" | "en", "sourceText": string,
+          "modelId": string, "effort": "low" | "medium" | "high", "sourceFormat": "plain_text" | "markdown" }
+        sourceText: non-empty, at most 100000 characters; modelId, effort and sourceFormat: one of /translation-options'
         (checked by the server, since the CLI silently ignores an unknown effort); anything else is a 400
-  response: text/event-stream
-    event: pair_start         data: { "pair_index": number, "pair_type": string, "level": number, "marker": string }
-    event: source_delta       data: { "pair_index": number, "text": string }
-    event: translation_delta  data: { "pair_index": number, "text": string }
-    event: unpaired_delta     data: { "text": string }   reply text outside any pair
-    event: retry  data: { "attempt": number, "max_retries": number, "error": string }
+  response: text/event-stream. Event names are lowercase snake_case; data is camelCase, in the words of the
+  stored Translation (docs/data-model-proposal.md §3.5).
+    event: block_start         data: { "blockIndex": number, "blockType": string, "level": number, "marker": string | null }
+    event: source_delta        data: { "blockIndex": number, "text": string }
+    event: translation_delta   data: { "blockIndex": number, "text": string }
+    event: outside_text_delta  data: { "text": string }   reply text outside any block (textOutsideBlocks)
+    event: retry  data: { "attempt": number, "maxRetries": number, "error": string }
                                                     the API is busy and claude is retrying
     event: thinking_delta  data: { "text": string }   the next piece of the thinking summary
-    event: thinking_done   data: { "duration_ms": number }   once, when the thinking block closes
-    event: fallback  data: { "from_model_id": string, "to_model_id": string }
+    event: thinking_done   data: { "durationMs": number }   once, when the thinking block closes
+    event: fallback  data: { "fromModelId": string, "toModelId": string }
                                                     the chosen model sent no token in 10 s; the next one down takes over
-    event: done   data: { "duration_ms": number, "served_model_id": string, "effort": string, "is_fallback": boolean,
-                          "history_id": number | null }
-    event: error  data: { "error_kind": string, "message": string, "served_model_id": string, "effort": string,
-                          "is_fallback": boolean, "history_id": number | null }
-                  error_kind: no_response | stalled | claude_error | output_limit | start_failed | exited
-                  history_id: the saved history entry, null when there was no text to save
+    event: done   data: { "durationMs": number, "servedModelId": string, "effort": string, "isFallback": boolean,
+                          "translationId": number | null }
+    event: error  data: { "errorCode": string, "message": string, "servedModelId": string, "effort": string,
+                          "isFallback": boolean, "translationId": number | null }
+                  errorCode: no_response | stalled | claude_error | output_limit | start_failed | exited
+                  translationId: the saved translation (saved at the start, whatever the outcome), null only when saving failed
 ```
 
 Closing the request (pressing **Translate** again, **Clear**, ⇄ or `Esc` mid-translation)
@@ -220,13 +226,14 @@ tokens, so a long think is never mistaken for a stuck model.
 Once a model has started streaming it is never replaced.
 
 ```
-GET    /history       -> [{ id, created_at, source_language, target_language, outcome, served_model_id, requested_model_id,
-                            effort, mode, input_preview, output_preview }]  newest 200
-GET    /history/:id   -> { ...summary, input_text, pairs, unpaired_text, duration_ms, is_fallback,
-                            thinking_text, thinking_duration_ms }  | 404
-                          served_model_id answered; requested_model_id was chosen; is_fallback when they differ
-                          thinking_text '' and thinking_duration_ms null when the model did not think
-                          input_text is what was pasted; in mode translate_markdown pairs[].source_text is tidied
+GET    /history       -> [{ id, sourceLanguage, targetLanguage, sourceFormat, run, createdAt, updatedAt,
+                            sourcePreview, outputPreview }]  newest 200 (run.thinkingText is left out: null)
+GET    /history/:id   -> Translation: { id, sourceLanguage, targetLanguage, sourceFormat, sourceText, blocks,
+                            textOutsideBlocks, run, createdAt, updatedAt }  | 404
+                          run is a ModelRun: servedModelId answered, requestedModelId was chosen (a fallback when
+                          they differ); thinkingText null when the model did not think; the duration is
+                          finishedAt - startedAt. sourceText is what was pasted; with sourceFormat markdown,
+                          blocks[].sourceText is tidied
 DELETE /history/:id   -> 204 | 404
 ```
 
@@ -261,21 +268,21 @@ only; `NO_COLOR=1 npm start` turns it off.
 | `ready` | none | the server is listening |
 | `prompt` | none | a file in `src/features/translate/prompts/` changed; the spare process was replaced |
 | `spare` | WARN | the waiting `claude` died before a request used it; its stderr follows. Logged once until a spare works again |
-| `start` | none | a translation began, with the chosen model, effort and mode; `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
+| `start` | none | a translation began, with the chosen model, effort and source format; `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
 | `retry` | WARN | the API is busy and `claude` retries: attempt/max, error (HTTP status), delay |
 | `quota` | WARN, ERROR | subscription usage: window, percent, status, reset time. Logged when the status changes or usage passes another 5 % |
 | `fallback` | WARN | the chosen model sent no first token in time; the next one down takes over |
 | `continue` | WARN | the reply reached the output-token limit and `claude` asked the model to continue |
-| `done` | none, WARN | finished. WARN when the reply had no pairs or text outside them (`unpaired chars`) |
-| `error` | ERROR | `error_kind: reason` (see the API section). `last_event` is the last stream-json event `claude` sent; an `exited` error shows its stderr tail below |
+| `done` | none, WARN | finished. WARN when the reply had no blocks or text outside them (`chars outside blocks`) |
+| `error` | ERROR | `errorCode: reason` (see the API section). `last_event` is the last stream-json event `claude` sent; an `exited` error shows its stderr tail below |
 | `cancelled` | none | the page closed the request: `Esc`, **Translate** again, **Clear**, ⇄, or the tab closed |
 | `history` | ERROR | saving to history failed; the closing line then has no `history` id |
 | `stdout` | WARN | `claude` printed a line that is not JSON |
 | `http` | WARN, ERROR | 400 bad request, 403 wrong `Host` (once per Host), 500 with the first stack frames |
 
 The closing line lists, in this order and only as far as the request got: model, effort, total time, the
-failure, `first text` (time to the first translated text), `thought` (thinking time), pairs,
-`unpaired chars`, output `tokens` (thinking included), `history` id.
+failure, `first text` (time to the first translated text), `thought` (thinking time), blocks,
+`chars outside blocks`, output `tokens` (thinking included), `history` id.
 
 ## Changing the translation style
 
@@ -293,8 +300,8 @@ The prompt is a condensed version of the `translate` skill in
 engineer would say them in English, and write natural Vietnamese rather than English
 traced word by word. Changes to the skill do not reach this app; copy them over by hand.
 
-The modes, models and efforts the menus offer, their descriptions, fallbacks and defaults are the
-`MODE_OPTIONS` table in `src/features/translate/server/translate-prompt.ts` and the `MODEL_OPTIONS` and `EFFORT_OPTIONS` tables in
-`src/shared/server/claude-runner.ts`; restart after
-changing them. A new mode also needs its value in the `mode` CHECK of `src/features/translate/server/history-store.ts`.
+The source formats (the Mode menu), models and efforts the menus offer, their descriptions, fallbacks and defaults are the
+`SOURCE_FORMAT_OPTIONS` table in `src/features/translate/server/translate-prompt.ts` and the `MODEL_OPTIONS` and
+`EFFORT_OPTIONS` tables in `src/shared/server/claude-runner.ts`; restart after changing them. A new source format also
+needs its value in the `SourceFormat` type and the `source_format` CHECK of `src/features/translate/server/history-store.ts`.
 

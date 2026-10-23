@@ -22,7 +22,7 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
     init.headers = { 'Content-Type': 'application/json' };
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
-  return fetch(`${server.base_url}/api/practice${path}`, init);
+  return fetch(`${server.baseUrl}/api/practice${path}`, init);
 }
 
 async function get(path: string): Promise<any> {
@@ -32,10 +32,10 @@ async function get(path: string): Promise<any> {
 }
 
 // Imports the example file as a new project, and returns its key.
-let project_count = 0;
+let projectCount = 0;
 async function exampleProject(): Promise<string> {
-  project_count++;
-  const key = `example-${project_count}`;
+  projectCount++;
+  const key = `example-${projectCount}`;
   const response = await call('POST', '/import', { ...EXAMPLE, project: { ...EXAMPLE.project, key } });
   assert.equal(response.status, 200);
   return key;
@@ -52,13 +52,18 @@ async function answerAndRead(project: string, exercise: string, body: object): P
   return response.json();
 }
 
-async function waitForGrading(attempt_id: number): Promise<any> {
+// The latest grading of an attempt: the one the page shows (rule 7).
+function latestOf(attempt: any): any {
+  return attempt.gradings.at(-1);
+}
+
+async function waitForGrading(attemptId: number): Promise<any> {
   for (let tries = 0; tries < 100; tries++) {
-    const attempt = await get(`/attempts/${attempt_id}`);
-    if (attempt.status !== 'grading') return attempt;
+    const attempt = await get(`/attempts/${attemptId}`);
+    if (latestOf(attempt).run.status !== 'running') return attempt;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`attempt ${attempt_id} is still grading`);
+  throw new Error(`attempt ${attemptId} is still grading`);
 }
 
 // The last run the fake claude saw, and one of its arguments.
@@ -78,33 +83,33 @@ const CANNED_REPLY = '<pair type="paragraph">\n<source>\nHello\n</source>\n<tran
 // ---- The page ----
 
 test('the page, its modules and its stylesheet are served; the shared helpers too', async () => {
-  const page = await fetch(`${server.base_url}/practice`);
+  const page = await fetch(`${server.baseUrl}/practice`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<title>Practice · Claude Translate<\/title>/);
 
-  const css = await fetch(`${server.base_url}/features/practice/web/practice.css`);
+  const css = await fetch(`${server.baseUrl}/features/practice/web/practice.css`);
   assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
-  assert.equal((await fetch(`${server.base_url}/shared/web/ui.ts`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/ui.ts`)).status, 200);
   // A module in a folder under shared/web/ is served too: markdown.ts imports its parts from markdown/.
-  assert.equal((await fetch(`${server.base_url}/shared/web/markdown/inline.ts`)).status, 200);
-  assert.equal((await fetch(`${server.base_url}/shared/web/base.css`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/markdown/inline.ts`)).status, 200);
+  assert.equal((await fetch(`${server.baseUrl}/shared/web/base.css`)).status, 200);
 
-  const example = await fetch(`${server.base_url}/features/practice/static/example-project.json`);
+  const example = await fetch(`${server.baseUrl}/features/practice/static/example-project.json`);
   assert.equal(example.headers.get('content-type'), 'application/json; charset=utf-8');
-  assert.equal(JSON.parse(await example.text()).format, 3);
-  assert.equal((await fetch(`${server.base_url}/features/practice/static/import-format.md`)).status, 200);
+  assert.equal(JSON.parse(await example.text()).format, 4);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/static/import-format.md`)).status, 200);
 
   // Server code, prompts and the entry file stay on the server.
-  assert.equal((await fetch(`${server.base_url}/features/practice/web/../../../server.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/server/store.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/prompts/grade.md`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/shared/server/paths.ts`)).status, 404);
-  assert.equal((await fetch(`${server.base_url}/features/practice/web/format.test.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/web/../../../server.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/server/store.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/prompts/grade.md`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/shared/server/paths.ts`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/features/practice/web/format.test.ts`)).status, 404);
 });
 
 test('every module the page loads, however deep, is served as JavaScript without types', async () => {
   const seen = new Set<string>();
-  const pending = [`${server.base_url}/features/practice/web/practice.ts`];
+  const pending = [`${server.baseUrl}/features/practice/web/practice.ts`];
   while (pending.length > 0) {
     const url = pending.pop() as string;
     if (seen.has(url)) continue;
@@ -114,22 +119,23 @@ test('every module the page loads, however deep, is served as JavaScript without
     assert.equal(response.headers.get('content-type'), 'text/javascript; charset=utf-8', url);
     const source = await response.text();
     assert.doesNotMatch(source, /import type|^\s*(export )?(enum|namespace) /m, url);
-    for (const [, import_path] of source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g)) pending.push(new URL(import_path, url).href);
+    for (const [, importPath] of source.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/g)) pending.push(new URL(importPath, url).href);
   }
-  const expected_modules = [
+  const expectedModules = [
     'features/practice/web/exercise.ts',
     'features/practice/web/templates/index.ts',
     'features/practice/import-check.ts',
+    'features/practice/format-3.ts',
     'features/practice/text.ts',
     'shared/web/ui.ts',
   ];
-  for (const name of expected_modules) {
-    assert.ok(seen.has(`${server.base_url}/${name}`), name);
+  for (const name of expectedModules) {
+    assert.ok(seen.has(`${server.baseUrl}/${name}`), name);
   }
 });
 
 test('the translate page links to Practice and keeps its title', async () => {
-  const page = await (await fetch(`${server.base_url}/`)).text();
+  const page = await (await fetch(`${server.baseUrl}/`)).text();
   assert.match(page, /<title>Claude Translate<\/title>/);
   assert.match(page, /href="\/practice"/);
 });
@@ -138,49 +144,53 @@ test('the example file imports as a project with every type', async () => {
   const key = await exampleProject();
   const project = await get(`/projects/${key}`);
   assert.equal(project.name, 'IELTS Writing Task 2 – Example');
-  assert.equal(project.exercise_count, 10);
-  assert.deepEqual(project.type_counts, { rewrite: 4, write: 1, choice: 2, fill: 1, flashcard: 2 });
+  assert.equal(project.exerciseCount, 10);
+  assert.deepEqual(project.typeCounts, { rewrite: 2, translation: 1, correction: 1, essay: 1, choice: 2, gap_fill: 1, flashcard: 2 });
 
   const { items } = await get(`/projects/${key}/exercises`);
-  assert.equal(items[0].kind, 'Rewrite sentence');
+  assert.equal(items[0].label, 'Rewrite, sentence');
   assert.equal(items[0].topic, 'transport');
-  assert.equal(items[1].kind, 'Rewrite paragraph');
+  assert.equal(items[1].label, 'Rewrite, paragraph');
+  assert.equal(items[2].label, 'Translation, sentence');
 });
 
 // ---- Grading ----
 
-test('a flashcard is graded at once by your rating and never reaches claude', async () => {
+test('a flashcard has no grading: the rating is the result, and it never reaches claude', async () => {
   const key = await exampleProject();
-  const runs_before = server.claudeRuns().length;
-  const card = await answerAndRead(key, 'ex-09', { answer: { rating: 'almost' }, writing_ms: 900 });
-  assert.equal(card.status, 'graded');
-  assert.equal(card.summary, 'Almost');
-  assert.deepEqual(card.result, { rating: 'almost' });
-  assert.equal(card.writing_ms, 900);
-  assert.equal(server.claudeRuns().length, runs_before);
+  const runsBefore = server.claudeRuns().length;
+  const card = await answerAndRead(key, 'ex-09', { answer: { type: 'flashcard', rating: 'almost' }, timeSpentMs: 900 });
+  assert.deepEqual(card.gradings, []);
+  assert.deepEqual(card.answer, { type: 'flashcard', rating: 'almost' });
+  assert.equal(card.timeSpentMs, 900);
+  assert.equal(server.claudeRuns().length, runsBefore);
 
   const project = await get(`/projects/${key}`);
-  assert.equal(project.done_count, 1);
-  assert.notEqual(project.last_activity_at, null);
+  assert.equal(project.doneCount, 1);
+  assert.equal(project.lastActivityAt, card.createdAt);
 
   const stored = await get(`/attempts/${card.id}`);
-  assert.equal(stored.snapshot.type, 'flashcard');
-  assert.equal(stored.snapshot.topic, 'IELTS vocabulary');
+  assert.equal(stored.exerciseSnapshot.content.type, 'flashcard');
+  assert.equal(stored.exerciseSnapshot.topic, 'IELTS vocabulary');
+  const regrade = await call('POST', `/attempts/${card.id}/regrade`, {});
+  assert.equal(regrade.status, 409);
+  assert.equal((await regrade.json()).error.code, 'not_graded_by_ai');
 });
 
 test('answers that do not fit their exercise are refused and nothing is saved', async () => {
   const key = await exampleProject();
-  const bad_answers: [string, unknown][] = [
-    ['ex-06', { chosen: [7] }],
-    ['ex-06', { chosen: [0, 1] }],
-    ['ex-08', { gaps: ['one'] }],
-    ['ex-09', { rating: 'great' }],
-    ['ex-01', { text: '  ' }],
+  const badAnswers: [string, unknown][] = [
+    ['ex-06', { type: 'choice', chosenOptionIndexes: [7] }],
+    ['ex-06', { type: 'choice', chosenOptionIndexes: [0, 1] }],
+    ['ex-08', { type: 'gap_fill', gapAnswers: ['one'] }],
+    ['ex-09', { type: 'flashcard', rating: 'great' }],
+    ['ex-01', { type: 'rewrite', text: '  ' }],
+    ['ex-01', { type: 'translation', text: 'Right text, wrong type.' }],
     ['ex-01', 'text'],
   ];
-  for (const [exercise, bad_answer] of bad_answers) {
-    const response = await answer(key, exercise, { answer: bad_answer });
-    assert.equal(response.status, 400, `${exercise} ${JSON.stringify(bad_answer)}`);
+  for (const [exercise, badAnswer] of badAnswers) {
+    const response = await answer(key, exercise, { answer: badAnswer });
+    assert.equal(response.status, 400, `${exercise} ${JSON.stringify(badAnswer)}`);
   }
   const missing = await answer(key, 'ex-01', {});
   assert.equal(missing.status, 400);
@@ -191,25 +201,25 @@ test('answers that do not fit their exercise are refused and nothing is saved', 
 
 test('a rewrite is saved, graded by claude with the common prompt, and the text stored as it came', async () => {
   const key = await exampleProject();
-  const started = await answerAndRead(key, 'ex-01', { answer: { text: `New lanes for reduce traffic. FAKE:reply=${FEEDBACK}` } });
-  assert.equal(started.status, 'grading');
-  assert.equal(started.result, null);
-  assert.equal(started.summary, null);
+  const started = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: `New lanes for reduce traffic. FAKE:reply=${FEEDBACK}` } });
+  assert.equal(started.gradings.length, 1);
+  assert.equal(latestOf(started).run.status, 'running');
+  assert.equal(latestOf(started).feedbackMarkdown, null);
 
-  const graded = await waitForGrading(started.id);
-  assert.equal(graded.status, 'graded');
-  assert.equal(graded.summary, 'Graded');
-  assert.equal(graded.error, null);
-  assert.equal(graded.result.text, FEEDBACK);
-  assert.equal(graded.result.model, 'claude-sonnet-5-5');
-  assert.equal(graded.result.effort, 'low');
-  assert.equal(graded.result.thinking_text, '');
-  assert.equal(graded.result.thinking_ms, null);
-  assert.equal(typeof graded.result.ms, 'number');
+  const graded = latestOf(await waitForGrading(started.id));
+  assert.equal(graded.run.status, 'succeeded');
+  assert.equal(graded.run.errorCode, null);
+  assert.equal(graded.feedbackMarkdown, FEEDBACK);
+  assert.equal(graded.run.requestedModelId, 'claude-sonnet-5-5');
+  assert.equal(graded.run.servedModelId, 'claude-sonnet-5-5');
+  assert.equal(graded.run.effort, 'low');
+  assert.equal(graded.run.thinkingText, null);
+  assert.equal(graded.run.thinkingMs, null);
+  assert.ok(Date.parse(graded.run.finishedAt) >= Date.parse(graded.run.startedAt));
 
   assert.match(lastRun().content, /"type": "rewrite"/);
   assert.match(lastRun().content, /Many cities have built new cycle lanes/);
-  assert.match(lastRun().content, /"reference": "New cycle lanes have been built/);
+  assert.match(lastRun().content, /"modelAnswer": "New cycle lanes have been built/);
   assert.match(lastRun().content, /<answer word_count="\d+">\nNew lanes for reduce traffic\./);
   assert.equal(argOf('--model'), 'claude-sonnet-5-5');
   assert.equal(argOf('--effort'), 'low');
@@ -219,88 +229,96 @@ test('a rewrite is saved, graded by claude with the common prompt, and the text 
   }
 
   const { items } = await get(`/projects/${key}/exercises`);
-  assert.equal(items[0].last_attempt.summary, 'Graded');
-  assert.equal((await get(`/projects/${key}`)).done_count, 1);
+  assert.equal(items[0].lastAttempt.historyLine, 'Graded');
+  assert.equal(items[0].lastAttempt.gradingStatus, 'succeeded');
+  assert.equal((await get(`/projects/${key}`)).doneCount, 1);
 });
 
-test('a writing attempt is graded with the whole exercise, and with the model and effort the person picked', async () => {
+test('an essay is graded with the whole exercise, and with the model and effort the person picked', async () => {
   const key = await exampleProject();
-  const body = { answer: { text: 'Public transport matters. FAKE:reply=Band 6.0 overall.' }, writing_ms: 1, model_id: 'claude-haiku-5-5', effort: 'high' };
+  const answerText = 'Public transport matters. FAKE:reply=Band 6.0 overall.';
+  const body = { answer: { type: 'essay', text: answerText }, timeSpentMs: 1, modelId: 'claude-haiku-5-5', effort: 'high' };
   const started = await answerAndRead(key, 'ex-05', body);
-  const graded = await waitForGrading(started.id);
-  assert.equal(graded.result.text, 'Band 6.0 overall.');
-  assert.equal(graded.result.model, 'claude-haiku-5-5');
-  assert.equal(graded.result.effort, 'high');
+  const graded = latestOf(await waitForGrading(started.id));
+  assert.equal(graded.feedbackMarkdown, 'Band 6.0 overall.');
+  assert.equal(graded.run.requestedModelId, 'claude-haiku-5-5');
+  assert.equal(graded.run.effort, 'high');
   assert.equal(argOf('--model'), 'claude-haiku-5-5');
   assert.equal(argOf('--effort'), 'high');
-  assert.match(lastRun().content, /"type": "write"/);
-  assert.match(lastRun().content, /"min_words": 250/);
+  assert.match(lastRun().content, /"type": "essay"/);
+  assert.match(lastRun().content, /"minWords": 250/);
   assert.match(lastRun().content, /Some people think that governments/);
 });
 
-test('error correction sends the planted mistakes to the grader', async () => {
+test('a translation and a correction send their own fields to the grader', async () => {
   const key = await exampleProject();
-  const started = await answerAndRead(key, 'ex-04', { answer: { text: 'Many students prefer online classes because it save time. FAKE:reply=Two of three fixed.' } });
-  assert.equal((await waitForGrading(started.id)).result.text, 'Two of three fixed.');
-  assert.match(lastRun().content, /"wrong": "it saves"/);
-  assert.match(lastRun().content, /"right": "they save"/);
+  const translated = await answerAndRead(key, 'ex-03', { answer: { type: 'translation', text: 'More young people live in big cities. FAKE:reply=Good.' } });
+  await waitForGrading(translated.id);
+  assert.match(lastRun().content, /"sourceLanguage": "vi"/);
+
+  const answerText = 'Many students prefer online classes because it save time. FAKE:reply=Two of three fixed.';
+  const started = await answerAndRead(key, 'ex-04', { answer: { type: 'correction', text: answerText } });
+  assert.equal(latestOf(await waitForGrading(started.id)).feedbackMarkdown, 'Two of three fixed.');
+  assert.match(lastRun().content, /"wrongText": "it saves"/);
+  assert.match(lastRun().content, /"correctText": "they save"/);
 });
 
-test('a choice is graded by claude with the correct options and the reasons, and the picked options as letters', async () => {
+test('a choice is graded by claude with the correct options and the explanations, and the picked options as letters', async () => {
   const key = await exampleProject();
-  const started = await answerAndRead(key, 'ex-06', { answer: { chosen: [0] } });
-  const graded = await waitForGrading(started.id);
-  assert.equal(graded.status, 'graded');
-  assert.equal(graded.result.text, CANNED_REPLY.trim());
+  const started = await answerAndRead(key, 'ex-06', { answer: { type: 'choice', chosenOptionIndexes: [0] } });
+  const graded = latestOf(await waitForGrading(started.id));
+  assert.equal(graded.run.status, 'succeeded');
+  assert.equal(graded.feedbackMarkdown, CANNED_REPLY.trim());
   assert.match(lastRun().content, /"type": "choice"/);
-  assert.match(lastRun().content, /"correct": true/);
-  assert.match(lastRun().content, /"why": "Second conditional: if \+ past simple, would \+ verb\."/);
+  assert.match(lastRun().content, /"isCorrect": true/);
+  assert.match(lastRun().content, /"explanationMarkdown": "Second conditional: if \+ past simple, would \+ verb\."/);
   assert.match(lastRun().content, /<answer>\nA\. use\n<\/answer>/);
 });
 
-test('a fill is graded by claude with the accepted answers and the typed gaps', async () => {
+test('a gap fill is graded by claude with the accepted answers and the typed gaps', async () => {
   const key = await exampleProject();
-  const started = await answerAndRead(key, 'ex-08', { answer: { gaps: ['have rised', ''] } });
-  assert.equal((await waitForGrading(started.id)).status, 'graded');
-  assert.match(lastRun().content, /"type": "fill"/);
+  const started = await answerAndRead(key, 'ex-08', { answer: { type: 'gap_fill', gapAnswers: ['have rised', ''] } });
+  assert.equal(latestOf(await waitForGrading(started.id)).run.status, 'succeeded');
+  assert.match(lastRun().content, /"type": "gap_fill"/);
   assert.match(lastRun().content, /"have been rising"/);
   assert.match(lastRun().content, /<answer>\nGap 1: have rised\nGap 2: \(blank\)\n<\/answer>/);
 });
 
 test('the grading options are the ones Claude Translate offers', async () => {
   const options = await get('/grading-options');
-  assert.deepEqual(options.models.map((model: any) => model.model_id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.deepEqual(options.models.map((model: any) => model.modelId), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
   assert.deepEqual(options.efforts.map((effort: any) => effort.effort), ['low', 'medium', 'high']);
 
-  const translate_options = await (await fetch(`${server.base_url}/translation-options`)).json() as any;
-  assert.equal(options.default_model_id, translate_options.default_model_id);
-  assert.equal(options.default_effort, translate_options.default_effort);
-  assert.deepEqual(options.models, translate_options.models);
+  const translateOptions = await (await fetch(`${server.baseUrl}/translation-options`)).json() as any;
+  assert.equal(options.defaultModelId, translateOptions.defaultModelId);
+  assert.equal(options.defaultEffort, translateOptions.defaultEffort);
+  assert.deepEqual(options.models, translateOptions.models);
 });
 
 test('a model or effort that is not offered is refused, for an answer and for Grade again', async () => {
   const key = await exampleProject();
-  const runs_before = server.claudeRuns().length;
-  for (const settings of [{ model_id: 'gpt-5' }, { effort: 'extreme' }, { model_id: 7 }, { effort: null }]) {
-    const refused = await answer(key, 'ex-01', { answer: { text: 'Text.' }, ...settings });
+  const runsBefore = server.claudeRuns().length;
+  const textAnswer = { type: 'rewrite', text: 'Text.' };
+  for (const settings of [{ modelId: 'gpt-5' }, { effort: 'extreme' }, { modelId: 7 }, { effort: null }, { effort: 'max' }]) {
+    const refused = await answer(key, 'ex-01', { answer: textAnswer, ...settings });
     assert.equal(refused.status, 400, JSON.stringify(settings));
     assert.match(await refused.text(), /must be one of/);
   }
   assert.equal((await get(`/attempts?project=${key}`)).items.length, 0);
 
-  const failed = await answerAndRead(key, 'ex-01', { answer: { text: 'Text. FAKE:error' } });
+  const failed = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:error' } });
   await waitForGrading(failed.id);
   const regrade = await call('POST', `/attempts/${failed.id}/regrade`, { effort: 'extreme' });
   assert.equal(regrade.status, 400);
-  assert.equal((await get(`/attempts/${failed.id}`)).status, 'failed');
-  assert.equal(server.claudeRuns().length, runs_before + 1);
+  assert.equal((await get(`/attempts/${failed.id}`)).gradings.length, 1);
+  assert.equal(server.claudeRuns().length, runsBefore + 1);
 });
 
 // ---- The grading stream ----
 
 // The events of a grading's stream as [name, data], read until it ends.
-async function watch(attempt_id: number): Promise<[string, any][]> {
-  const response = await fetch(`${server.base_url}/api/practice/attempts/${attempt_id}/stream`);
+async function watch(attemptId: number): Promise<[string, any][]> {
+  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${attemptId}/stream`);
   assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
   const blocks = (await response.text()).split('\n\n').filter((block) => block.trim() !== '');
   return blocks.map((block) => {
@@ -317,7 +335,7 @@ function streamedText(events: [string, any][]): string {
 test('a grading streams its thinking and words, a page that joins midway gets what it missed, and the stored result matches', async () => {
   const key = await exampleProject();
   const reply = '**Close.** You wrote the main idea but one verb is wrong. ## Fix first 1. Use the passive.';
-  const started = await answerAndRead(key, 'ex-01', { answer: { text: `Lanes were built. FAKE:stream=${reply}` } });
+  const started = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: `Lanes were built. FAKE:stream=${reply}` } });
 
   // Joined before the first words: the whole thing arrives live, after an (empty or short) snapshot.
   const first = watch(started.id);
@@ -325,107 +343,119 @@ test('a grading streams its thinking and words, a page that joins midway gets wh
   const midway = await watch(started.id).catch(() => [] as [string, any][]);
   const events = await first;
 
-  const [snapshot_name, snapshot] = events[0];
-  assert.equal(snapshot_name, 'snapshot');
-  assert.equal(snapshot.model_id, 'claude-sonnet-5-5');
+  const [snapshotName, snapshot] = events[0];
+  assert.equal(snapshotName, 'snapshot');
+  assert.equal(snapshot.modelId, 'claude-sonnet-5-5');
+  assert.equal(typeof snapshot.elapsedMs, 'number');
   assert.equal(snapshot.effort, 'low');
   assert.equal(events.at(-1)![0], 'done');
   assert.equal(snapshot.text + streamedText(events), reply);
 
   // The second watcher was a whole page reload: its snapshot already held the words so far, and it ended when the grading did.
-  const [midway_name, midway_snapshot] = midway[0];
-  assert.equal(midway_name, 'snapshot');
-  assert.ok(midway_snapshot.text.length > 0, 'the snapshot holds some of the words');
-  assert.ok(midway_snapshot.text.length < reply.length, 'the snapshot does not hold all of the words');
-  assert.equal(midway_snapshot.text + streamedText(midway), reply);
+  const [midwayName, midwaySnapshot] = midway[0];
+  assert.equal(midwayName, 'snapshot');
+  assert.ok(midwaySnapshot.text.length > 0, 'the snapshot holds some of the words');
+  assert.ok(midwaySnapshot.text.length < reply.length, 'the snapshot does not hold all of the words');
+  assert.equal(midwaySnapshot.text + streamedText(midway), reply);
   assert.equal(midway.at(-1)![0], 'done');
 
   const thinking = events.find(([name]) => name === 'thinking_delta')!;
   assert.deepEqual(thinking[1], { text: 'Thinking it over.' });
 
-  const graded = await get(`/attempts/${started.id}`);
-  assert.equal(graded.status, 'graded');
-  assert.equal(graded.result.text, reply);
-  assert.equal(graded.result.thinking_text, 'Thinking it over.');
-  assert.equal(typeof graded.result.thinking_ms, 'number');
+  const thinkingDone = events.find(([name]) => name === 'thinking_done')!;
+  assert.equal(typeof thinkingDone[1].durationMs, 'number');
+
+  const graded = latestOf(await get(`/attempts/${started.id}`));
+  assert.equal(graded.run.status, 'succeeded');
+  assert.equal(graded.feedbackMarkdown, reply);
+  assert.equal(graded.run.thinkingText, 'Thinking it over.');
+  assert.equal(typeof graded.run.thinkingMs, 'number');
 
   // Once it is over there is nothing to join.
   assert.deepEqual(await watch(started.id), [['finished', {}]]);
-  assert.equal((await fetch(`${server.base_url}/api/practice/attempts/999999/stream`)).status, 404);
+  assert.equal((await fetch(`${server.baseUrl}/api/practice/attempts/999999/stream`)).status, 404);
 });
 
 test('a grading goes on and is saved when nobody is watching, and a failure reaches the watcher and the attempt', async () => {
   const key = await exampleProject();
-  const started = await answerAndRead(key, 'ex-01', { answer: { text: 'Text. FAKE:stream=One two three four.' } });
-  const response = await fetch(`${server.base_url}/api/practice/attempts/${started.id}/stream`);
+  const started = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:stream=One two three four.' } });
+  const response = await fetch(`${server.baseUrl}/api/practice/attempts/${started.id}/stream`);
   await response.body!.cancel();
-  assert.equal((await waitForGrading(started.id)).result.text, 'One two three four.');
+  assert.equal(latestOf(await waitForGrading(started.id)).feedbackMarkdown, 'One two three four.');
 
-  const crash = await answerAndRead(key, 'ex-01', { answer: { text: 'Text. FAKE:error' } });
+  const crash = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:error' } });
   const events = await watch(crash.id);
-  const [last_name, last_data] = events.at(-1)!;
-  assert.ok(['error', 'finished'].includes(last_name));
-  const failed = await waitForGrading(crash.id);
-  assert.equal(failed.status, 'failed');
-  if (last_name === 'error') assert.equal(last_data.message, failed.error);
+  const [lastName, lastData] = events.at(-1)!;
+  assert.ok(['error', 'finished'].includes(lastName));
+  const failed = latestOf(await waitForGrading(crash.id));
+  assert.equal(failed.run.status, 'failed');
+  if (lastName === 'error') assert.equal(lastData.message, failed.run.errorMessage);
 });
 
-test('a failed run fails the attempt with its error, and Grade again redoes it', async () => {
+test('a failed run keeps its error code and message; Grade again adds a new grading, at any time but one at a time', async () => {
   const key = await exampleProject();
-  const crash = await answerAndRead(key, 'ex-01', { answer: { text: 'Text. FAKE:error' } });
-  const failed = await waitForGrading(crash.id);
-  assert.equal(failed.status, 'failed');
-  assert.equal(failed.result, null);
-  assert.equal(failed.summary, null);
-  assert.match(failed.error, /\S/);
+  const crash = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:error' } });
+  const failed = latestOf(await waitForGrading(crash.id));
+  assert.equal(failed.run.status, 'failed');
+  assert.equal(failed.run.errorCode, 'claude_error');
+  assert.equal(failed.run.errorMessage, 'Fake API error');
+  assert.equal(failed.feedbackMarkdown, null);
 
   const regrade = await call('POST', `/attempts/${crash.id}/regrade`, {});
   assert.equal(regrade.status, 202);
-  assert.equal((await waitForGrading(crash.id)).status, 'failed');
+  const after = await waitForGrading(crash.id);
+  assert.deepEqual(after.gradings.map((grading: any) => grading.run.status), ['failed', 'failed']);
   assert.equal((await call('POST', '/attempts/999999/regrade', {})).status, 404);
 
-  const ok = await answerAndRead(key, 'ex-01', { answer: { text: 'Text. FAKE:reply=Fine.' } });
+  // A succeeded attempt may be graded again too (rule 7), with another model; the first result is kept.
+  const ok = await answerAndRead(key, 'ex-01', { answer: { type: 'rewrite', text: 'Text. FAKE:stream=Fine and good.' } });
+  const busy = await call('POST', `/attempts/${ok.id}/regrade`, {});
+  assert.equal(busy.status, 409);
+  assert.equal((await busy.json()).error.code, 'grading_in_progress');
   await waitForGrading(ok.id);
-  const not_failed = await call('POST', `/attempts/${ok.id}/regrade`, {});
-  assert.equal(not_failed.status, 409);
-  assert.equal((await not_failed.json()).error.code, 'not_failed');
+  const again = await call('POST', `/attempts/${ok.id}/regrade`, { modelId: 'claude-haiku-5-5' });
+  assert.equal(again.status, 202);
+  const both = (await waitForGrading(ok.id)).gradings;
+  assert.deepEqual(both.map((grading: any) => grading.run.requestedModelId), ['claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.equal(both[0].feedbackMarkdown, 'Fine and good.');
 });
 
 // ---- Robustness ----
 
 test('one malformed row never breaks the lists, and an attempt keeps its exercise after the exercise changes', async () => {
   const key = await exampleProject();
-  const card = await answerAndRead(key, 'ex-10', { answer: { rating: 'known' } });
+  const card = await answerAndRead(key, 'ex-10', { answer: { type: 'flashcard', rating: 'knew' } });
 
-  const database = new DatabaseSync(join(server.data_directory, 'practice-v2.sqlite'));
-  const project_id = (await get(`/projects/${key}`)).id;
-  database.prepare("UPDATE exercises SET content_json = 'null' WHERE project_id = ? AND key = 'ex-01'").run(project_id);
-  database.prepare("UPDATE exercises SET content_json = '{\"front\":\"changed\",\"back\":\"b\"}' WHERE project_id = ? AND key = 'ex-10'").run(project_id);
+  const database = new DatabaseSync(join(server.dataDirectory, 'practice.sqlite'));
+  const projectId = (await get(`/projects/${key}`)).id;
+  database.prepare("UPDATE exercises SET content_json = 'null' WHERE project_id = ? AND key = 'ex-01'").run(projectId);
+  const changed = JSON.stringify({ type: 'flashcard', front: 'changed', back: 'b', hint: null, example: null, explanationMarkdown: null });
+  database.prepare("UPDATE exercises SET content_json = ? WHERE project_id = ? AND key = 'ex-10'").run(changed, projectId);
   database.close();
 
   const { items } = await get(`/projects/${key}/exercises`);
   assert.equal(items[0].preview, '');
   assert.equal(items[9].preview, 'changed');
-  assert.equal((await get(`/attempts/${card.id}`)).snapshot.content.front, 'resilient');
+  assert.equal((await get(`/attempts/${card.id}`)).exerciseSnapshot.content.front, 'resilient');
 });
 
 test('every API error has the one shape: bad JSON, too large, invalid, not found, wrong method, unknown path', async () => {
   const key = await exampleProject();
-  const attempts_path = `/projects/${key}/exercises/ex-01/attempts`;
+  const attemptsPath = `/projects/${key}/exercises/ex-01/attempts`;
 
-  const bad_json = await call('POST', attempts_path, '{\n  "answer": oops\n}');
-  assert.equal(bad_json.status, 400);
-  assert.equal(bad_json.headers.get('content-type'), 'application/json; charset=utf-8');
-  const bad_json_error = (await bad_json.json()).error;
-  assert.equal(bad_json_error.code, 'bad_json');
-  assert.match(bad_json_error.message, /line 2, column 13/);
+  const badJson = await call('POST', attemptsPath, '{\n  "answer": oops\n}');
+  assert.equal(badJson.status, 400);
+  assert.equal(badJson.headers.get('content-type'), 'application/json; charset=utf-8');
+  const badJsonError = (await badJson.json()).error;
+  assert.equal(badJsonError.code, 'bad_json');
+  assert.match(badJsonError.message, /line 2, column 13/);
 
-  const too_large = await call('POST', attempts_path, { answer: { text: 'x'.repeat(300_000) } });
-  assert.equal(too_large.status, 413);
-  assert.equal((await too_large.json()).error.code, 'too_large');
+  const tooLarge = await call('POST', attemptsPath, { answer: { text: 'x'.repeat(300_000) } });
+  assert.equal(tooLarge.status, 413);
+  assert.equal((await tooLarge.json()).error.code, 'too_large');
 
-  const not_object = await call('POST', attempts_path, '[]');
-  assert.deepEqual(await not_object.json(), {
+  const notObject = await call('POST', attemptsPath, '[]');
+  assert.deepEqual(await notObject.json(), {
     error: { code: 'invalid', message: 'The request has 1 problem.', problems: [{ path: '', code: 'wrong_type', message: 'The body must be a JSON object.' }] },
   });
 
@@ -433,17 +463,17 @@ test('every API error has the one shape: bad JSON, too large, invalid, not found
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: { code: 'not_found', message: 'No such attempt.' } });
 
-  const wrong_method = await call('PUT', '/grading-options');
-  assert.equal(wrong_method.status, 405);
-  assert.equal(wrong_method.headers.get('allow'), 'GET');
+  const wrongMethod = await call('PUT', '/grading-options');
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get('allow'), 'GET');
   assert.equal((await call('GET', '/attempts/1/regrade')).status, 405);
 
-  const unknown_path = await call('GET', '/nothing/here');
-  assert.equal(unknown_path.status, 404);
-  assert.deepEqual(await unknown_path.json(), { error: { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' } });
+  const unknownPath = await call('GET', '/nothing/here');
+  assert.equal(unknownPath.status, 404);
+  assert.deepEqual(await unknownPath.json(), { error: { code: 'not_found', message: 'Nothing at /api/practice/nothing/here.' } });
 
   // Outside the API a 404 stays bare.
-  assert.equal((await fetch(`${server.base_url}/nothing`)).headers.get('content-type'), null);
+  assert.equal((await fetch(`${server.baseUrl}/nothing`)).headers.get('content-type'), null);
 });
 
 test('the first API is gone', async () => {

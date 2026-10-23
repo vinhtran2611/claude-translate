@@ -1,7 +1,7 @@
 // Tests for source-check.ts (npm test, or node --test src/features/translate/web/source-check.test.ts), no packages.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSourceDivergence, type CheckedPair } from './source-check.ts';
+import { findSourceDivergence, type CheckedBlock } from './source-check.ts';
 
 const PDF_INPUT = `Long Term Goal
 Our top level goal is to work towards the creation of safe, beneficial AGI. The most ambitious and
@@ -14,7 +14,7 @@ Data ingest:
 - raw/ directory
 - wiki`;
 
-const paragraphs = (...source_texts: string[]): CheckedPair[] => source_texts.map((source_text) => ({ pair_type: 'paragraph', source_text }));
+const paragraphs = (...sourceTexts: string[]): CheckedBlock[] => sourceTexts.map((sourceText) => ({ blockType: 'paragraph', sourceText }));
 
 const PDF_REFORMATTED = paragraphs(
   'Long Term Goal',
@@ -29,20 +29,20 @@ test('reformatting that only joins lines, rejoins hyphenated words and drops bul
 });
 
 test('a dropped word is reported where it went missing', () => {
-  const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, source_text: pair.source_text.replace('most ambitious', 'ambitious') }));
+  const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, sourceText: pair.sourceText.replace('most ambitious', 'ambitious') }));
   assert.deepEqual(findSourceDivergence(PDF_INPUT, sources), {
-    input_excerpt: 'most ambitious and successful version of',
-    source_excerpt: 'ambitious and successful version of this',
+    inputExcerpt: 'most ambitious and successful version of',
+    sourceExcerpt: 'ambitious and successful version of this',
   });
 });
 
 test('a fixed typo counts as a change', () => {
-  const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, source_text: pair.source_text.replace('Al assistant', 'AI assistant') }));
-  assert.equal(findSourceDivergence(PDF_INPUT, sources)?.source_excerpt, 'AI assistant, fine tuned via RL,');
+  const sources = PDF_REFORMATTED.map((pair) => ({ ...pair, sourceText: pair.sourceText.replace('Al assistant', 'AI assistant') }));
+  assert.equal(findSourceDivergence(PDF_INPUT, sources)?.sourceExcerpt, 'AI assistant, fine tuned via RL,');
 });
 
 test('a source that stops early reports an empty source excerpt', () => {
-  assert.deepEqual(findSourceDivergence('one two three', paragraphs('one two')), { input_excerpt: 'three', source_excerpt: '' });
+  assert.deepEqual(findSourceDivergence('one two three', paragraphs('one two')), { inputExcerpt: 'three', sourceExcerpt: '' });
 });
 
 test('markers, heading marks, fences and checkboxes the source leaves out are not words', () => {
@@ -57,23 +57,23 @@ test('a verbatim echo that keeps a line-end hyphen still matches', () => {
 const PAGE_BREAK_INPUT = 'a colossal waste of\n2/3/22, 9:31 PM The Bitter Lesson\nwww.example.net/lesson.html 2/2\nresearcher\'s time.\nNext paragraph.';
 
 test('page furniture moved out of the sentence it interrupted still matches', () => {
-  const pairs: CheckedPair[] = [
-    { pair_type: 'paragraph', source_text: "a colossal waste of researcher's time." },
-    { pair_type: 'other', source_text: '2/3/22, 9:31 PM The Bitter Lesson' },
-    { pair_type: 'other', source_text: 'www.example.net/lesson.html 2/2' },
-    { pair_type: 'paragraph', source_text: 'Next paragraph.' },
+  const pairs: CheckedBlock[] = [
+    { blockType: 'paragraph', sourceText: "a colossal waste of researcher's time." },
+    { blockType: 'other', sourceText: '2/3/22, 9:31 PM The Bitter Lesson' },
+    { blockType: 'other', sourceText: 'www.example.net/lesson.html 2/2' },
+    { blockType: 'paragraph', sourceText: 'Next paragraph.' },
   ];
   assert.equal(findSourceDivergence(PAGE_BREAK_INPUT, pairs), null);
 });
 
 test('page furniture that was dropped or changed is still reported', () => {
-  const dropped: CheckedPair[] = [{ pair_type: 'paragraph', source_text: "a colossal waste of researcher's time." }, { pair_type: 'paragraph', source_text: 'Next paragraph.' }];
-  assert.equal(findSourceDivergence(PAGE_BREAK_INPUT, dropped)?.input_excerpt, "2/3/22, 9:31 PM The Bitter Lesson");
-  const changed: CheckedPair[] = [
-    { pair_type: 'paragraph', source_text: "a colossal waste of researcher's time." },
-    { pair_type: 'other', source_text: '2/3/22, 9:31 PM The Bitter Lesson' },
-    { pair_type: 'other', source_text: 'www.example.net/lesson.html page 2' },
-    { pair_type: 'paragraph', source_text: 'Next paragraph.' },
+  const dropped: CheckedBlock[] = [{ blockType: 'paragraph', sourceText: "a colossal waste of researcher's time." }, { blockType: 'paragraph', sourceText: 'Next paragraph.' }];
+  assert.equal(findSourceDivergence(PAGE_BREAK_INPUT, dropped)?.inputExcerpt, "2/3/22, 9:31 PM The Bitter Lesson");
+  const changed: CheckedBlock[] = [
+    { blockType: 'paragraph', sourceText: "a colossal waste of researcher's time." },
+    { blockType: 'other', sourceText: '2/3/22, 9:31 PM The Bitter Lesson' },
+    { blockType: 'other', sourceText: 'www.example.net/lesson.html page 2' },
+    { blockType: 'paragraph', sourceText: 'Next paragraph.' },
   ];
   assert.notEqual(findSourceDivergence(PAGE_BREAK_INPUT, changed), null);
 });

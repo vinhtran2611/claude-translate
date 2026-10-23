@@ -9,7 +9,7 @@ test('the two dark colour blocks of base.css say the same', () => {
     const start = css.indexOf(opening) + opening.length;
     return css.slice(start, css.indexOf('}', start)).trim().replace(/\s+/g, ' ');
   };
-  const by_system = blockOf(':root:not([data-theme="light"]) {');
-  assert.ok(by_system.length > 200);
-  assert.equal(blockOf(':root[data-theme="dark"] {'), by_system);
+  const bySystem = blockOf(':root:not([data-theme="light"]) {');
+  assert.ok(bySystem.length > 200);
+  assert.equal(blockOf(':root[data-theme="dark"] {'), bySystem);
 });

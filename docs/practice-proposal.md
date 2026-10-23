@@ -49,9 +49,11 @@ A flashcard is rated by you (Didn't know, Almost, Knew it); the back is shown in
 
 ## 4. Data
 
-`data/practice-v2.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, schema version 2. See
-[import-format.md](../src/features/practice/static/import-format.md#data-datapractice-v2sqlite). Daily backups: `data/backups/practice-v2-*.sqlite`.
-The old `data/practice.sqlite` is not read; re-import your files.
+`data/practice.sqlite` (`PRACTICE_DATABASE_PATH` overrides it), strict tables, schema version 3: the model of
+[data-model-proposal.md](data-model-proposal.md). See [import-format.md](../src/features/practice/static/import-format.md).
+Daily backups: `data/backups/practice-*.sqlite`. On the first start `data/practice-v2.sqlite` is renamed to
+`data/practice.sqlite` after a backup; a much older `data/practice.sqlite` found there (never read since practice-v2) is moved
+to `data/backups/practice-set-aside.sqlite` first.
 
 ## 5. HTTP API (`/api/practice`)
 

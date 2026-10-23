@@ -10,8 +10,8 @@ import { APP_DIRECTORY } from '../../src/shared/server/paths.ts';
 const FAKE_CLAUDE_DIRECTORY = join(APP_DIRECTORY, 'test', 'helpers', 'fake-claude');
 
 export interface TestServer {
-  base_url: string;
-  data_directory: string;
+  baseUrl: string;
+  dataDirectory: string;
   // The runs the fake claude saw, oldest first.
   claudeRuns(): { args: string[]; content: string }[];
   stop(): Promise<void>;
@@ -30,16 +30,16 @@ async function freePort(): Promise<number> {
 
 export async function startTestServer(): Promise<TestServer> {
   const port = await freePort();
-  const data_directory = mkdtempSync(join(tmpdir(), 'claude-translate-test-'));
-  const claude_log_path = join(data_directory, 'fake-claude.log');
-  const server_process: ChildProcess = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(APP_DIRECTORY, 'src', 'server.ts')], {
+  const dataDirectory = mkdtempSync(join(tmpdir(), 'claude-translate-test-'));
+  const claudeLogPath = join(dataDirectory, 'fake-claude.log');
+  const serverProcess: ChildProcess = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(APP_DIRECTORY, 'src', 'server.ts')], {
     env: {
       ...process.env,
       PORT: String(port),
       PATH: `${FAKE_CLAUDE_DIRECTORY}:${process.env.PATH}`,
-      HISTORY_DATABASE_PATH: join(data_directory, 'history.sqlite'),
-      PRACTICE_DATABASE_PATH: join(data_directory, 'practice-v2.sqlite'),
-      FAKE_CLAUDE_LOG: claude_log_path,
+      TRANSLATE_DATABASE_PATH: join(dataDirectory, 'translate.sqlite'),
+      PRACTICE_DATABASE_PATH: join(dataDirectory, 'practice.sqlite'),
+      FAKE_CLAUDE_LOG: claudeLogPath,
       NO_COLOR: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -47,37 +47,37 @@ export async function startTestServer(): Promise<TestServer> {
   let output = '';
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`server did not start:\n${output}`)), 10_000);
-    server_process.stdout?.on('data', (chunk) => {
+    serverProcess.stdout?.on('data', (chunk) => {
       output += chunk;
       if (output.includes(' ready ')) { clearTimeout(timer); resolve(); }
     });
-    server_process.stderr?.on('data', (chunk) => { output += chunk; });
-    server_process.on('exit', (code) => { clearTimeout(timer); reject(new Error(`server exited with ${code}:\n${output}`)); });
+    serverProcess.stderr?.on('data', (chunk) => { output += chunk; });
+    serverProcess.on('exit', (code) => { clearTimeout(timer); reject(new Error(`server exited with ${code}:\n${output}`)); });
   });
   return {
-    base_url: `http://localhost:${port}`,
-    data_directory,
-    claudeRuns: () => existsSync(claude_log_path)
-      ? readFileSync(claude_log_path, 'utf8').split('\n').filter((line) => line !== '').map((line) => JSON.parse(line))
+    baseUrl: `http://localhost:${port}`,
+    dataDirectory,
+    claudeRuns: () => existsSync(claudeLogPath)
+      ? readFileSync(claudeLogPath, 'utf8').split('\n').filter((line) => line !== '').map((line) => JSON.parse(line))
       : [],
     stop: () => new Promise((resolve) => {
-      server_process.removeAllListeners('exit');
-      server_process.on('exit', () => resolve());
-      server_process.kill('SIGTERM');
+      serverProcess.removeAllListeners('exit');
+      serverProcess.on('exit', () => resolve());
+      serverProcess.kill('SIGTERM');
     }),
   };
 }
 
 // Posts a translation and returns its Server-Sent Events as [name, data] in order.
-export async function translate(base_url: string, text: string, model_id = 'claude-sonnet-5-5'): Promise<[string, any][]> {
-  const response = await fetch(`${base_url}/translate`, {
+export async function translate(baseUrl: string, text: string, modelId = 'claude-sonnet-5-5'): Promise<[string, any][]> {
+  const response = await fetch(`${baseUrl}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source_language: 'en', target_language: 'vi', text, model_id, effort: 'low', mode: 'translate' }),
+    body: JSON.stringify({ sourceLanguage: 'en', targetLanguage: 'vi', sourceText: text, modelId, effort: 'low', sourceFormat: 'plain_text' }),
   });
   const body = await response.text();
   return body.split('\n\n').filter((block) => block.trim() !== '').map((block) => {
-    const [event_line, data_line] = block.split('\n');
-    return [event_line.replace('event: ', ''), JSON.parse(data_line.replace('data: ', ''))];
+    const [eventLine, dataLine] = block.split('\n');
+    return [eventLine.replace('event: ', ''), JSON.parse(dataLine.replace('data: ', ''))];
   });
 }

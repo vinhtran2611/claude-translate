@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Pair } from '../../api-types.ts';
+import type { TranslatedBlock } from '../../api-types.ts';
 import type { Block, DocumentIndex, InlineNode, LinkDefinition } from '../markdown.ts';
 
 interface SpecExample {
@@ -55,7 +55,7 @@ test('CommonMark 0.31.2 inline examples: every single-paragraph example passes o
   for (const example of readJson<SpecExample[]>('./fixtures/commonmark/commonmark-spec-0.31.2.json')) {
     if (!INLINE_SECTIONS.has(example.section)) continue;
     // Link definitions go to the parser's options; the rest must be one paragraph with no block syntax.
-    const link_definitions = new Map<string, LinkDefinition>();
+    const linkDefinitions = new Map<string, LinkDefinition>();
     const paragraphs: string[] = [];
     for (const block of example.markdown.replace(/\n$/, '').split(/\n\n+/)) {
       const definition = definitionOf(block);
@@ -64,28 +64,28 @@ test('CommonMark 0.31.2 inline examples: every single-paragraph example passes o
         continue;
       }
       const label = normalizeLabel(definition.label);
-      if (!link_definitions.has(label)) link_definitions.set(label, definition);
+      if (!linkDefinitions.has(label)) linkDefinitions.set(label, definition);
     }
     if (paragraphs.length !== 1) continue;
     const paragraph = paragraphs[0];
-    const has_block_syntax = /^( {4}|\t|[#>]|[-*+] |\d+[.)] |```|~~~|<\w)/m.test(paragraph) || /^(=+|-+)\s*$/m.test(paragraph);
-    if (has_block_syntax) continue;
+    const hasBlockSyntax = /^( {4}|\t|[#>]|[-*+] |\d+[.)] |```|~~~|<\w)/m.test(paragraph) || /^(=+|-+)\s*$/m.test(paragraph);
+    if (hasBlockSyntax) continue;
     counts.eligible++;
 
-    const inline_text = paragraph.replace(/^ +/gm, '').replace(/ +$/, '');
-    const actual = `<p>${htmlOf(parseInline(inline_text, { link_definitions }))}</p>\n`;
+    const inlineText = paragraph.replace(/^ +/gm, '').replace(/ +$/, '');
+    const actual = `<p>${htmlOf(parseInline(inlineText, { linkDefinitions }))}</p>\n`;
     // The renderer shows a soft break as a line break, on purpose.
-    const expected_with_breaks = example.html.replace(/<p>([\s\S]*?)<\/p>/g, (_: string, inner: string) => {
+    const expectedWithBreaks = example.html.replace(/<p>([\s\S]*?)<\/p>/g, (_: string, inner: string) => {
       return `<p>${inner.replace(/(?<!<br \/>)\n/g, '<br />\n')}</p>`;
     });
     // Raw HTML is shown as text, on purpose: the output still has text, just no tags from the input.
-    const visible_text = actual.replace(/<br \/>\n/g, '\n').replace(/<[^>]+>/g, '');
-    const is_raw_html_as_text = /<[a-zA-Z!?/]/.test(example.markdown) && /</.test(actual) && visible_text !== '';
+    const visibleText = actual.replace(/<br \/>\n/g, '\n').replace(/<[^>]+>/g, '');
+    const isRawHtmlAsText = /<[a-zA-Z!?/]/.test(example.markdown) && /</.test(actual) && visibleText !== '';
     if (actual === example.html) {
       counts.pass++;
-    } else if (actual === expected_with_breaks) {
+    } else if (actual === expectedWithBreaks) {
       counts.soft_break++;
-    } else if (is_raw_html_as_text) {
+    } else if (isRawHtmlAsText) {
       counts.raw_html_as_text++;
     } else if (GFM_AUTOLINK_EXAMPLES.has(example.example)) {
       counts.gfm_autolink++;
@@ -100,7 +100,7 @@ test('CommonMark 0.31.2 inline examples: every single-paragraph example passes o
 
 // The blocks of a finished 'table' cell.
 function tableCellBlocks(text: string): Block[] {
-  return parseCellBlocks('table', '', 0, text, { is_streaming: false, link_definitions: new Map() });
+  return parseCellBlocks('table', '', 0, text, { isStreaming: false, linkDefinitions: new Map() });
 }
 
 // The table block a 'table' cell parses to; fails the test when it parses to anything else.
@@ -113,13 +113,13 @@ function tableOf(text: string): Extract<Block, { kind: 'table' }> {
 test('a GFM table reads its column alignments from the delimiter row', () => {
   const table = tableOf('| abc | defghi |\n:-: | -----------:\nbar | baz');
   assert.deepEqual(table.alignments, ['center', 'right']);
-  assert.equal(htmlOf(table.body_rows[0][1]), 'baz');
+  assert.equal(htmlOf(table.bodyRows[0][1]), 'baz');
 });
 
 test('an escaped pipe stays inside its table cell', () => {
   const table = tableOf('| f\\|oo |\n| ------ |\n| b `\\|` az |');
-  assert.equal(htmlOf(table.header_cells[0]), 'f|oo');
-  assert.equal(htmlOf(table.body_rows[0][0]), 'b <code>|</code> az');
+  assert.equal(htmlOf(table.headerCells[0]), 'f|oo');
+  assert.equal(htmlOf(table.bodyRows[0][0]), 'b <code>|</code> az');
 });
 
 test('a delimiter row with the wrong number of cells is not a table', () => {
@@ -128,7 +128,7 @@ test('a delimiter row with the wrong number of cells is not a table', () => {
 
 test('tab-separated rows, as pasted from a document, are a table', () => {
   const table = tableOf('Domain\tExample\nVision\tViT');
-  assert.deepEqual(table.header_cells.map(htmlOf), ['Domain', 'Example']);
+  assert.deepEqual(table.headerCells.map(htmlOf), ['Domain', 'Example']);
 });
 
 test('only "~~" strikes through; a single "~" stays text', () => {
@@ -136,34 +136,34 @@ test('only "~~" strikes through; a single "~" stays text', () => {
 });
 
 test('GFM autolink literals: a www link drops its trailing dot; an address ending in "-" is no address', () => {
-  const link_html = 'Visit <a href="http://www.commonmark.org/a.b">www.commonmark.org/a.b</a>.';
-  assert.equal(htmlOf(parseInline('Visit www.commonmark.org/a.b.')), link_html);
+  const linkHtml = 'Visit <a href="http://www.commonmark.org/a.b">www.commonmark.org/a.b</a>.';
+  assert.equal(htmlOf(parseInline('Visit www.commonmark.org/a.b.')), linkHtml);
   assert.equal(htmlOf(parseInline('a.b-c_d@a.b-')), 'a.b-c_d@a.b-');
 });
 
 test('URL policy', () => {
-  const anchor_ids = new Set(['md-overview']);
-  assert.deepEqual(linkTargetOf('#overview', anchor_ids), { href: '#md-overview', is_external: false });
-  assert.equal(linkTargetOf('#6-prospects', anchor_ids), null);
-  assert.deepEqual(linkTargetOf('#6-prospects', null), { href: '#md-6-prospects', is_external: false });
-  assert.equal(linkTargetOf('https://example.com/a b', anchor_ids)?.href, 'https://example.com/a%20b');
-  assert.equal(linkTargetOf('mailto:team@example.com', anchor_ids)?.is_external, true);
+  const anchorIds = new Set(['md-overview']);
+  assert.deepEqual(linkTargetOf('#overview', anchorIds), { href: '#md-overview', isExternal: false });
+  assert.equal(linkTargetOf('#6-prospects', anchorIds), null);
+  assert.deepEqual(linkTargetOf('#6-prospects', null), { href: '#md-6-prospects', isExternal: false });
+  assert.equal(linkTargetOf('https://example.com/a b', anchorIds)?.href, 'https://example.com/a%20b');
+  assert.equal(linkTargetOf('mailto:team@example.com', anchorIds)?.isExternal, true);
   for (const unsafe of ['javascript:alert(1)', 'java\tscript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html,x', 'file:///etc/passwd', './docs/setup.md', '/x']) {
-    assert.equal(linkTargetOf(unsafe, anchor_ids), null, unsafe);
+    assert.equal(linkTargetOf(unsafe, anchorIds), null, unsafe);
   }
 });
 
 test('document index: GitHub slugs, footnote order, a table of contents', () => {
-  const entry = readJson<{ pairs: Pair[] }>('./fixtures/translations/table-of-contents.json');
-  const index = documentIndexOf(entry.pairs);
-  const fragments = entry.pairs.flatMap((pair) => [...pair.source_text.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]));
-  const resolved = fragments.filter((fragment) => index.anchor_ids.has(`md-${fragment}`));
+  const entry = readJson<{ blocks: TranslatedBlock[] }>('./fixtures/translations/table-of-contents.json');
+  const index = documentIndexOf(entry.blocks);
+  const fragments = entry.blocks.flatMap((pair) => [...pair.sourceText.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]));
+  const resolved = fragments.filter((fragment) => index.anchorIds.has(`md-${fragment}`));
   // The notes stop at section 5, so the 5 links to prospects, the appendix and sources have no heading to point at.
   assert.equal(fragments.length, 13);
   assert.equal(resolved.length, 8);
-  const essay = documentIndexOf(readJson<{ pairs: Pair[] }>('./fixtures/translations/footnotes.json').pairs);
-  assert.equal(essay.footnote_numbers.get('1'), 1);
-  assert.ok(essay.anchor_ids.has('md-fn-1') && essay.anchor_ids.has('md-fnref-1'));
+  const essay = documentIndexOf(readJson<{ blocks: TranslatedBlock[] }>('./fixtures/translations/footnotes.json').blocks);
+  assert.equal(essay.footnoteNumbers.get('1'), 1);
+  assert.ok(essay.anchorIds.has('md-fn-1') && essay.anchorIds.has('md-fnref-1'));
 });
 
 // The text a reader sees in a block.
@@ -179,7 +179,7 @@ function blockText(block: Block): string {
     case 'list':
       return block.items.map((item) => item.map(blockText).join(' ')).join(' ');
     case 'table': {
-      const rows = [block.header_cells, ...block.body_rows];
+      const rows = [block.headerCells, ...block.bodyRows];
       return rows.map((row) => row.map(plainTextOf).join(' ')).join(' ');
     }
     case 'footnote_definition':
@@ -196,27 +196,27 @@ const visibleOf = (blocks: Block[]): string => blocks.map(blockText).join(' ').r
 
 // Every prefix of every cell, with the index the app holds live (the pairs completed before this one); a frame is
 // unstable when it shows text the cell's final render does not start with. Text only: style flips and reflow are not seen.
-export function streamingStabilityOf(pairs: Pair[]): {
-  frames: number; unstable_frames: number; cells: number; unstable_cells: string[]; end_of_stream_changes: string[];
+export function streamingStabilityOf(pairs: TranslatedBlock[]): {
+  frames: number; unstableFrames: number; cells: number; unstableCells: string[]; endOfStreamChanges: string[];
 } {
-  const final_index = documentIndexOf(pairs);
-  const result = { frames: 0, unstable_frames: 0, cells: 0, unstable_cells: [] as string[], end_of_stream_changes: [] as string[] };
-  pairs.forEach((pair, pair_index) => {
-    const live_index = documentIndexOf(pairs.slice(0, pair_index));
+  const finalIndex = documentIndexOf(pairs);
+  const result = { frames: 0, unstableFrames: 0, cells: 0, unstableCells: [] as string[], endOfStreamChanges: [] as string[] };
+  pairs.forEach((pair, pairIndex) => {
+    const liveIndex = documentIndexOf(pairs.slice(0, pairIndex));
     for (const side of ['source', 'translation']) {
-      const text = side === 'source' ? pair.source_text : pair.translation_text;
-      const parse = (prefix: string, is_streaming: boolean, index: DocumentIndex): Block[] => parseCellBlocks(pair.pair_type, pair.marker, pair.level, prefix, { is_streaming, link_definitions: index.link_definitions });
-      const final_text = visibleOf(parse(text, false, final_index));
-      let cell_unstable = 0;
+      const text = side === 'source' ? pair.sourceText : pair.translatedText;
+      const parse = (prefix: string, isStreaming: boolean, index: DocumentIndex): Block[] => parseCellBlocks(pair.blockType, pair.marker, pair.level, prefix, { isStreaming, linkDefinitions: index.linkDefinitions });
+      const finalText = visibleOf(parse(text, false, finalIndex));
+      let cellUnstable = 0;
       for (let length = 1; length <= text.length; length++) {
         result.frames++;
-        if (!final_text.startsWith(visibleOf(parse(text.slice(0, length), true, live_index)))) cell_unstable++;
+        if (!finalText.startsWith(visibleOf(parse(text.slice(0, length), true, liveIndex)))) cellUnstable++;
       }
       result.cells++;
-      result.unstable_frames += cell_unstable;
-      if (cell_unstable) result.unstable_cells.push(`${pair_index}:${side}`);
+      result.unstableFrames += cellUnstable;
+      if (cellUnstable) result.unstableCells.push(`${pairIndex}:${side}`);
       // Rendered final with the live index when the pair completed, then again with the whole document's index.
-      if (visibleOf(parse(text, false, live_index)) !== final_text) result.end_of_stream_changes.push(`${pair_index}:${side}`);
+      if (visibleOf(parse(text, false, liveIndex)) !== finalText) result.endOfStreamChanges.push(`${pairIndex}:${side}`);
     }
   });
   return result;
@@ -224,17 +224,17 @@ export function streamingStabilityOf(pairs: Pair[]): {
 
 test('streaming: no raw syntax flashes in the documents; the edge cases flash only where expected', () => {
   for (const name of ['table-of-contents', 'footnotes', 'documents', 'edge-cases']) {
-    const { pairs } = readJson<{ pairs: Pair[] }>(`./fixtures/translations/${name}.json`);
-    const result = streamingStabilityOf(pairs);
-    console.log(name, JSON.stringify({ ...result, unstable_cells: result.unstable_cells.join(' '), end_of_stream_changes: result.end_of_stream_changes.join(' ') }));
+    const { blocks } = readJson<{ blocks: TranslatedBlock[] }>(`./fixtures/translations/${name}.json`);
+    const result = streamingStabilityOf(blocks);
+    console.log(name, JSON.stringify({ ...result, unstableCells: result.unstableCells.join(' '), endOfStreamChanges: result.endOfStreamChanges.join(' ') }));
     if (name === 'edge-cases') {
       // 1: "**Source:**text" is literal by CommonMark flanking but bold while streaming. 3: "[collapsed][]" has no
       // definition, so its held "[" comes back. 4: "[cm]:" reads as text until its destination makes it a definition.
       // 3 also changes at the end: "[the spec][cm]" resolves only once the "[cm]:" pair has arrived.
-      assert.deepEqual(result.unstable_cells, ['1:source', '1:translation', '3:source', '3:translation', '4:source', '4:translation']);
-      assert.deepEqual(result.end_of_stream_changes, ['3:source', '3:translation']);
+      assert.deepEqual(result.unstableCells, ['1:source', '1:translation', '3:source', '3:translation', '4:source', '4:translation']);
+      assert.deepEqual(result.endOfStreamChanges, ['3:source', '3:translation']);
     } else {
-      assert.deepEqual(result.unstable_cells, []);
+      assert.deepEqual(result.unstableCells, []);
     }
   }
 });
@@ -245,7 +245,7 @@ test('a whole document: headings, nested numbered and bullet lists, quotes, tabl
   const blocks = parseDocumentBlocks(evaluation);
   assert.deepEqual(kinds(blocks), ['paragraph', 'heading', 'list', 'paragraph', 'heading', 'quote', 'thematic_break', 'table']);
   const list = blocks[2] as Extract<Block, { kind: 'list' }>;
-  assert.deepEqual([list.is_ordered, list.start, list.items.length], [true, 1, 3]);
+  assert.deepEqual([list.isOrdered, list.start, list.items.length], [true, 1, 3]);
   assert.deepEqual(kinds(list.items[1]), ['paragraph', 'list']);
   assert.deepEqual(list.items[0][0], { kind: 'paragraph', children: [
     { kind: 'strong', children: [{ kind: 'text', text: 'A.' }] }, { kind: 'text', text: ' First line' }, { kind: 'line_break' }, { kind: 'text', text: 'second line' },
@@ -266,6 +266,6 @@ test('a document still arriving holds back a bare list mark or heading mark, and
   assert.deepEqual(kinds('Verdict.\n\n## Fix'), ['paragraph', 'heading']);
   assert.deepEqual(kinds('Verdict.\n\n- one'), ['paragraph', 'list']);
   // An unclosed "**" is not shown as asterisks while the words that close it are still on their way.
-  assert.deepEqual(parseDocumentBlocks('Wrong: **not yet', true)[0], { kind: 'paragraph', children: parseInline('Wrong: **not yet', { is_streaming: true }) });
+  assert.deepEqual(parseDocumentBlocks('Wrong: **not yet', true)[0], { kind: 'paragraph', children: parseInline('Wrong: **not yet', { isStreaming: true }) });
   assert.deepEqual(parseDocumentBlocks('Wrong: **not yet')[0], { kind: 'paragraph', children: parseInline('Wrong: **not yet') });
 });

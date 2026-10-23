@@ -111,6 +111,10 @@ a.primary-button, a.ghost-button { text-decoration: none; }
 .eval-text .md-quote { padding: 10px 16px; border: 0; border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; background: var(--surface); color: var(--ink); }
 .is-error-text { padding: 12px 14px; border-radius: 10px; font-size: 14px; line-height: 1.6; color: var(--danger); background: var(--danger-soft); }
 .evaluation .thinking { margin-bottom: 4px; }
+/* The older gradings of an attempt, folded under the latest. */
+.earlier-gradings { padding-top: 12px; border-top: 1px solid var(--line); }
+.earlier-gradings > * + * { margin-top: 12px; }
+.earlier-toggle { cursor: pointer; font-size: 14px; color: var(--muted); }
 .answer-text { font-size: 20px; line-height: 1.5; font-weight: 500; }
 
 /* ---- Projects, and a project's home ---- */

@@ -1,7 +1,15 @@
 // Small text helpers for what the page shows. Pure, so they are tested without a browser.
 import type { ExerciseType } from '../api-types.ts';
 
-const TYPE_NAMES: Record<ExerciseType, string> = { rewrite: 'Rewrite', write: 'Write', choice: 'Choice', fill: 'Fill', flashcard: 'Flashcard' };
+const TYPE_NAMES: Record<ExerciseType, string> = {
+  rewrite: 'Rewrite',
+  translation: 'Translation',
+  correction: 'Correction',
+  essay: 'Essay',
+  choice: 'Choice',
+  gap_fill: 'Gap fill',
+  flashcard: 'Flashcard',
+};
 const TYPE_ORDER = Object.keys(TYPE_NAMES);
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
@@ -21,9 +29,9 @@ export function formatDateTime(timestamp: string): string {
 }
 
 // 18:42, from a duration.
-export function formatClock(duration_ms: number): string {
-  const total_seconds = Math.floor(duration_ms / 1000);
-  return `${Math.floor(total_seconds / 60)}:${String(total_seconds % 60).padStart(2, '0')}`;
+export function formatClock(durationMs: number): string {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
 }
 
 // "today", "yesterday", "3 days ago", then the date; counted in calendar days of the browser's time zone.

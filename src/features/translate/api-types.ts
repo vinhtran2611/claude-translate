@@ -1,13 +1,20 @@
-// The HTTP contract between server/routes.ts and web/translate.ts (see docs/translate-internals.md "API"). Types only: both
-// sides import it with `import type`, so it is erased before anything runs and never reaches the browser.
-import type { Effort, EffortOption, ErrorKind, ModelOption, Pair, PairType } from '../../shared/api-types.ts';
+// The HTTP contract between server/routes.ts and web/translate.ts (see docs/translate-internals.md "API"), and the stored
+// Translation (docs/data-model-proposal.md §3.5). Types only: both sides import it with `import type`, so it is erased
+// before anything runs and never reaches the browser.
+import type {
+  BlockType, CliErrorCode, Effort, EffortOption, Language, ModelOption, ModelRun, Timestamp, TranslatedBlock,
+} from '../../shared/api-types.ts';
 
-export type Language = 'en' | 'vi';
-export type Mode = 'translate' | 'translate_markdown';
+// Language and TranslatedBlock are shared types of the data model; they are named here too, where Translate's files look.
+export type { Language, TranslatedBlock };
 export type Outcome = 'done' | 'error' | 'cancelled';
 
-export interface ModeOption {
-  mode: Mode;
+// 'markdown' also repairs broken layout before it translates; 'plain_text' keeps the text as pasted.
+export type SourceFormat = 'plain_text' | 'markdown';
+
+// One choice of the source format menu.
+export interface SourceFormatOption {
+  sourceFormat: SourceFormat;
   label: string;
   description: string;
 }
@@ -15,46 +22,48 @@ export interface ModeOption {
 // The latest reply's rate limit, when it warns or rejects.
 export interface QuotaWarning {
   status: string;
-  rate_limit_type: string | undefined;
+  rateLimitType: string | undefined;
   utilization: number | undefined;
-  resets_at: number | undefined;
+  resetsAt: number | undefined;
 }
 
 // GET /translation-options
 export interface TranslationOptions {
   models: ModelOption[];
   efforts: EffortOption[];
-  modes: ModeOption[];
-  default_model_id: string;
-  default_effort: Effort;
-  default_mode: Mode;
-  quota_warning: QuotaWarning | null;
+  sourceFormats: SourceFormatOption[];
+  defaultModelId: string;
+  defaultEffort: Effort;
+  defaultSourceFormat: SourceFormat;
+  quotaWarning: QuotaWarning | null;
 }
 
 // POST /translate body.
 export interface TranslateRequest {
-  source_language: Language;
-  target_language: Language;
-  text: string;
-  model_id: string;
+  sourceLanguage: Language;
+  targetLanguage: Language;
+  sourceText: string;
+  modelId: string;
   effort: Effort;
-  mode: Mode;
+  sourceFormat: SourceFormat;
 }
 
-// POST /translate response: one Server-Sent Event per entry, `event: <name>` and `data: <JSON>`.
+// POST /translate response: one Server-Sent Event per entry, `event: <name>` and `data: <JSON>`. Event names are lowercase
+// snake_case values; their data is camelCase, in the words of the stored Translation (a block, its blockIndex...).
+// translationId names the saved Translation (saved when the run starts); null only when saving it failed.
 export interface StreamEvents {
-  pair_start: { pair_index: number; pair_type: PairType; level: number; marker: string };
-  source_delta: { pair_index: number; text: string };
-  translation_delta: { pair_index: number; text: string };
-  // Reply text outside any pair.
-  unpaired_delta: { text: string };
-  retry: { attempt: number; max_retries: number; error: string };
+  block_start: { blockIndex: number; blockType: BlockType; level: number; marker: string | null };
+  source_delta: { blockIndex: number; text: string };
+  translation_delta: { blockIndex: number; text: string };
+  // Reply text outside any block: it becomes the Translation's textOutsideBlocks.
+  outside_text_delta: { text: string };
+  retry: { attempt: number; maxRetries: number; error: string };
   thinking_delta: { text: string };
-  thinking_done: { duration_ms: number };
-  fallback: { from_model_id: string; to_model_id: string };
-  done: { duration_ms: number; served_model_id: string; effort: Effort; is_fallback: boolean; history_id: number | null };
+  thinking_done: { durationMs: number };
+  fallback: { fromModelId: string; toModelId: string };
+  done: { durationMs: number; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null };
   error: {
-    error_kind: ErrorKind; message: string; served_model_id: string; effort: Effort; is_fallback: boolean; history_id: number | null;
+    errorCode: CliErrorCode; message: string; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null;
   };
 }
 
@@ -63,29 +72,27 @@ export type StreamEventName = keyof StreamEvents;
 // One event as [name, data], with data typed by name: switching on the name narrows the data.
 export type StreamEvent = { [Name in StreamEventName]: [Name, StreamEvents[Name]] }[StreamEventName];
 
-// GET /history, newest first. effort is a string: the database accepts every CLI effort, not only the offered ones.
-export interface HistorySummary {
+// ---- The stored translation ----
+
+// One translate run. The row is saved when the run starts and updated when it ends, whatever the outcome.
+export interface Translation {
   id: number;
-  created_at: string;
-  source_language: Language;
-  target_language: Language;
-  outcome: Outcome;
-  served_model_id: string;
-  requested_model_id: string;
-  effort: string;
-  mode: Mode;
-  input_preview: string;
-  output_preview: string;
+  sourceLanguage: Language;
+  targetLanguage: Language;
+  sourceFormat: SourceFormat;
+  // Exactly what was pasted.
+  sourceText: string;
+  // The output.
+  blocks: TranslatedBlock[];
+  // Reply text the model put in no block.
+  textOutsideBlocks: string | null;
+  run: ModelRun;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
-// GET /history/:id. input_text is what was pasted; in mode translate_markdown pairs[].source_text is the tidied form.
-export interface HistoryEntry extends Omit<HistorySummary, 'input_preview' | 'output_preview'> {
-  input_text: string;
-  pairs: Pair[];
-  unpaired_text: string;
-  duration_ms: number;
-  is_fallback: boolean;
-  // '' and null when the model did not think.
-  thinking_text: string;
-  thinking_duration_ms: number | null;
+// GET /history, newest first: a translation without its texts, with a preview of each side (worked out when read).
+export interface TranslationSummary extends Omit<Translation, 'sourceText' | 'blocks' | 'textOutsideBlocks'> {
+  sourcePreview: string;
+  outputPreview: string;
 }

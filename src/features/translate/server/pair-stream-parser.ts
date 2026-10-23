@@ -1,7 +1,8 @@
 // Turns the model's <pair><source>…</source><translation>…</translation></pair> reply into page events as the text
-// arrives. Text outside any pair becomes unpaired_delta, which is how a reply that ignores the format still reaches
-// the page.
-import type { PairType } from '../../../shared/api-types.ts';
+// arrives: each <pair> is one translated block (block_start, then source_delta and translation_delta). The <pair> tags
+// are the reply format the prompts ask for. Text outside any pair becomes outside_text_delta, which is how a reply that
+// ignores the format still reaches the page.
+import type { BlockType } from '../../../shared/api-types.ts';
 import type { StreamEvent } from '../api-types.ts';
 
 const PAIR_TYPES = new Set<string>(['heading', 'paragraph', 'list_item', 'table', 'code', 'quote', 'other']);
@@ -10,29 +11,32 @@ const PAIR_CLOSE_TAG = '</pair>';
 type ParserState = 'between_pairs' | 'in_pair' | 'in_source' | 'in_translation';
 const FIELD_OPEN_TAGS: Record<string, ParserState> = { '<source>': 'in_source', '<translation>': 'in_translation' };
 
-export interface PairStreamParser {
+interface PairStreamParser {
   // The events for this piece of the reply. Text that may be the start of a tag is held until more arrives.
   push(text: string): StreamEvent[];
   // The events for whatever is still held, once the reply has ended.
   finish(): StreamEvent[];
 }
 
-// <pair type="list_item" level="2" marker="-">: an unknown type becomes 'other', a missing level 0.
-function parsePairAttributes(attribute_text: string): { pair_type: PairType; level: number; marker: string } {
+// <pair type="list_item" level="2" marker="-">: an unknown type becomes 'other', a missing level 0, a missing or empty
+// marker null.
+function parsePairAttributes(attributeText: string): { blockType: BlockType; level: number; marker: string | null } {
   const attributes: Record<string, string | undefined> = {};
-  for (const match of attribute_text.matchAll(/(\w+)="([^"]*)"/g)) attributes[match[1]] = match[2];
-  const is_known_type = attributes.type !== undefined && PAIR_TYPES.has(attributes.type);
+  for (const match of attributeText.matchAll(/(\w+)="([^"]*)"/g)) attributes[match[1]] = match[2];
+  const isKnownType = attributes.type !== undefined && PAIR_TYPES.has(attributes.type);
+  let marker: string | null = attributes.marker ?? null;
+  if (marker === '') marker = null;
   return {
-    pair_type: is_known_type ? (attributes.type as PairType) : 'other',
+    blockType: isKnownType ? (attributes.type as BlockType) : 'other',
     level: Number.parseInt(attributes.level ?? '', 10) || 0,
-    marker: attributes.marker ?? '',
+    marker,
   };
 }
 
-// Index from which text could still be the start of closing_tag; text.length when no suffix can be.
-function heldTailStart(text: string, closing_tag: string): number {
-  for (let index = Math.max(0, text.length - closing_tag.length + 1); index < text.length; index++) {
-    if (closing_tag.startsWith(text.slice(index))) return index;
+// Index from which text could still be the start of closingTag; text.length when no suffix can be.
+function heldTailStart(text: string, closingTag: string): number {
+  for (let index = Math.max(0, text.length - closingTag.length + 1); index < text.length; index++) {
+    if (closingTag.startsWith(text.slice(index))) return index;
   }
   return text.length;
 }
@@ -41,48 +45,48 @@ export function createPairStreamParser(): PairStreamParser {
   // Text received but not yet turned into events.
   let buffer = '';
   let state: ParserState = 'between_pairs';
-  let pair_index = -1;
+  let pairIndex = -1;
   // True right after <source> or <translation>: the newline that usually follows the tag is not part of the text.
-  let is_field_start = false;
+  let isFieldStart = false;
 
   // The delta event for text inside the field being read.
   const fieldDelta = (text: string): StreamEvent => {
-    if (state === 'in_source') return ['source_delta', { pair_index, text }];
-    return ['translation_delta', { pair_index, text }];
+    if (state === 'in_source') return ['source_delta', { blockIndex: pairIndex, text }];
+    return ['translation_delta', { blockIndex: pairIndex, text }];
   };
 
   // Each read step below handles the buffer in one state. It returns true when it changed state and the loop should
   // go on, false when it must wait for more text.
 
   const readBetweenPairs = (events: StreamEvent[]): boolean => {
-    const open_match = PAIR_OPEN_TAG.exec(buffer);
-    if (open_match) {
-      const unpaired_text = buffer.slice(0, open_match.index);
-      if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
-      pair_index += 1;
-      events.push(['pair_start', { pair_index, ...parsePairAttributes(open_match[1]) }]);
-      buffer = buffer.slice(open_match.index + open_match[0].length);
+    const openMatch = PAIR_OPEN_TAG.exec(buffer);
+    if (openMatch) {
+      const outsideText = buffer.slice(0, openMatch.index);
+      if (outsideText.trim() !== '') events.push(['outside_text_delta', { text: outsideText }]);
+      pairIndex += 1;
+      events.push(['block_start', { blockIndex: pairIndex, ...parsePairAttributes(openMatch[1]) }]);
+      buffer = buffer.slice(openMatch.index + openMatch[0].length);
       state = 'in_pair';
       return true;
     }
     // No <pair> yet: send what cannot be part of one, and hold a "<" that may still become a tag.
-    const last_open_bracket = buffer.lastIndexOf('<');
-    const is_tag_pending = last_open_bracket !== -1 && buffer.indexOf('>', last_open_bracket) === -1;
-    const flush_end = is_tag_pending ? last_open_bracket : buffer.length;
-    const unpaired_text = buffer.slice(0, flush_end);
-    if (unpaired_text.trim() !== '') events.push(['unpaired_delta', { text: unpaired_text }]);
-    buffer = buffer.slice(flush_end);
+    const lastOpenBracket = buffer.lastIndexOf('<');
+    const isTagPending = lastOpenBracket !== -1 && buffer.indexOf('>', lastOpenBracket) === -1;
+    const flushEnd = isTagPending ? lastOpenBracket : buffer.length;
+    const outsideText = buffer.slice(0, flushEnd);
+    if (outsideText.trim() !== '') events.push(['outside_text_delta', { text: outsideText }]);
+    buffer = buffer.slice(flushEnd);
     return false;
   };
 
   // Inside <pair> but outside its fields: only <source>, <translation> and </pair> matter; anything else is skipped.
   const readInPair = (): boolean => {
     buffer = buffer.trimStart();
-    const field_tag = Object.keys(FIELD_OPEN_TAGS).find((tag) => buffer.startsWith(tag));
-    if (field_tag !== undefined) {
-      state = FIELD_OPEN_TAGS[field_tag];
-      buffer = buffer.slice(field_tag.length);
-      is_field_start = true;
+    const fieldTag = Object.keys(FIELD_OPEN_TAGS).find((tag) => buffer.startsWith(tag));
+    if (fieldTag !== undefined) {
+      state = FIELD_OPEN_TAGS[fieldTag];
+      buffer = buffer.slice(fieldTag.length);
+      isFieldStart = true;
       return true;
     }
     if (buffer.startsWith(PAIR_CLOSE_TAG)) {
@@ -90,38 +94,38 @@ export function createPairStreamParser(): PairStreamParser {
       buffer = buffer.slice(PAIR_CLOSE_TAG.length);
       return true;
     }
-    const known_tags = [...Object.keys(FIELD_OPEN_TAGS), PAIR_CLOSE_TAG];
-    const is_tag_prefix = known_tags.some((tag) => tag.startsWith(buffer));
-    if (is_tag_prefix) return false;
-    const next_bracket = buffer.indexOf('<', 1);
-    buffer = next_bracket === -1 ? '' : buffer.slice(next_bracket);
+    const knownTags = [...Object.keys(FIELD_OPEN_TAGS), PAIR_CLOSE_TAG];
+    const isTagPrefix = knownTags.some((tag) => tag.startsWith(buffer));
+    if (isTagPrefix) return false;
+    const nextBracket = buffer.indexOf('<', 1);
+    buffer = nextBracket === -1 ? '' : buffer.slice(nextBracket);
     return true;
   };
 
   // Inside <source> or <translation>: the text up to its closing tag.
   const readField = (events: StreamEvent[]): boolean => {
-    const field_name = state === 'in_source' ? 'source' : 'translation';
-    const closing_tag = `</${field_name}>`;
-    if (is_field_start) {
+    const fieldName = state === 'in_source' ? 'source' : 'translation';
+    const closingTag = `</${fieldName}>`;
+    if (isFieldStart) {
       if (buffer.startsWith('\n')) buffer = buffer.slice(1);
-      is_field_start = false;
+      isFieldStart = false;
       if (buffer === '') return false;
     }
-    const close_index = buffer.indexOf(closing_tag);
-    if (close_index !== -1) {
+    const closeIndex = buffer.indexOf(closingTag);
+    if (closeIndex !== -1) {
       // The newline before the closing tag is not part of the text either.
-      const field_text = buffer.slice(0, close_index).replace(/\n$/, '');
-      if (field_text !== '') events.push(fieldDelta(field_text));
-      buffer = buffer.slice(close_index + closing_tag.length);
+      const fieldText = buffer.slice(0, closeIndex).replace(/\n$/, '');
+      if (fieldText !== '') events.push(fieldDelta(fieldText));
+      buffer = buffer.slice(closeIndex + closingTag.length);
       state = 'in_pair';
       return true;
     }
     // Holds a trailing newline too: it belongs to the field only if more text follows before the closing tag.
-    let hold_from = heldTailStart(buffer, closing_tag);
-    if (hold_from > 0 && buffer[hold_from - 1] === '\n') hold_from -= 1;
-    const field_text = buffer.slice(0, hold_from);
-    if (field_text !== '') events.push(fieldDelta(field_text));
-    buffer = buffer.slice(hold_from);
+    let holdFrom = heldTailStart(buffer, closingTag);
+    if (holdFrom > 0 && buffer[holdFrom - 1] === '\n') holdFrom -= 1;
+    const fieldText = buffer.slice(0, holdFrom);
+    if (fieldText !== '') events.push(fieldDelta(fieldText));
+    buffer = buffer.slice(holdFrom);
     return false;
   };
 
@@ -129,23 +133,23 @@ export function createPairStreamParser(): PairStreamParser {
     buffer += text;
     const events: StreamEvent[] = [];
     while (buffer !== '') {
-      let can_go_on = false;
-      if (state === 'between_pairs') can_go_on = readBetweenPairs(events);
-      else if (state === 'in_pair') can_go_on = readInPair();
-      else can_go_on = readField(events);
-      if (!can_go_on) break;
+      let canGoOn = false;
+      if (state === 'between_pairs') canGoOn = readBetweenPairs(events);
+      else if (state === 'in_pair') canGoOn = readInPair();
+      else canGoOn = readField(events);
+      if (!canGoOn) break;
     }
     return events;
   }
 
   function finish(): StreamEvent[] {
     const events: StreamEvent[] = [];
-    const is_in_field = state === 'in_source' || state === 'in_translation';
-    const field_text = buffer.replace(/\n$/, '');
-    if (is_in_field && field_text !== '') {
-      events.push(fieldDelta(field_text));
+    const isInField = state === 'in_source' || state === 'in_translation';
+    const fieldText = buffer.replace(/\n$/, '');
+    if (isInField && fieldText !== '') {
+      events.push(fieldDelta(fieldText));
     } else if (state === 'between_pairs' && buffer.trim() !== '') {
-      events.push(['unpaired_delta', { text: buffer }]);
+      events.push(['outside_text_delta', { text: buffer }]);
     }
     buffer = '';
     return events;

@@ -12,22 +12,22 @@ export interface Feature {
   start?(): void;
 }
 
-// Throws when the body is not JSON. max_bytes: a larger body throws too, before it is all read into memory.
-export async function readJsonBody(req: IncomingMessage, max_bytes = Infinity): Promise<unknown> {
+// Throws when the body is not JSON. maxBytes: a larger body throws too, before it is all read into memory.
+export async function readJsonBody(req: IncomingMessage, maxBytes = Infinity): Promise<unknown> {
   const chunks: Buffer[] = [];
-  let byte_count = 0;
+  let byteCount = 0;
   for await (const chunk of req) {
     chunks.push(chunk);
-    byte_count += chunk.length;
-    if (byte_count > max_bytes) throw new Error(`body is larger than ${max_bytes} bytes`);
+    byteCount += chunk.length;
+    if (byteCount > maxBytes) throw new Error(`body is larger than ${maxBytes} bytes`);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 // The one error shape of a JSON API: { error: { code, message, problems? } }.
-export function sendError(res: ServerResponse, status_code: number, code: string, message: string, problems?: ApiProblem[], headers: Record<string, string> = {}): void {
+export function sendError(res: ServerResponse, statusCode: number, code: string, message: string, problems?: ApiProblem[], headers: Record<string, string> = {}): void {
   const body: ApiErrorBody = { error: problems === undefined ? { code, message } : { code, message, problems } };
-  res.writeHead(status_code, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -57,8 +57,8 @@ function jsonErrorOffset(text: string): number {
       if (index >= text.length || text.charCodeAt(index) < 0x20) fail();
       if (text[index] === '\\') {
         index++;
-        const is_unicode = text[index] === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 1, index + 5));
-        if (is_unicode) index += 4;
+        const isUnicode = text[index] === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 1, index + 5));
+        if (isUnicode) index += 4;
         else if (index >= text.length || !'"\\/bfnrt'.includes(text[index])) fail();
       }
       index++;
@@ -129,16 +129,16 @@ export function jsonProblemOf(text: string): string {
 }
 
 // The body as JSON, or undefined when it is too large (413 too_large) or not JSON (400 bad_json), the error already sent.
-// A body over max_bytes is read to its end but not kept, so the answer reaches the client before the connection closes.
-export async function readRequestJson(req: IncomingMessage, res: ServerResponse, max_bytes: number): Promise<unknown> {
+// A body over maxBytes is read to its end but not kept, so the answer reaches the client before the connection closes.
+export async function readRequestJson(req: IncomingMessage, res: ServerResponse, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
-  let byte_count = 0;
+  let byteCount = 0;
   for await (const chunk of req) {
-    byte_count += chunk.length;
-    if (byte_count <= max_bytes) chunks.push(chunk);
+    byteCount += chunk.length;
+    if (byteCount <= maxBytes) chunks.push(chunk);
   }
-  if (byte_count > max_bytes) {
-    sendError(res, 413, 'too_large', `The body is larger than ${max_bytes} bytes.`);
+  if (byteCount > maxBytes) {
+    sendError(res, 413, 'too_large', `The body is larger than ${maxBytes} bytes.`);
     return undefined;
   }
   const text = Buffer.concat(chunks).toString('utf8');
@@ -150,15 +150,15 @@ export async function readRequestJson(req: IncomingMessage, res: ServerResponse,
   }
 }
 
-export function sendJson(res: ServerResponse, status_code: number, body: unknown): void {
-  res.writeHead(status_code, { 'Content-Type': 'application/json; charset=utf-8' });
+export function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
 
 // The file is read before the status line is sent, so a missing file is a 500, not an empty 200.
-export async function sendFile(res: ServerResponse, path: string, content_type: string): Promise<void> {
+export async function sendFile(res: ServerResponse, path: string, contentType: string): Promise<void> {
   const content = await readFile(path);
-  res.writeHead(200, { 'Content-Type': content_type, 'Cache-Control': 'no-cache' });
+  res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
   res.end(content);
 }
 

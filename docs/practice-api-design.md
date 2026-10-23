@@ -1,5 +1,11 @@
 # Practice API and data model: design review and proposal
 
+> **Note (data model, schema 3):** the data model and the JSON names in this doc are older than
+> [data-model-proposal.md](data-model-proposal.md), which the code now follows: camelCase JSON, seven exercise types tagged by
+> `content.type`, gradings as their own rows, import format 4 (format 3 still read). The endpoints and their rules below still
+> hold, except where that doc changed them (an exercise with attempts is deleted only with `?with_attempts=true`; regrade works
+> at any time).
+
 Status: **built** (steps 1 to 5 of §6; step 6, the agent guide, is still to do). Date: 2026-10-19. Where the code differs from
 this doc, §9 says how and why. §10 adds rename, move and order, which the first version left out.
 

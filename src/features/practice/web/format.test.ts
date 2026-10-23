@@ -8,6 +8,7 @@ test('small formats: counts, the type mix, the clock, the day', () => {
   assert.equal(pluralize(0, 'exercise'), '0 exercises');
   assert.equal(typeMix({ flashcard: 3, rewrite: 5, choice: 4 }), 'Rewrite 5 · Choice 4 · Flashcard 3');
   assert.equal(typeMix({ choice: 2, rewrite: 2 }), 'Rewrite 2 · Choice 2');
+  assert.equal(typeMix({ gap_fill: 1, essay: 1 }), 'Essay 1 · Gap fill 1');
   assert.equal(formatClock(75_000), '1:15');
   const now = new Date(2026, 9, 18, 9, 0);
   assert.equal(relativeDay(new Date(2026, 9, 18, 0, 5).toISOString(), now), 'today');

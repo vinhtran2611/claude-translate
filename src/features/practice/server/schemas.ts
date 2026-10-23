@@ -1,5 +1,6 @@
 // The JSON Schemas (draft 2020-12) at /api/practice/schemas/. They are made from the same field specs as the checks
-// in import-check.ts, so they can never disagree with them.
+// in import-check.ts, so they can never disagree with them. They describe format 4; format 3 is still read, but only
+// described in static/import-format.md.
 import {
   CONTENT_FIELDS, EXERCISE_TYPES, exerciseFields, type Fields, KEY_PATTERN, MAX_EXERCISES, PROJECT_FIELDS, type Spec, TYPE_RULES,
 } from '../import-check.ts';
@@ -19,6 +20,8 @@ function schemaOf(spec: Spec): Record<string, unknown> {
       return { type: 'boolean', ...description };
     case 'whole':
       return { type: 'integer', minimum: spec.min, maximum: spec.max, ...description };
+    case 'time':
+      return { type: 'string', format: 'date-time', ...description };
     case 'texts': {
       // A text, or a list of 1 to 10 texts.
       const one = { type: 'string', minLength: 1, maxLength: spec.max };
@@ -31,24 +34,43 @@ function schemaOf(spec: Spec): Record<string, unknown> {
   }
 }
 
+function isRequired(spec: Spec): boolean {
+  return 'required' in spec && spec.required === true;
+}
+
+// A field that may be left out may also be null: both mean "use the default".
+function propertySchemaOf(spec: Spec): Record<string, unknown> {
+  const schema = schemaOf(spec);
+  if (isRequired(spec)) return schema;
+  const { description, ...shape } = schema;
+  const nullable: Record<string, unknown> = { anyOf: [shape, { type: 'null' }] };
+  if (description !== undefined) nullable.description = description;
+  return nullable;
+}
+
 function objectSchema(fields: Fields, extra: Record<string, unknown> = {}): Record<string, unknown> {
   const entries = Object.entries(fields);
-  const required = entries.filter(([, spec]) => 'required' in spec && spec.required).map(([key]) => key);
-  const properties = Object.fromEntries(entries.map(([key, spec]) => [key, schemaOf(spec)]));
+  const required = entries.filter(([, spec]) => isRequired(spec)).map(([key]) => key);
+  const properties = Object.fromEntries(entries.map(([key, spec]) => [key, propertySchemaOf(spec)]));
   return { type: 'object', additionalProperties: false, required, ...extra, properties };
 }
 
-// One exercise type as a schema: its own content fields, and "type" fixed to it.
+// One exercise type as a schema: its own content fields, with content.type fixed to it.
 function exerciseTypeSchema(type: (typeof EXERCISE_TYPES)[number]): Record<string, unknown> {
-  const { type: _type, ...outer_fields } = exerciseFields(true);
-  const content: Spec = { kind: 'object', fields: CONTENT_FIELDS[type], required: true };
-  const schema = objectSchema({ ...outer_fields, content }, { description: TYPE_RULES[type] });
+  const contentSchema = objectSchema(CONTENT_FIELDS[type]);
+  const contentProperties = contentSchema.properties as Record<string, unknown>;
+  const content = {
+    ...contentSchema,
+    required: ['type', ...(contentSchema.required as string[])],
+    // type comes first, as people write it.
+    properties: { type: { const: type }, ...contentProperties },
+  };
+  const schema = objectSchema(exerciseFields(true), { description: TYPE_RULES[type] });
   const properties = schema.properties as Record<string, unknown>;
-  // key and type come first, as people write them.
   return {
     ...schema,
-    required: ['key', 'type', 'content'],
-    properties: { key: properties.key, type: { const: type }, ...properties },
+    required: ['key', 'content'],
+    properties: { ...properties, content },
   };
 }
 
@@ -60,24 +82,24 @@ export function exerciseSchema(): Record<string, unknown> {
     $id: '/api/practice/schemas/exercise.json',
     title: 'Practice exercise',
     description:
-      'In PUT /api/practice/projects/{project}/exercises/{key}, key may be left out; when present it must equal the URL key. Texts must not be only spaces.',
+      'In PUT /api/practice/projects/{project}/exercises/{key}, key may be left out; when present it must equal the URL key. Texts must not be only spaces. A field that may be left out may also be null.',
     oneOf: EXERCISE_TYPES.map((type) => ({ $ref: `#/$defs/${type}` })),
     $defs,
   };
 }
 
-// GET /api/practice/schemas/import.json: the import file, format 3.
+// GET /api/practice/schemas/import.json: the import file, format 4.
 export function importSchema(): Record<string, unknown> {
   return {
     $schema: SCHEMA_DIALECT,
     $id: '/api/practice/schemas/import.json',
-    title: 'Practice import file (format 3)',
-    description: 'One file is one project. Importing it again updates the project and its exercises by key; it never deletes an exercise.',
+    title: 'Practice import file (format 4)',
+    description: 'One file is one project. Importing it again updates the project and its exercises by key; it never deletes an exercise. Format 3 files are still read (/features/practice/static/import-format.md).',
     type: 'object',
     additionalProperties: false,
     required: ['format', 'project', 'exercises'],
     properties: {
-      format: { const: 3 },
+      format: { const: 4 },
       project: objectSchema(PROJECT_FIELDS),
       exercises: {
         type: 'array',

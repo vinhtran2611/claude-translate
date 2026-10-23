@@ -1,10 +1,10 @@
 {
   "description": "Made up. A paragraph with a footnote reference and, later, its definition.",
-  "pairs": [
-    { "pair_type": "heading", "level": 1, "marker": "#", "source_text": "A short essay", "translation_text": "Một bài luận ngắn" },
-    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "Small teams often move faster than big ones.[^1] The reason is simple: fewer people need to agree.", "translation_text": "Các nhóm nhỏ thường đi nhanh hơn các nhóm lớn.[^1] Lý do rất đơn giản: ít người hơn cần đồng ý." },
-    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "That is not always true, but it is a good default.", "translation_text": "Điều đó không phải lúc nào cũng đúng, nhưng là một mặc định tốt." },
-    { "pair_type": "other", "level": 0, "marker": "", "source_text": "---", "translation_text": "---" },
-    { "pair_type": "paragraph", "level": 0, "marker": "", "source_text": "[^1]: A made-up note for this test, with *some* emphasis.", "translation_text": "[^1]: Một ghi chú bịa ra cho bài kiểm tra này, có *chút* nhấn mạnh." }
+  "blocks": [
+    { "blockType": "heading", "level": 1, "marker": "#", "sourceText": "A short essay", "translatedText": "Một bài luận ngắn" },
+    { "blockType": "paragraph", "level": 0, "marker": null, "sourceText": "Small teams often move faster than big ones.[^1] The reason is simple: fewer people need to agree.", "translatedText": "Các nhóm nhỏ thường đi nhanh hơn các nhóm lớn.[^1] Lý do rất đơn giản: ít người hơn cần đồng ý." },
+    { "blockType": "paragraph", "level": 0, "marker": null, "sourceText": "That is not always true, but it is a good default.", "translatedText": "Điều đó không phải lúc nào cũng đúng, nhưng là một mặc định tốt." },
+    { "blockType": "other", "level": 0, "marker": null, "sourceText": "---", "translatedText": "---" },
+    { "blockType": "paragraph", "level": 0, "marker": null, "sourceText": "[^1]: A made-up note for this test, with *some* emphasis.", "translatedText": "[^1]: Một ghi chú bịa ra cho bài kiểm tra này, có *chút* nhấn mạnh." }
   ]
 }

@@ -4,8 +4,8 @@ import type { ApiProblem } from '../../../shared/api-types.ts';
 import { ApiError, fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
-  AnswerByType, Attempt, CreateAttemptRequest, Exercise, ExerciseItem, ExerciseType, GradingOptions, GradingSettings, GradingStreamEvents, ImportResult,
-  List, Project, ProjectInput,
+  Answer, AttemptDetail, CreateAttemptRequest, ExerciseDetail, ExerciseItem, GradingOptions, GradingSettings, GradingStreamEvents, ImportResult,
+  List, ProjectInput, ProjectSummary,
 } from '../api-types.ts';
 
 // The pages check `error instanceof ApiError`; it is defined with fetchJson in shared/web/fetch-json.ts.
@@ -37,21 +37,21 @@ export function errorText(error: unknown): string {
 
 // ---- projects ----
 
-export async function listProjects(archived: 'false' | 'all', signal: AbortSignal): Promise<Project[]> {
-  const list = await request<List<Project>>('GET', `/projects?archived=${archived}`, signal);
+export async function listProjects(archived: 'false' | 'all', signal: AbortSignal): Promise<ProjectSummary[]> {
+  const list = await request<List<ProjectSummary>>('GET', `/projects?archived=${archived}`, signal);
   return list.items;
 }
 
-export function readProject(key: string, signal: AbortSignal): Promise<Project> {
-  return request<Project>('GET', `/projects/${key}`, signal);
+function readProject(key: string, signal: AbortSignal): Promise<ProjectSummary> {
+  return request<ProjectSummary>('GET', `/projects/${key}`, signal);
 }
 
-export function putProject(key: string, input: ProjectInput, signal: AbortSignal): Promise<Project> {
-  return request<Project>('PUT', `/projects/${key}`, signal, input);
+export function putProject(key: string, input: ProjectInput, signal: AbortSignal): Promise<ProjectSummary> {
+  return request<ProjectSummary>('PUT', `/projects/${key}`, signal, input);
 }
 
-export function deleteProject(key: string, with_attempts: boolean, signal: AbortSignal): Promise<void> {
-  return request<void>('DELETE', `/projects/${key}?with_attempts=${with_attempts}`, signal);
+export function deleteProject(key: string, withAttempts: boolean, signal: AbortSignal): Promise<void> {
+  return request<void>('DELETE', `/projects/${key}?with_attempts=${withAttempts}`, signal);
 }
 
 // The URL that downloads the project as a file.
@@ -65,7 +65,7 @@ export function importFile(file: unknown, signal: AbortSignal): Promise<ImportRe
 
 // What a project's pages show: the project and its exercises, in order.
 export interface ProjectView {
-  project: Project;
+  project: ProjectSummary;
   exercises: ExerciseItem[];
 }
 
@@ -76,37 +76,37 @@ export async function readProjectView(key: string, signal: AbortSignal): Promise
 
 // ---- exercises ----
 
-export async function listExercises(project_key: string, signal: AbortSignal): Promise<ExerciseItem[]> {
-  const list = await request<List<ExerciseItem>>('GET', `/projects/${project_key}/exercises`, signal);
+async function listExercises(projectKey: string, signal: AbortSignal): Promise<ExerciseItem[]> {
+  const list = await request<List<ExerciseItem>>('GET', `/projects/${projectKey}/exercises`, signal);
   return list.items;
 }
 
-export function readExercise(project_key: string, key: string, signal: AbortSignal): Promise<Exercise> {
-  return request<Exercise>('GET', `/projects/${project_key}/exercises/${key}`, signal);
+export function readExercise(projectKey: string, key: string, signal: AbortSignal): Promise<ExerciseDetail> {
+  return request<ExerciseDetail>('GET', `/projects/${projectKey}/exercises/${key}`, signal);
 }
 
-export function deleteExercise(project_key: string, key: string, signal: AbortSignal): Promise<void> {
-  return request<void>('DELETE', `/projects/${project_key}/exercises/${key}`, signal);
+export function deleteExercise(projectKey: string, key: string, withAttempts: boolean, signal: AbortSignal): Promise<void> {
+  return request<void>('DELETE', `/projects/${projectKey}/exercises/${key}?with_attempts=${withAttempts}`, signal);
 }
 
 // ---- attempts ----
 
 // Which exercise, and the version the page showed.
-type AttemptTarget = Pick<Exercise, 'project' | 'key' | 'version'>;
+type AttemptTarget = Pick<ExerciseDetail, 'projectKey' | 'key' | 'version'>;
 
 export function submitAttempt(
-  exercise: AttemptTarget, answer: AnswerByType[ExerciseType], writing_ms: number, settings: GradingSettings, signal: AbortSignal,
-): Promise<Attempt> {
-  const body: CreateAttemptRequest = { answer, writing_ms, exercise_version: exercise.version, ...settings };
-  return request<Attempt>('POST', `/projects/${exercise.project}/exercises/${exercise.key}/attempts`, signal, body);
+  exercise: AttemptTarget, answer: Answer, timeSpentMs: number, settings: GradingSettings, signal: AbortSignal,
+): Promise<AttemptDetail> {
+  const body: CreateAttemptRequest = { answer, timeSpentMs, exerciseVersion: exercise.version, ...settings };
+  return request<AttemptDetail>('POST', `/projects/${exercise.projectKey}/exercises/${exercise.key}/attempts`, signal, body);
 }
 
-export function readAttempt(id: number, signal: AbortSignal): Promise<Attempt> {
-  return request<Attempt>('GET', `/attempts/${id}`, signal);
+export function readAttempt(id: number, signal: AbortSignal): Promise<AttemptDetail> {
+  return request<AttemptDetail>('GET', `/attempts/${id}`, signal);
 }
 
-export function regrade(attempt_id: number, settings: GradingSettings, signal: AbortSignal): Promise<Attempt> {
-  return request<Attempt>('POST', `/attempts/${attempt_id}/regrade`, signal, settings);
+export function regrade(attemptId: number, settings: GradingSettings, signal: AbortSignal): Promise<AttemptDetail> {
+  return request<AttemptDetail>('POST', `/attempts/${attemptId}/regrade`, signal, settings);
 }
 
 export function readGradingOptions(signal: AbortSignal): Promise<GradingOptions> {
@@ -118,6 +118,6 @@ export type GradingEvent = { [Name in keyof GradingStreamEvents]: [Name, Grading
 
 // Follows the grading of an attempt until its stream ends (it is done, it failed, or the connection broke). The server keeps
 // grading whether or not anyone follows, so a page that comes back just follows again and is sent what it missed first.
-export async function watchGrading(attempt_id: number, signal: AbortSignal, onEvent: (event: GradingEvent) => void): Promise<void> {
-  await readServerEvents(await fetch(`/api/practice/attempts/${attempt_id}/stream`, { signal }), (name, data) => onEvent([name, data] as GradingEvent));
+export async function watchGrading(attemptId: number, signal: AbortSignal, onEvent: (event: GradingEvent) => void): Promise<void> {
+  await readServerEvents(await fetch(`/api/practice/attempts/${attemptId}/stream`, { signal }), (name, data) => onEvent([name, data] as GradingEvent));
 }

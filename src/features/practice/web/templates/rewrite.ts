@@ -1,34 +1,61 @@
-// rewrite: translate, rewrite a sentence, paragraph or essay, or correct a text with planted mistakes.
-import { countWords, rewriteVerb } from '../../text.ts';
+// rewrite, translation and correction: one text is given, one text is written back. A correction's answer box starts with
+// the text and its planted mistakes.
+import type { Language } from '../../../../shared/api-types.ts';
+import type { ContentOf } from '../../api-types.ts';
+import { countWords, LENGTH_NAMES } from '../../text.ts';
 import { h } from '../dom.ts';
 import { answerBox, tagList } from './parts.ts';
 import type { Template } from './types.ts';
 
-export const rewrite: Template<'rewrite'> = {
+type TextType = 'rewrite' | 'translation' | 'correction';
+
+const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
+const VERBS: Record<TextType, string> = { rewrite: 'Rewrite', translation: 'Translate', correction: 'Correct' };
+const NOUNS = { sentence: 'a sentence', paragraph: 'a paragraph', multi_paragraph: 'a longer text' };
+
+// "Vietnamese sentence", "Original paragraph": the label above the given text.
+function sourceLabelOf(content: ContentOf<TextType>): string {
+  const length = LENGTH_NAMES[content.length];
+  if (content.type === 'translation') return `${LANGUAGE_NAMES[content.sourceLanguage]} ${length}`;
+  return `Original ${length}`;
+}
+
+function languageOf(content: ContentOf<TextType>): Language {
+  if (content.type === 'translation') return content.sourceLanguage;
+  return 'en';
+}
+
+export const rewrite: Template<TextType> = {
   submitLabel: 'Submit',
-  empty: ({ content }) => ({ text: content.prefill === true ? content.text : '' }),
+  empty: ({ content }) => {
+    if (content.type === 'correction') return { type: content.type, text: content.sourceText };
+    return { type: content.type, text: '' };
+  },
   isBlank: (exercise, answer) => answer.text.trim() === '' || answer.text === rewrite.empty(exercise).text,
   isReady: (_exercise, answer) => answer.text.trim() !== '',
 
   problem({ exercise: { content, tags } }) {
-    const noun = content.length === 'essay' ? 'whole essay' : content.length;
-    const label = `${content.source_lang === 'vi' ? 'Vietnamese' : 'Original'} ${content.length}`;
+    const isLong = content.length === 'multi_paragraph';
+    let label = sourceLabelOf(content);
+    if (isLong) label = `${label} · ${countWords(content.sourceText)} words`;
     return {
-      kind: `${rewriteVerb(content)} a ${noun}`,
+      kind: `${VERBS[content.type]} ${NOUNS[content.length]}`,
       content: [
         h('p', 'instruction', content.instruction),
-        h('p', 'label', content.length === 'essay' ? `${label} · ${countWords(content.text)} words` : label),
-        Object.assign(h('p', 'read', content.text), { lang: content.source_lang ?? 'en' }),
-        ...tagList([...(content.constraints ?? []), ...tags]),
+        h('p', 'label', label),
+        Object.assign(h('p', 'read', content.sourceText), { lang: languageOf(content) }),
+        ...tagList([...content.constraints, ...tags]),
       ],
     };
   },
 
   answer({ exercise: { content }, answer, editable, change }) {
-    return [answerBox(answer.text, editable, content.length === 'essay', (text) => change({ text }))];
+    const isLong = content.length === 'multi_paragraph';
+    return [answerBox(answer.text, editable, isLong, (text) => change({ type: content.type, text }))];
   },
 
   status({ exercise: { content }, answer }) {
-    return content.length === 'essay' ? [h('strong', '', `${countWords(answer.text)} words`), ` · original ${countWords(content.text)}`] : [];
+    if (content.length !== 'multi_paragraph') return [];
+    return [h('strong', '', `${countWords(answer.text)} words`), ` · original ${countWords(content.sourceText)}`];
   },
 };

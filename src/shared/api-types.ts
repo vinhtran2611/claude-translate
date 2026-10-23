@@ -1,24 +1,79 @@
-// The HTTP API types more than one feature uses: the model and effort options, the error kinds of a `claude -p` run,
-// the translated pair the Markdown renderer draws, and the one error shape of a JSON API. Types only: every file
-// imports it with `import type`, so it is erased before anything runs and never reaches the browser.
+// The HTTP API types more than one feature uses: the data model's shared types and the model run
+// (docs/data-model-proposal.md §3.3), the model and effort options, the error kinds of a `claude -p` run, the translated
+// pair the Markdown renderer draws, and the one error shape of a JSON API. Types only: every file imports it with
+// `import type`, so it is erased before anything runs and never reaches the browser.
 
-export type Effort = 'low' | 'medium' | 'high';
-export type PairType = 'heading' | 'paragraph' | 'list_item' | 'table' | 'code' | 'quote' | 'other';
-export type ErrorKind = 'no_response' | 'stalled' | 'claude_error' | 'output_limit' | 'start_failed' | 'exited';
+// ---- Shared types of the data model ----
 
-// One unit of the input and its translation, as the model returned it.
-export interface Pair {
-  pair_type: PairType;
+// ISO 8601 UTC with milliseconds, as Date.prototype.toISOString writes it: "2026-10-21T08:30:00.000Z".
+export type Timestamp = string;
+export type Language = 'en' | 'vi';
+// Every value the CLI takes; a page offers only some of them (EFFORT_OPTIONS in shared/server/claude-runner.ts).
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+// "claude-sonnet-5-5"
+export type ModelId = string;
+// Sets the size limit of an answer.
+export type TextLength = 'sentence' | 'paragraph' | 'multi_paragraph';
+
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+// Why a `claude -p` run failed, as shared/server/claude-runner.ts reports it.
+export type CliErrorCode = 'start_failed' | 'no_response' | 'stalled' | 'output_limit' | 'exited' | 'claude_error';
+
+export type RunErrorCode =
+  | CliErrorCode
+  // The model answered with no text.
+  | 'empty_reply'
+  // English check: the reply had no check block.
+  | 'no_check_block'
+  // The server stopped during the run.
+  | 'interrupted';
+
+// One call to a model. A Grading, a Translation and an EnglishCheck each hold one, as `run`.
+// The rules (the same for every run):
+//   running:           finishedAt null, no error, the output is not there yet or is partial;
+//   succeeded:         finishedAt set, no error, the output is complete;
+//   failed, cancelled: finishedAt set, errorCode and errorMessage set for failed only, the output is missing or partial.
+// The row is saved when the run starts and updated when it ends. When the server starts, every running row becomes
+// failed with 'interrupted'.
+export interface ModelRun {
+  status: RunStatus;
+  // null only for an EnglishCheck: the app does not choose the model there.
+  requestedModelId: ModelId | null;
+  // Differs from the requested one after a fallback; null while it is not known yet.
+  servedModelId: ModelId | null;
+  // null only for an EnglishCheck.
+  effort: Effort | null;
+  // null when the model did not think.
+  thinkingText: string | null;
+  thinkingMs: number | null;
+  errorCode: RunErrorCode | null;
+  errorMessage: string | null;
+  startedAt: Timestamp;
+  finishedAt: Timestamp | null;
+}
+
+// ---- Options, pairs and errors ----
+
+export type BlockType = 'heading' | 'paragraph' | 'list_item' | 'table' | 'code' | 'quote' | 'other';
+
+// One heading, paragraph or list item next to its translation (docs/data-model-proposal.md §3.5), as the model returns it
+// and as a Translation stores it. Shared because the Markdown renderer draws it.
+export interface TranslatedBlock {
+  blockType: BlockType;
+  // Heading or list depth; 0 when none.
   level: number;
-  marker: string;
-  source_text: string;
-  translation_text: string;
+  // A list marker: "-", "1.".
+  marker: string | null;
+  // With the 'markdown' source format, the repaired text.
+  sourceText: string;
+  translatedText: string;
 }
 
 export interface ModelOption {
-  model_id: string;
+  modelId: string;
   label: string;
-  short_label: string;
+  shortLabel: string;
   description: string;
 }
 

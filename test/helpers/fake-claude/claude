@@ -7,6 +7,7 @@
 //   FAKE:crash         prints to stderr and exits 1 without a result
 //   FAKE:silent_first  stays silent unless --model is claude-haiku-5-5, so the server falls back to Haiku
 //   FAKE:stall         sends one token, then nothing
+//   FAKE:retry         reports an API retry, then nothing (for tests that join a run while it retries)
 //   FAKE:reply=<text>  replies with <text> as is (the rest of that line), then a success result
 //   FAKE:stream=<text> thinks ("Thinking it over."), then replies with <text> a few words at a time, 250ms apart (for tests that join a run midway)
 // FAKE_CLAUDE_LOG: a file to append one JSON line per run with the arguments and the message text.
@@ -70,6 +71,9 @@ process.stdin.on('end', () => {
     process.stderr.write('fake claude crashed\n');
     process.exit(1);
   } else if (content.includes('FAKE:silent_first') && model_id !== 'claude-haiku-5-5') {
+    setInterval(() => {}, 1000);
+  } else if (content.includes('FAKE:retry')) {
+    print({ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 3, error: 'overloaded', error_status: 529, retry_delay_ms: 500 });
     setInterval(() => {}, 1000);
   } else if (content.includes('FAKE:stall')) {
     print(textDelta('<pair type="paragraph">'));

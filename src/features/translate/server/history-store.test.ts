@@ -1,11 +1,12 @@
-// The translate database (history-store.ts) on scratch files: the run saved at its start, and the migration from
-// schema 4 (the spec's §5).
+// The translate database (history-store.ts) on scratch files: the run saved at its start, its checkpoints, the unread
+// mark, and the migrations from schema 4 (the spec's §5) and schema 5.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { RUN_CHECKS, runColumns, TIME_COLUMNS } from '../../../shared/server/model-run.ts';
 import { openHistoryStore, type NewTranslation } from './history-store.ts';
 
 function scratchPath(): { directory: string; databasePath: string } {
@@ -37,11 +38,12 @@ test('a run is saved as it starts, then finished once with its output', () => {
   const block = { blockType: 'paragraph' as const, level: 0, marker: null, sourceText: 'Hello', translatedText: 'Xin chào' };
   store.finishTranslation(id, {
     status: 'succeeded', blocks: [block], textOutsideBlocks: '', servedModelId: 'claude-haiku-5-5', thinkingText: '', thinkingMs: null,
-    errorCode: null, errorMessage: null,
+    errorCode: null, errorMessage: null, isUnread: false,
   });
   // A late cancel does not overwrite it.
   store.finishTranslation(id, {
     status: 'cancelled', blocks: [], textOutsideBlocks: '', servedModelId: 'x', thinkingText: '', thinkingMs: null, errorCode: null, errorMessage: null,
+    isUnread: true,
   });
   const done = store.readTranslation(id)!;
   assert.equal(done.run.status, 'succeeded');
@@ -54,6 +56,7 @@ test('a run is saved as it starts, then finished once with its output', () => {
   const [summary] = store.listTranslations();
   assert.equal(summary.outputPreview, 'Xin chào');
   assert.equal(summary.sourceFormat, 'markdown');
+  assert.equal(summary.isUnread, false);
   assert.equal(store.deleteTranslation(id), true);
   assert.equal(store.readTranslation(id), null);
 });
@@ -68,9 +71,120 @@ test('a server restart fails the runs it interrupted', () => {
   assert.equal(run.errorCode, 'interrupted');
 });
 
+const PARTIAL_BLOCK = { blockType: 'paragraph' as const, level: 0, marker: null, sourceText: 'Hel', translatedText: '' };
+const PROGRESS = { blocks: [PARTIAL_BLOCK], textOutsideBlocks: '', servedModelId: 'claude-sonnet-5-5', thinkingText: 'Plan.', thinkingMs: null };
+
+test('a checkpoint saves a running row and leaves a finished one as it is', () => {
+  const store = openHistoryStore(scratchPath().databasePath);
+  const id = store.startTranslation(REQUEST);
+  store.saveProgress(id, PROGRESS);
+  const running = store.readTranslation(id)!;
+  assert.equal(running.run.status, 'running');
+  assert.deepEqual(running.blocks, [PARTIAL_BLOCK]);
+  assert.equal(running.run.servedModelId, 'claude-sonnet-5-5');
+  assert.equal(running.run.thinkingText, 'Plan.');
+  assert.equal(running.textOutsideBlocks, null);
+
+  store.finishTranslation(id, { ...PROGRESS, blocks: [], status: 'cancelled', errorCode: null, errorMessage: null, isUnread: false });
+  store.saveProgress(id, PROGRESS);
+  const cancelled = store.readTranslation(id)!;
+  assert.equal(cancelled.run.status, 'cancelled');
+  assert.deepEqual(cancelled.blocks, []);
+});
+
+test('a run interrupted by a restart keeps its last checkpoint', () => {
+  const { databasePath } = scratchPath();
+  const store = openHistoryStore(databasePath);
+  const id = store.startTranslation(REQUEST);
+  store.saveProgress(id, PROGRESS);
+  openHistoryStore(databasePath).failInterruptedTranslations();
+  const interrupted = store.readTranslation(id)!;
+  assert.equal(interrupted.run.errorCode, 'interrupted');
+  assert.deepEqual(interrupted.blocks, [PARTIAL_BLOCK]);
+});
+
+test('a run that ended unwatched, or was cut short by a restart, is unread until it is opened', () => {
+  const { databasePath } = scratchPath();
+  const store = openHistoryStore(databasePath);
+  const finished = { ...PROGRESS, status: 'succeeded' as const, errorCode: null, errorMessage: null };
+  const unwatchedId = store.startTranslation(REQUEST);
+  store.finishTranslation(unwatchedId, { ...finished, isUnread: true });
+  const watchedId = store.startTranslation(REQUEST);
+  store.finishTranslation(watchedId, { ...finished, isUnread: false });
+  const interruptedId = store.startTranslation(REQUEST);
+  openHistoryStore(databasePath).failInterruptedTranslations();
+
+  const isUnreadOf = (id: number) => store.listTranslations().find((summary) => summary.id === id)?.isUnread;
+  assert.equal(isUnreadOf(unwatchedId), true);
+  assert.equal(isUnreadOf(watchedId), false);
+  assert.equal(isUnreadOf(interruptedId), true);
+
+  assert.equal(store.markRead(unwatchedId), true);
+  assert.equal(isUnreadOf(unwatchedId), false);
+  assert.equal(store.markRead(999), false);
+});
+
 test('the table refuses the same language on both sides', () => {
   const store = openHistoryStore(scratchPath().databasePath);
   assert.throws(() => store.startTranslation({ ...REQUEST, targetLanguage: 'en' }), /CHECK constraint failed/);
+});
+
+// The columns of the translations table, in order.
+function columnNamesOf(databasePath: string): unknown[] {
+  return readRows(databasePath, "SELECT name FROM pragma_table_info('translations')").map((row) => row.name);
+}
+
+// A file the current code made, for comparing a migrated file's table with.
+function newFilePath(): string {
+  const { databasePath } = scratchPath();
+  openHistoryStore(databasePath);
+  return databasePath;
+}
+
+// Schema 5 as it shipped: today's table without is_unread. The shared run columns have not changed since.
+const SCHEMA_5 = `
+  CREATE TABLE translations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_language     TEXT    NOT NULL CHECK (source_language IN ('en', 'vi')),
+    target_language     TEXT    NOT NULL CHECK (target_language IN ('en', 'vi')),
+    source_format       TEXT    NOT NULL CHECK (source_format IN ('plain_text', 'markdown')),
+    source_text         TEXT    NOT NULL,
+    blocks_json         TEXT    NOT NULL CHECK (json_valid(blocks_json)),
+    text_outside_blocks TEXT    CHECK (text_outside_blocks IS NULL OR text_outside_blocks <> ''),${runColumns(true)},${TIME_COLUMNS},${RUN_CHECKS},
+    CHECK (source_language <> target_language)
+  ) STRICT;
+  CREATE INDEX translations_by_created_at ON translations (created_at);
+  CREATE INDEX translations_by_run_status ON translations (run_status);
+  PRAGMA user_version = 5;`;
+
+// Three rows, the last deleted, so the AUTOINCREMENT counter is ahead of the largest id.
+function schema5File() {
+  const { directory, databasePath } = scratchPath();
+  const database = new DatabaseSync(databasePath);
+  database.exec(SCHEMA_5);
+  const insert = database.prepare(`
+    INSERT INTO translations (source_language, target_language, source_format, source_text, blocks_json, text_outside_blocks, run_status,
+                              run_requested_model_id, run_effort, run_started_at, run_finished_at, created_at, updated_at)
+    VALUES ('en', 'vi', 'plain_text', $source_text, $blocks_json, NULL, 'succeeded', 'claude-sonnet-5-5', 'low', $time, $time, $time, $time)`);
+  const blocksJson = JSON.stringify([{ blockType: 'paragraph', level: 0, marker: null, sourceText: 'One', translatedText: 'Một' }]);
+  insert.run({ source_text: 'One', blocks_json: blocksJson, time: '2026-10-20T10:00:00.000Z' });
+  insert.run({ source_text: 'Two', blocks_json: '[]', time: '2026-10-20T11:00:00.000Z' });
+  insert.run({ source_text: 'Gone', blocks_json: '[]', time: '2026-10-20T12:00:00.000Z' });
+  database.exec('DELETE FROM translations WHERE id = 3');
+  database.close();
+  return { directory, databasePath };
+}
+
+test('a schema 5 file gains the unread column in place, after a backup, with the same rows, ids and sequence', () => {
+  const { directory, databasePath } = schema5File();
+  const rowsBefore = readRows(databasePath, 'SELECT * FROM translations ORDER BY id');
+  const store = openHistoryStore(databasePath);
+  assert.deepEqual(readRows(join(directory, 'backups', 'translate-before-schema-6.sqlite'), 'PRAGMA user_version'), [{ user_version: 5 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 6 }]);
+  const rowsAfter = readRows(databasePath, 'SELECT * FROM translations ORDER BY id');
+  assert.deepEqual(rowsAfter, rowsBefore.map((row) => ({ ...row, is_unread: 0 })));
+  assert.deepEqual(columnNamesOf(databasePath), columnNamesOf(newFilePath()));
+  assert.equal(store.startTranslation(REQUEST), 4);
 });
 
 // Schema 4 as it shipped.
@@ -106,11 +220,13 @@ function schema4File() {
   return { directory, databasePath };
 }
 
-test('the schema 4 migration backs the file up, then maps every row as the spec says', () => {
+test('a schema 4 file is backed up, then migrated straight to 6 with every row mapped as the spec says', () => {
   const { directory, databasePath } = schema4File();
   const store = openHistoryStore(databasePath);
-  assert.deepEqual(readRows(join(directory, 'backups', 'translate-before-schema-5.sqlite'), 'PRAGMA user_version'), [{ user_version: 4 }]);
-  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 5 }]);
+  assert.deepEqual(readRows(join(directory, 'backups', 'translate-before-schema-6.sqlite'), 'PRAGMA user_version'), [{ user_version: 4 }]);
+  assert.deepEqual(readRows(databasePath, 'PRAGMA user_version'), [{ user_version: 6 }]);
+  assert.deepEqual(columnNamesOf(databasePath), columnNamesOf(newFilePath()));
+  assert.equal(store.listTranslations().some((summary) => summary.isUnread), false);
 
   assert.deepEqual(store.readTranslation(1), {
     id: 1, sourceLanguage: 'en', targetLanguage: 'vi', sourceFormat: 'markdown', sourceText: '- One\n\nTwo',
@@ -144,7 +260,7 @@ test('after the schema 4 migration an id is never given twice', () => {
   assert.equal(store.listTranslations().length, 4);
 });
 
-test('a schema 1 file still goes through the old steps to schema 4, then to 5', () => {
+test('a schema 1 file still goes through the old steps to schema 4, then to 6', () => {
   const { databasePath } = scratchPath();
   const database = new DatabaseSync(databasePath);
   database.exec(`

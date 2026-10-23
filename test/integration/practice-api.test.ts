@@ -74,7 +74,7 @@ test('the index tells an agent the version, the types, the formats and the limit
 
 test('the index lists every endpoint with its method, path, parameters and one line', async () => {
   const index = await get('');
-  assert.equal(index.endpoints.length, 23);
+  assert.equal(index.endpoints.length, 28);
   const lines = index.endpoints.map((endpoint: any) => `${endpoint.method} ${endpoint.path}`);
   assert.ok(lines.includes('GET /api/practice'));
   assert.ok(lines.includes('POST /api/practice/projects/{p}/rename'));
@@ -82,6 +82,8 @@ test('the index lists every endpoint with its method, path, parameters and one l
   assert.ok(lines.includes('POST /api/practice/projects/{p}/exercises/{e}/move'));
   assert.ok(lines.includes('PUT /api/practice/projects/{p}/order'));
   assert.ok(lines.includes('GET /api/practice/attempts/{id}/stream'));
+  assert.ok(lines.includes('POST /api/practice/generations/{id}/retry'));
+  assert.equal(index.limits.generationBodyBytes, 1_000_000);
   for (const endpoint of index.endpoints) assert.ok(endpoint.about.length > 0, endpoint.path);
 
   const attempts = index.endpoints.find((endpoint: any) => endpoint.method === 'GET' && endpoint.path === '/api/practice/attempts');

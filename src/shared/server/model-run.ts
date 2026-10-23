@@ -6,7 +6,8 @@ import type { Effort, ModelRun, RunErrorCode, RunStatus } from '../api-types.ts'
 export const RUN_STATUSES: RunStatus[] = ['running', 'succeeded', 'failed', 'cancelled'];
 export const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const RUN_ERROR_CODES: RunErrorCode[] = [
-  'start_failed', 'no_response', 'stalled', 'output_limit', 'exited', 'claude_error', 'empty_reply', 'no_check_block', 'interrupted',
+  'start_failed', 'no_response', 'stalled', 'output_limit', 'exited', 'claude_error', 'empty_reply', 'no_check_block', 'invalid_reply',
+  'interrupted',
 ];
 
 // "('a', 'b')": a list of texts for an IN (...) check. The values are the code's own constants, never user input.

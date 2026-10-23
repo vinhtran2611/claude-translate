@@ -30,7 +30,7 @@ export type Spec = { about?: string } & (
   | { kind: 'key'; required?: true }
   | { kind: 'oneOf'; values: string[]; required?: true }
   | { kind: 'flag' }
-  | { kind: 'whole'; min: number; max: number }
+  | { kind: 'whole'; min: number; max: number; required?: true }
   | { kind: 'time' }
   // A text, or a list of texts (format 3 only).
   | { kind: 'texts'; max: number; required?: true }
@@ -689,6 +689,13 @@ export function checkProjectInput(value: unknown): { project: Required<ProjectIn
     archivedAt: textOrNull(value.archivedAt),
   };
   return { project, problems: null };
+}
+
+// Any other request body, checked by the same field rules: every problem, the paths from its root.
+export function fieldProblems(value: Record<string, unknown>, fields: Fields): Problem[] {
+  const problems = new Problems();
+  checkFields(value, fields, [], problems);
+  return problems.list;
 }
 
 // A key in a URL, as a problem when it cannot be one ("#key", per docs/practice-api-design.md §3.3).

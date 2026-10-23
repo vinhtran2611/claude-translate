@@ -46,7 +46,7 @@ export const flashcard: Template<'flashcard'> = {
       renderDocument(explanation, content.explanationMarkdown);
       parts.push(h('p', 'label', 'Explanation'), explanation);
     }
-    // Centred under the word, like the card's front.
+    // A sheet centred under the word, its text left-aligned.
     return { title: 'Answer', content: [h('div', 'card-back', ...parts)] };
   },
 };

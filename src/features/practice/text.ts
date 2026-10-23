@@ -62,6 +62,22 @@ export function previewOf(content: ExerciseContent): string {
   return oneLine.slice(0, PREVIEW_CHARS);
 }
 
+// A key made from a name: "Day 1 - 19/10/2026" -> "day-1-19-10-2026", at most maxLength characters, never ending in -.
+// '' when the name has no letters or digits.
+export function slugOf(name: string, maxLength = 64): string {
+  const asciiName = name
+    .toLowerCase()
+    .replaceAll('đ', 'd')
+    // Splits each accented letter into the letter and its accents, then drops the accents: "ế" -> "e".
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '');
+  return asciiName
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, maxLength)
+    .replace(/-+$/, '');
+}
+
 // The history line of an attempt: a flashcard's rating, or how its latest grading went (latestStatus: null when it has
 // none). The grader's text is not parsed, so a finished grading says only "Graded".
 export function historyLineOf(answer: Answer, latestStatus: RunStatus | null): string {

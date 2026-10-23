@@ -4,12 +4,14 @@
 //   #/p/<project>       the project: the next exercise
 //   #/p/<project>/x/<exercise>   do an exercise
 //   #/a/<attempt>       an attempt, read-only
+//   #/g/<generation>    a project being made from a translation
 // Each navigation aborts the previous one's requests and timers (its signal), so a slow answer can never draw over a newer page.
 import { requiredElement } from '../../../shared/web/ui.ts';
 import { ApiError } from './client.ts';
 import { h, link } from './dom.ts';
 import { showAttempt, showExercise } from './exercise.ts';
 import { pageTitleOf } from './format.ts';
+import { showGeneration } from './generation-view.ts';
 import { showImport } from './import-view.ts';
 import type { Page } from './page.ts';
 import { showProjectHome } from './project-home.ts';
@@ -26,6 +28,7 @@ const ROUTES: { pattern: RegExp; view: View }[] = [
   { pattern: new RegExp(`^/p/${KEY}$`), view: showProjectHome },
   { pattern: new RegExp(`^/p/${KEY}/x/${KEY}$`), view: showExercise },
   { pattern: /^\/a\/(\d{1,9})$/, view: showAttempt },
+  { pattern: /^\/g\/(\d{1,9})$/, view: showGeneration },
 ];
 
 const main = requiredElement('#main', HTMLElement);
@@ -56,7 +59,7 @@ async function navigate(): Promise<void> {
   } catch (error) {
     if (own.signal.aborted) return;
     if (error instanceof ApiError && error.status === 404) {
-      showMessage('Not found', 'This project, exercise or attempt does not exist.', link('#/', '', '← Back to Projects'));
+      showMessage('Not found', 'This project, exercise, attempt or generation does not exist.', link('#/', '', '← Back to Projects'));
     } else {
       showMessage('Something went wrong', (error as Error).message, Object.assign(h('button', 'secondary-button', 'Try again'), { type: 'button' as const, onclick: () => void navigate() }));
     }

@@ -1,11 +1,11 @@
 // The page's side of the HTTP API (src/features/practice/api-types.ts). Every read takes the navigation's AbortSignal, so a response
 // that arrives after the page has moved on is dropped, never drawn.
-import type { ApiProblem } from '../../../shared/api-types.ts';
+import type { ApiProblem, GenerationDetail } from '../../../shared/api-types.ts';
 import { ApiError, fetchJson } from '../../../shared/web/fetch-json.ts';
 import { readServerEvents } from '../../../shared/web/ui.ts';
 import type {
-  Answer, AttemptDetail, CreateAttemptRequest, ExerciseDetail, ExerciseItem, GradingOptions, GradingSettings, GradingStreamEvents, ImportResult,
-  List, ProjectInput, ProjectSummary,
+  Answer, AttemptDetail, CreateAttemptRequest, ExerciseDetail, ExerciseItem, GenerationStreamEvents, GradingOptions, GradingSettings,
+  GradingStreamEvents, ImportResult, List, ProjectInput, ProjectSummary,
 } from '../api-types.ts';
 
 // The pages check `error instanceof ApiError`; it is defined with fetchJson in shared/web/fetch-json.ts.
@@ -42,7 +42,7 @@ export async function listProjects(archived: 'false' | 'all', signal: AbortSigna
   return list.items;
 }
 
-function readProject(key: string, signal: AbortSignal): Promise<ProjectSummary> {
+export function readProject(key: string, signal: AbortSignal): Promise<ProjectSummary> {
   return request<ProjectSummary>('GET', `/projects/${key}`, signal);
 }
 
@@ -115,6 +115,26 @@ export function readGradingOptions(signal: AbortSignal): Promise<GradingOptions>
 
 // One event of a grading stream as [name, data]: switching on the name narrows the data.
 export type GradingEvent = { [Name in keyof GradingStreamEvents]: [Name, GradingStreamEvents[Name]] }[keyof GradingStreamEvents];
+
+// ---- generations ----
+
+export function readGeneration(id: number, signal: AbortSignal): Promise<GenerationDetail> {
+  return request<GenerationDetail>('GET', `/generations/${id}`, signal);
+}
+
+// A new run from the same post. A 409 "generating" (an ApiError) names the run that is going in its fields.
+export async function retryGeneration(id: number, signal: AbortSignal): Promise<GenerationDetail> {
+  const started = await request<{ generation: GenerationDetail }>('POST', `/generations/${id}/retry`, signal);
+  return started.generation;
+}
+
+// One event of a generation stream as [name, data].
+export type GenerationEvent = { [Name in keyof GenerationStreamEvents]: [Name, GenerationStreamEvents[Name]] }[keyof GenerationStreamEvents];
+
+// Follows a generation until its stream ends, as watchGrading follows a grading.
+export async function watchGeneration(id: number, signal: AbortSignal, onEvent: (event: GenerationEvent) => void): Promise<void> {
+  await readServerEvents(await fetch(`/api/practice/generations/${id}/stream`, { signal }), (name, data) => onEvent([name, data] as GenerationEvent));
+}
 
 // Follows the grading of an attempt until its stream ends (it is done, it failed, or the connection broke). The server keeps
 // grading whether or not anyone follows, so a page that comes back just follows again and is sent what it missed first.

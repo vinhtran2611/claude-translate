@@ -105,6 +105,7 @@ type RunErrorCode =
   | 'start_failed' | 'no_response' | 'stalled' | 'output_limit' | 'exited' | 'claude_error'   // from the CLI
   | 'empty_reply'                      // the model answered with no text
   | 'no_check_block'                   // English check: the reply had no check block
+  | 'invalid_reply'                    // Practice generation: the reply was not the JSON asked for, or too few exercises passed
   | 'interrupted';                     // the server stopped during the run
 
 // One call to a model. Grading, Translation and EnglishCheck each hold one, as `run`.
@@ -438,6 +439,7 @@ Three SQLite files, one per feature, because the English log hook runs outside t
 | | `exercises` | `project_id → projects ON DELETE CASCADE`; `UNIQUE (project_id, key)`; index `(project_id, position)` |
 | | `attempts` | `exercise_id → exercises ON DELETE CASCADE`, NOT NULL; index `(exercise_id, id)` |
 | | `gradings` | `attempt_id → attempts ON DELETE CASCADE`; index `(attempt_id, id)`; `UNIQUE (attempt_id) WHERE run_status = 'running'` |
+| | `generations` (schema 4) | `project_id → projects ON DELETE SET NULL`; `translation_id` names a Translate row, no foreign key; indexes `(translation_id, id)`, `(run_status)`; `UNIQUE (translation_id) WHERE run_status = 'running'`. See [practice-from-translation-design.md](practice-from-translation-design.md) §3 |
 | `data/translate.sqlite` | `translations` | index `(created_at)` |
 | `data/english-log.sqlite` | `english_checks` | index `(claude_session_id, id)` |
 | | `english_mistakes` | `english_check_id → english_checks ON DELETE CASCADE`; index `(category)` |

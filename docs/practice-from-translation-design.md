@@ -1,6 +1,6 @@
 # Practice from a translation: design
 
-Status: **proposal**. Nothing is built. Date: 2026-10-23. Written from scratch by a design agent, independent of an
+Status: **built** (2026-10-23), with the deviations in §13. Written from scratch by a design agent, independent of an
 earlier draft.
 
 ## 0. Goal and owner decisions
@@ -360,3 +360,26 @@ The route `#/g/(\d{1,9})` in `ROUTES` (`practice.ts:23-29`), and a view `generat
 3. **May a vocab choice reuse a flashcard phrase?** The sample avoids it; forbid it in the prompt.
 4. **Archive the project when it is done?** No; the existing Archive works.
 5. **Keep `post_json` forever?** At most about 250 KB a run; yes, until size matters.
+
+## 13. As built: deviations and the step 1 result
+
+Step 1 on translation 24 (Opus 5.5, medium): the first run kept 49 of 50 (one `context` placed next to `content`) and
+put only 3 items in the post's last quarter. One prompt revision (spread over the quarters by block number; no field
+outside `content`) gave 50 of 50 kept, 0 warnings, 18/10/13/9, 13 distinct grammar tags, quarters 10/17/12/11,
+Vietnamese in 27 of 27 glosses, in 270 s. The default stays Opus 5.5, medium. Opus/high, Sonnet/medium and the short and
+long posts were not run.
+
+| Design | As built | Why |
+|---|---|---|
+| §4.1: 10 → 4/2/3/1 | 10 → 4/2/2/2 | Largest remainder (3.6/2/2.6/1.8) gives this; ties go to the kind listed first |
+| §4.4: `checkReply` returns `{ name, topic, exercises, dropped: Problem[] }` or `{ problems }` | `{ reply: GoodReply, problem: null }` or `{ reply: null, problem: string }`; `GoodReply` has `droppedCount`, `droppedLines` (via `problemLine`) and `warnings` | The pure check makes the lines, the caller only logs them |
+| §4.4: Vietnamese test `/[ăâđêôơưạ-ỹ]/i` | adds the Latin-1 marked vowels (`à á â ã è é ...`) | "hoá" in the sample has none of the original letters |
+| §3: `migrateFrom3` when `fileSchemaVersion <= 3` | only when `=== 3` | `migrateFrom2` runs `CREATE_TABLES`, which now holds the table |
+| §5: `startGeneration` returns `'generating'` / `{ made }` / detail | `{ outcome: 'started', generation }`, `{ outcome: 'generating', generationId }`, `{ outcome: 'made', projectKey }`; also `readGenerationPost` | The 409 needs the running id; Try again needs the post |
+| §6: the 409s carry `generationId` / `projectKey` | in the error object (`GenerationConflictBody`); the page's `ApiError` gained `fields` | The one error shape had no room for them |
+| §6: request checks | `generationRequestProblems` reuses import-check's field rules (new `fieldProblems`, and `required` on a whole-number spec); a block's `translatedText` must not be empty, so the Translate page leaves out blocks with an empty text | Strict input with the existing checker |
+| §7: succeeded "goes to `#/p/{key}`" | goes there when nothing was dropped; otherwise shows "N of M kept" with Open the project | The note would be lost by the jump |
+| §7: Translate opens the tab after the answer | opens a blank tab at the click, then sets its address | Browsers block `window.open` after an await |
+| §9: `generation.test.ts` with a fake process | `test/integration/practice-generation.test.ts`, through the server with `test/helpers/fake-claude` | A file in `src/` may not import test helpers |
+| §9: the sample in tests | copied to `test/fixtures/practice/t-24-php-security.json` | `data/` is not in git |
+| §5: slug | `slugOf` moved to `text.ts`; `keyFromName` uses it | One slug function |

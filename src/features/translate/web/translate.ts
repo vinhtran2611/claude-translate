@@ -819,6 +819,10 @@ document.addEventListener('keydown', (event) => {
   } else if (hasModifier && event.shiftKey && event.key.toLowerCase() === 's') {
     event.preventDefault();
     swapLanguages();
+  } else if (hasModifier && event.shiftKey && event.key.toLowerCase() === 'o') {
+    // Not ⌘N: browsers keep ⌘N, ⌘T and ⌘W and never pass them to the page. ⌘⇧O is new chat in Claude and ChatGPT.
+    event.preventDefault();
+    startNewTranslation();
   }
 });
 

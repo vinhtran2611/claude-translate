@@ -33,7 +33,7 @@ While a listed row is running, the open sidebar reads the list again every 3 s.
 | Show or hide the sidebar | sidebar button top left, or `⌘\` |
 | Search | `⌘K`; matches the text and its translation, ignoring diacritics (`giup` finds `giúp`) |
 | Move through the list | `↓` from search, then `↑` `↓` `Home` `End`, `↵` to open |
-| New translation | **New translation**: clears the page, **Undo** brings it back |
+| New translation | **New translation**, or `⌘⇧O` (browsers keep `⌘N` for a new window): clears the page, **Undo** brings it back |
 | Delete | trash icon on hover, or `⌫` on a focused entry. **Undo** in the toast within 5 s |
 
 At 1280 px and wider the sidebar is docked beside the page and stays open or closed as you

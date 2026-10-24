@@ -86,7 +86,12 @@ the price of exact pairing.
 
 - After the run, the words of the left column are checked against the input, ignoring layout and
   Markdown syntax (`src/features/translate/web/source-check.ts`); a unit of type other (page furniture) may sit anywhere but must
-  still be there. If the model changed or dropped a word, a yellow alert shows where the two part.
+  still be there, and a heading whose words are not the next input words counts as a section title Markdown mode added
+  and is skipped. If the model changed or dropped a word, a yellow alert shows where the two part.
+- In Markdown mode, plain prose of about 100 words or more is also laid out as a document: long paragraphs split
+  between sentences, inline enumerations as list items, added `##` section headings and a few bold terms, every
+  sentence kept ([markdown-structure-prompt.md](markdown-structure-prompt.md)). Text that is already Markdown, code or
+  short is only tidied.
 - If the reply has no pairs (the model ignored the format), the translation is shown as plain
   text, as before.
 - **Edit** returns to the text box (available once the translation finishes); **Copy** gives the

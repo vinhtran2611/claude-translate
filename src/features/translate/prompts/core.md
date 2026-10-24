@@ -36,7 +36,7 @@ Fields:
 - source: the unit's text without its marker, heading #, quote > or code fences. The Source section at the end defines its exact form.
 - translation: the unit's translation without the marker, with the inline Markdown (bold, italics, links, code spans) the source has. Join lines the source broke only for width and keep line breaks that carry meaning. In a table, keep every | and every row and translate only the cell text. For code, leave translation empty, because code is not translated.
 
-Keep each unit in its own pair: do not merge units, split one across pairs or move a sentence between pairs, so that each source and translation start on the same line. Inside a translation you may reorder clauses and split long sentences. Add no formatting the source lacks: a term written plain stays plain, without backticks, quotes or bold.
+Keep each unit in its own pair: do not merge units, split one across pairs or move a sentence between pairs, so that each source and translation start on the same line. Inside a translation you may reorder clauses and split long sentences. A translation adds no formatting its source lacks: a term written plain stays plain, without backticks, quotes or bold.
 
 <example>
 Input, English into Vietnamese:

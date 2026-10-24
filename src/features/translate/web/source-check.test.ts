@@ -77,3 +77,36 @@ test('page furniture that was dropped or changed is still reported', () => {
   ];
   assert.notEqual(findSourceDivergence(PAGE_BREAK_INPUT, changed), null);
 });
+
+const PROSE_INPUT = 'They are trained on human data, which is both 1) human generated and 2) finite. What do you do when you run out?';
+
+test('an inline enumeration split into list items, with bold added, keeps every word', () => {
+  const pairs: CheckedBlock[] = [
+    { blockType: 'paragraph', sourceText: 'They are trained on **human data**, which is both' },
+    { blockType: 'list_item', sourceText: 'human generated and' },
+    { blockType: 'list_item', sourceText: 'finite.' },
+    { blockType: 'paragraph', sourceText: 'What do you do when you run out?' },
+  ];
+  assert.equal(findSourceDivergence(PROSE_INPUT, pairs), null);
+});
+
+test('a heading Markdown mode added between paragraphs is skipped', () => {
+  const pairs: CheckedBlock[] = [
+    { blockType: 'heading', sourceText: 'Training data' },
+    { blockType: 'paragraph', sourceText: 'They are trained on human data, which is both 1) human generated and 2) finite.' },
+    { blockType: 'heading', sourceText: 'Running out' },
+    { blockType: 'paragraph', sourceText: 'What do you do when you run out?' },
+  ];
+  assert.equal(findSourceDivergence(PROSE_INPUT, pairs), null);
+});
+
+test('a heading the input already had still matches, past its # marks', () => {
+  assert.equal(findSourceDivergence('## Setup\n\nRun it.', [{ blockType: 'heading', sourceText: 'Setup' }, ...paragraphs('Run it.')]), null);
+});
+
+test('a heading that replaced or moved input words is still reported', () => {
+  const replaced: CheckedBlock[] = [{ blockType: 'heading', sourceText: 'Install' }, ...paragraphs('Run it.')];
+  assert.deepEqual(findSourceDivergence('Setup\nRun it.', replaced), { inputExcerpt: 'Setup Run it.', sourceExcerpt: 'Run it.' });
+  const moved: CheckedBlock[] = [{ blockType: 'heading', sourceText: 'What do you do when you run out?' }, ...paragraphs('They are trained on human data, which is both 1) human generated and 2) finite.')];
+  assert.equal(findSourceDivergence(PROSE_INPUT, moved)?.inputExcerpt, 'What do you do when you');
+});

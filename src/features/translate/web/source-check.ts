@@ -37,16 +37,46 @@ function withoutMovedUnits(inputWords: string[], pairs: CheckedBlock[]): { remai
   return { remainingWords, orderedPairs };
 }
 
+// The words of the pairs in order, and for each heading pair the index of its first word mapped to the index just
+// past its last one.
+function sourceWordsOf(pairs: CheckedBlock[]): { sourceWords: string[]; headingEnds: Map<number, number> } {
+  const sourceWords: string[] = [];
+  const headingEnds = new Map<number, number>();
+  for (const pair of pairs) {
+    const pairWords = wordsOf(pair.sourceText);
+    if (pair.blockType === 'heading' && pairWords.length > 0) headingEnds.set(sourceWords.length, sourceWords.length + pairWords.length);
+    sourceWords.push(...pairWords);
+  }
+  return { sourceWords, headingEnds };
+}
+
+// True when words are the next words of the input from inputIndex, past any block syntax the input has there.
+function isNextInInput(inputWords: string[], inputIndex: number, words: string[]): boolean {
+  let start = inputIndex;
+  while (start < inputWords.length && BLOCK_SYNTAX_WORD.test(inputWords[start])) start += 1;
+  return words.every((word, offset) => inputWords[start + offset] === word);
+}
+
 // pairs: [{ blockType, sourceText }]. null when every input word appears in the sources once, in order, except that
-// a type "other" unit (page furniture) may sit anywhere. Otherwise the first place they part, as
+// a type "other" unit (page furniture) may sit anywhere, and a heading whose words are not the next input words is
+// one Markdown mode added (a section title) and is skipped. Skipping it lets nothing else through: an input word the
+// heading replaced or moved is still missing from its place. Otherwise the first place they part, as
 // { inputExcerpt, sourceExcerpt } ('' when that side has run out). A word ending in "-" may join the next one,
 // with or without the hyphen, since rejoining a word split across a PDF line is allowed.
 export function findSourceDivergence(inputText: string, pairs: CheckedBlock[]): SourceDivergence | null {
   const { remainingWords: inputWords, orderedPairs } = withoutMovedUnits(wordsOf(inputText), pairs);
-  const sourceWords = orderedPairs.flatMap((pair) => wordsOf(pair.sourceText));
+  const { sourceWords, headingEnds } = sourceWordsOf(orderedPairs);
   let inputIndex = 0;
   let sourceIndex = 0;
   while (inputIndex < inputWords.length || sourceIndex < sourceWords.length) {
+    const headingEnd = headingEnds.get(sourceIndex);
+    if (headingEnd !== undefined) {
+      const headingWords = sourceWords.slice(sourceIndex, headingEnd);
+      if (!isNextInInput(inputWords, inputIndex, headingWords)) {
+        sourceIndex = headingEnd;
+        continue;
+      }
+    }
     const inputWord = inputWords[inputIndex];
     const sourceWord = sourceWords[sourceIndex];
     const nextInputWord = inputWords[inputIndex + 1];

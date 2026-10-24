@@ -26,7 +26,7 @@ export const SOURCE_FORMAT_OPTIONS: SourceFormatConfig[] = [
   {
     sourceFormat: 'markdown',
     label: 'Markdown',
-    description: 'Tidies pasted text into headings, lists and paragraphs, then translates. Words never change.',
+    description: 'Lays pasted text out as sections, short paragraphs and lists, then translates. Every sentence is kept.',
     sourcePromptPath: join(PROMPTS_DIRECTORY, 'source-translate_markdown.md'),
   },
 ];

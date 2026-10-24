@@ -50,7 +50,7 @@ A translation becomes a **job owned by the server**.
 Closing a stream only stops watching; it never stops the job.
 Only an explicit **Cancel** (button, Esc, or deleting the entry) stops it, through `POST /history/{id}/cancel`.
 Any page can re-attach with `GET /history/{id}/events`: it gets a `snapshot` of everything so far, then the live events.
-At most 3 jobs run at once; a fourth `POST /translate` is refused with `429`, and the page says so.
+At most 5 jobs run at once (3 at first, see Q1); one more `POST /translate` is refused with `429`, and the page says so.
 While a job runs, its output is saved to SQLite at most every 5 s, so a server crash keeps all but the last few seconds.
 
 ```
@@ -361,10 +361,10 @@ It does not retry in a loop: a stopped server cannot resume the run (§7.1).
 
 | Constant | Value | Why |
 |---|---|---|
-| `MAX_RUNNING_TRANSLATIONS` | 3 | The subscription quota is the real limit. It matches the gateway's limit (`docs/llm-gateway-design.md` §5 step 3, Q2) |
+| `MAX_RUNNING_TRANSLATIONS` | 5 | The subscription quota is the real limit, and each `claude` process takes about 200-250 MB. It was 3, the gateway's limit (`docs/llm-gateway-design.md` §5 step 3, Q2); raised after use (Q1) |
 
 `POST /translate` checks `jobs.isFull()` after validating the body and before writing any header.
-When it is full, it answers `429` with a plain-text reason, as the `400`s do (`routes.ts:124-127`): "3 translations are already running. Wait for one to finish, or cancel one."
+When it is full, it answers `429` with a plain-text reason, as the `400`s do (`routes.ts:124-127`): "5 translations are already running. Wait for one to finish, or cancel one."
 The page shows that reason in a warning alert, "Too many translations at once", so the number lives only on the server.
 
 A slot belongs to a job, not to a process.
@@ -583,6 +583,9 @@ Tests:
 **Q1. How many translations at once?**
 3 (`MAX_RUNNING_TRANSLATIONS`).
 It is the gateway's number, so the two limits agree when the gateway takes over, and a fourth is refused, not lost.
+**Changed on 2026-10-24: 5.** In use, 3 was hit while translating several documents, and the refused one had to be started again by hand.
+Five `claude` processes take about 1.2 GB, and the quota stays the real limit.
+The two limits are set again when the gateway takes over.
 
 **Q2. Should Clear and New translation cancel a run the page is showing?**
 No: they only stop watching.
@@ -596,7 +599,7 @@ Esc only cancels the run on screen, as today, and a cancelled run keeps its part
 There is no queue, so nothing waits.
 Interrupted runs are never restarted automatically: a run that spends quota by itself after a restart would surprise you, and Translate again is one click.
 
-**Q5. Do Practice gradings and generations share the 3 slots?**
+**Q5. Do Practice gradings and generations share the translation slots?**
 No, not in this design.
 A shared limit belongs in the gateway, the planned single place for runs; a cross-feature counter now would be a second copy of it.
 

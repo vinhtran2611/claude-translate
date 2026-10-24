@@ -18,9 +18,10 @@ export interface TranslateSettings {
   sourceFormat: SourceFormat;
 }
 
-// The subscription quota is the real limit; 3 is the gateway's planned limit too (docs/llm-gateway-design.md §5 step 3),
-// so the two agree when it takes over. A fourth run is refused, not queued.
-export const MAX_RUNNING_TRANSLATIONS = 3;
+// Room for a handful of documents at once. The subscription quota is the real limit, and each claude process takes about
+// 200-250 MB. Raised from 3 after use; the gateway still plans 3 (docs/llm-gateway-design.md §5 step 3), so the two are
+// set again when it takes over. A run past the limit is refused, not queued.
+export const MAX_RUNNING_TRANSLATIONS = 5;
 // Measured on Claude's tokenizer from a 19.5k-char en->vi run: English ~4 chars per token, Vietnamese ~1.3.
 const CHARS_PER_TOKEN: Record<Language, number> = { en: 4, vi: 1.3 };
 // Arbitrary: reading a long input delays the first token; 1s per 10k input tokens keeps a 77k-token input from

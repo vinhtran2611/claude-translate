@@ -11,9 +11,9 @@ const REQUEST: TranslateRequest = {
 
 test('the start line names the row and the slots in use, with cold start last', () => {
   const warmLine = formatStartLine({ request: REQUEST, historyId: 64, runningCount: 2, isColdStart: false });
-  assert.equal(warmLine, 'en->vi  10,476 chars  Sonnet 5.5 high  markdown  history 64  2/3 running');
+  assert.equal(warmLine, 'en->vi  10,476 chars  Sonnet 5.5 high  markdown  history 64  2/5 running');
   const coldLine = formatStartLine({ request: REQUEST, historyId: 63, runningCount: 1, isColdStart: true });
-  assert.equal(coldLine, 'en->vi  10,476 chars  Sonnet 5.5 high  markdown  history 63  1/3 running  cold start');
+  assert.equal(coldLine, 'en->vi  10,476 chars  Sonnet 5.5 high  markdown  history 63  1/5 running  cold start');
 });
 
 const DONE_SUMMARY = {
@@ -25,13 +25,13 @@ const DONE_SUMMARY = {
 test('the closing line keeps the old fields in order and adds checkpoints, slots and unread', () => {
   assert.equal(
     formatRequestSummary(DONE_SUMMARY),
-    'Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  13 checkpoints  history 63  2/3 running  unread',
+    'Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  13 checkpoints  history 63  2/5 running  unread',
   );
 });
 
 test('the closing line leaves out no checkpoints and a watched end', () => {
   const summary = formatRequestSummary({ ...DONE_SUMMARY, checkpointCount: 0, isUnread: false, runningCount: 0 });
-  assert.equal(summary, 'Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  history 63  0/3 running');
+  assert.equal(summary, 'Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  history 63  0/5 running');
 });
 
 test('a cancel cause sits where a failure would', () => {
@@ -39,7 +39,7 @@ test('a cancel cause sits where a failure would', () => {
     ...DONE_SUMMARY, outcome: 'cancelled', durationMs: 12_300, failureText: 'by delete', firstTextMs: 6000, thinkingDurationMs: null,
     blockCount: 2, outputTokens: null, checkpointCount: 2, historyId: 66, runningCount: 0, isUnread: false,
   });
-  assert.equal(summary, 'Sonnet 5.5  high     12.3s  by delete  first text 6.0s  2 blocks  2 checkpoints  history 66  0/3 running');
+  assert.equal(summary, 'Sonnet 5.5  high     12.3s  by delete  first text 6.0s  2 blocks  2 checkpoints  history 66  0/5 running');
 });
 
 test('the interrupted line lists each row and what it kept', () => {

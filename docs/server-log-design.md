@@ -34,7 +34,7 @@ From these lines alone you cannot tell:
 | Gap | Why it matters now |
 |---|---|
 | Which row a run is, until it ends | A running row is visible in the sidebar; you cannot match it to `#1` |
-| How many of the 3 slots are busy | A `429` makes sense only if you can count the live runs |
+| How many of the 5 slots are busy | A `429` makes sense only if you can count the live runs |
 | Whether a page re-attached | Re-attach is the newest and most fragile path (snapshot, then live tail) |
 | Whether a run ended with nobody watching | That decides the unread dot (`translation-jobs.ts:255-256`) |
 | Whether checkpoints were saved | That decides what a crash keeps (§4.1 of the jobs design) |
@@ -51,7 +51,7 @@ A field that answers no question below is not added.
 |---|---|---|
 | Q1 | Which lines belong to one run? | `#n`, unique across features per server process (§5) |
 | Q2 | Which history row is run `#n`? | `history N` on `start` (new) and on the closing line (as today) |
-| Q3 | How many slots are busy? Why was a run refused? | `k/3 running` on `start` and the closing line; the `429` line names the live rows |
+| Q3 | How many slots are busy? Why was a run refused? | `k/5 running` on `start` and the closing line; the `429` line names the live rows |
 | Q4 | Did a page re-attach to a live run, and what did it get? | `watch` line (new) |
 | Q5 | Did the run end with nobody watching, so it is unread? | `unread` on the closing line (new) |
 | Q6 | Did checkpoints work? What would a crash lose? | `N checkpoints` on the closing line (new); `history` ERROR when one fails (as today, plus the row) |
@@ -82,18 +82,18 @@ New event names stay at 9 chars or fewer.
 
 | Event | Level | When | Change |
 |---|---|---|---|
-| `start` | info | the row is saved and the job starts | adds `history N` and `k/3 running` |
+| `start` | info | the row is saved and the job starts | adds `history N` and `k/5 running` |
 | `watch` | info | a page re-attaches with `GET /history/{id}/events` to a live run | new |
 | `retry`, `fallback`, `continue` | WARN | as today (`claude-runner.ts:262-266`, `:308`, `:350`) | none |
-| `done` | info, WARN | the run succeeded | adds `N checkpoints`, `k/3 running`, `unread` |
+| `done` | info, WARN | the run succeeded | adds `N checkpoints`, `k/5 running`, `unread` |
 | `error` | ERROR | the run failed | the same additions |
 | `cancelled` | info | Cancel, Esc, or a delete stopped it | adds `by cancel` or `by delete`, and the same additions |
 | `history` | ERROR | a checkpoint or the final save failed | names the row and what the failure means |
 
-`start`, with `k/3 running` counting this run:
+`start`, with `k/5 running` counting this run:
 
 ```
-09:39:07       #2   start     en->vi  706 chars  Sonnet 5.5 high  markdown  history 64  2/3 running
+09:39:07       #2   start     en->vi  706 chars  Sonnet 5.5 high  markdown  history 64  2/5 running
 ```
 
 `cold start` stays last when present.
@@ -111,15 +111,15 @@ The closing line keeps today's fields and order (`formatRequestSummary` in `tran
 |---|---|---|
 | `N checkpoints` | when N > 0 | progress saves during the run (`saveCheckpoint` in `translation-jobs.ts`) |
 | `history N` | always | the row, as today |
-| `k/3 running` | always | slots in use after this run left the live map |
+| `k/5 running` | always | slots in use after this run left the live map |
 | `unread` | when no page watched the end | the row was saved with `is_unread = 1` |
 
 `by cancel` or `by delete` takes the place of the failure text, after the duration, as `error` puts its reason there.
 It is passed as that same failure text (`cancel` hands `by <cause>` to `finishJob`), so the summary has one slot for "why it ended", not two.
 
 ```
-09:40:04       #1   done      Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  13 checkpoints  history 63  2/3 running  unread
-09:41:12       #4   cancelled Sonnet 5.5  high     12.3s  by delete  first text 6.0s  2 blocks  2 checkpoints  history 66  0/3 running
+09:40:04       #1   done      Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  13 checkpoints  history 63  2/5 running  unread
+09:41:12       #4   cancelled Sonnet 5.5  high     12.3s  by delete  first text 6.0s  2 blocks  2 checkpoints  history 66  0/5 running
 ```
 
 The closing line grows by about 35 chars.
@@ -131,7 +131,7 @@ That is the price of answering Q3, Q5 and Q6 without new lines.
 |---|---|---|---|
 | `history` | WARN | startup found rows left `running` (changed) | `2 translations interrupted by a restart: 63 (18 blocks saved), 65 (nothing saved)` |
 | `history` | info | a row was deleted (new) | `66 deleted` |
-| `http` | WARN | `429` (changed: names the live rows) | `429 POST /translate: 3/3 running (history 63, 64, 65)` |
+| `http` | WARN | `429` (changed: names the live rows) | `429 POST /translate: 5/5 running (history 63, 64, 65, 66, 67)` |
 | `http` | WARN | `409` on cancel (new) | `409 POST /history/63/cancel: not running` |
 
 The `interrupted` line prints before `ready`, as today.
@@ -192,7 +192,7 @@ A restart prints the date header, the `interrupted` line, then `ready`.
 The `interrupted` line uses history ids, because the old `#n` values mean nothing in the new process.
 
 ```
-09:42:10       #5   start     en->vi  9,800 chars  Sonnet 5.5 high  markdown  history 67  1/3 running
+09:42:10       #5   start     en->vi  9,800 chars  Sonnet 5.5 high  markdown  history 67  1/5 running
 --- Sat 2026-10-24 ---
 09:43:02 WARN       history   1 translation interrupted by a restart: 67 (21 blocks saved)
 09:43:02            ready     http://localhost:8787  (Ctrl-C stops)
@@ -237,7 +237,7 @@ The lines are built from pure string functions, so the tests check those.
 | Test | File | Asserts |
 |---|---|---|
 | Closing line fields | `translation-jobs.test.ts` (new) | `formatRequestSummary` keeps today's order; adds `N checkpoints` only when N > 0; `unread` only when set; `by delete` sits where a failure would |
-| Start line | same | `formatStartLine` (new, pure) gives `history N  k/3 running` and ends with `cold start` when set |
+| Start line | same | `formatStartLine` (new, pure) gives `history N  k/5 running` and ends with `cold start` when set |
 | Interrupted rows | `history-store.test.ts` | `failInterruptedTranslations` returns each running row's id and saved block count, and marks them as before |
 | Interrupted line | `translation-jobs.test.ts` | `formatInterruptedLine`: the list of ids and blocks, cut after 10 with `and N more` |
 | Column alignment | `src/shared/server/log.test.ts` (new) | `formatLogLine` (exported) pads level, `#n` and event so the message starts at the same column for `#1` and `#999`, `start` and `cancelled` |
@@ -250,7 +250,7 @@ No test spawns `claude` or reads `console.log`.
 | File | Change |
 |---|---|
 | `src/shared/server/log.ts` | add `nextRequestNumber()`; export `formatLogLine` for its test |
-| `src/features/translate/server/translation-jobs.ts` | use `nextRequestNumber()`; `LiveTranslation` gains `checkpointCount`; `formatStartLine` (new) adds `history N  k/3 running`; `formatRequestSummary` takes `checkpointCount`, `runningCount`, `isUnread`, and the cancel cause as its `failureText` (§3.1); `formatRunningCount` (one place for `k/3 running`) and `formatInterruptedLine` (new, pure, next to the other line formatters); `saveCheckpoint` counts and names the row on failure; `finishJob` computes `isUnread` once, for the save and the line, and names the row on a failed save; `watch(res, id, isReattach)` logs `watch` for a re-attach to a live run; `cancel(id, cause)` with `cause: 'cancel' \| 'delete'`; `liveIds()` for the `429` line |
+| `src/features/translate/server/translation-jobs.ts` | use `nextRequestNumber()`; `LiveTranslation` gains `checkpointCount`; `formatStartLine` (new) adds `history N  k/5 running`; `formatRequestSummary` takes `checkpointCount`, `runningCount`, `isUnread`, and the cancel cause as its `failureText` (§3.1); `formatRunningCount` (one place for `k/5 running`) and `formatInterruptedLine` (new, pure, next to the other line formatters); `saveCheckpoint` counts and names the row on failure; `finishJob` computes `isUnread` once, for the save and the line, and names the row on a failed save; `watch(res, id, isReattach)` logs `watch` for a re-attach to a live run; `cancel(id, cause)` with `cause: 'cancel' \| 'delete'`; `liveIds()` for the `429` line |
 | `src/features/translate/server/history-store.ts` | `failInterruptedTranslations()` returns `{ id, blockCount }[]`, using `RETURNING id, json_array_length(blocks_json)` on the same `UPDATE`, sorted by id because `RETURNING` sets no order |
 | `src/features/translate/server/routes.ts` | the interrupted line lists rows; the `429` line names live rows; the cancel route passes `'cancel'` and logs a `409`; the delete route passes `'delete'` and logs `N deleted`; `handleTranslate` calls `watch(res, id, false)`, the events route `watch(res, id, true)` |
 | `src/features/practice/server/ai-grading.ts`, `generation.ts` | use `nextRequestNumber()` in place of their own counters |
@@ -260,7 +260,7 @@ No test spawns `claude` or reads `console.log`.
 Steps, each one commit that passes `npm run check`:
 
 1. The shared counter, in all three features.
-2. `history N` and `k/3 running` on `start`; the new closing fields; the cancel cause.
+2. `history N` and `k/5 running` on `start`; the new closing fields; the cancel cause.
 3. The `watch` line.
 4. The interrupted list, the `429` ids, `deleted`, `409`, and the row ids in `history` errors.
 5. The tests, and the internals doc.

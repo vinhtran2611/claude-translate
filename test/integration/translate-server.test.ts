@@ -4,6 +4,7 @@
 // back, and only cancel stops it.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { MAX_RUNNING_TRANSLATIONS } from '../../src/features/translate/server/translation-jobs.ts';
 import {
   openEventStream, startTestServer, startTranslation, translate, waitForTranslation, type EventStream, type StreamEvent, type TestServer,
 } from '../helpers/server-harness.ts';
@@ -218,20 +219,20 @@ test('a page that joins during a retry gets the retry as the notice', async () =
   await second.rest();
 });
 
-test('a fourth run while three are running is refused with 429, and saves no row', async () => {
+test('a run past the limit is refused with 429, and saves no row', async () => {
   const streams = [];
   const ids: number[] = [];
-  for (const name of ['One', 'Two', 'Three']) {
-    const stream = await startTranslation(server.baseUrl, `${name} FAKE:stall`);
+  for (let runNumber = 1; runNumber <= MAX_RUNNING_TRANSLATIONS; runNumber += 1) {
+    const stream = await startTranslation(server.baseUrl, `Run ${runNumber} FAKE:stall`);
     const [, snapshot] = (await stream.next())!;
     streams.push(stream);
     ids.push(snapshot.translation.id);
   }
   const countBefore = (await (await fetch(`${server.baseUrl}/history`)).json()).length;
-  const body = { sourceLanguage: 'en', targetLanguage: 'vi', sourceText: 'Four FAKE:ok', modelId: 'claude-sonnet-5-5', effort: 'low', sourceFormat: 'plain_text' };
-  const fourth = await fetch(`${server.baseUrl}/translate`, { method: 'POST', body: JSON.stringify(body) });
-  assert.equal(fourth.status, 429);
-  assert.match(await fourth.text(), /^3 translations are already running\./);
+  const body = { sourceLanguage: 'en', targetLanguage: 'vi', sourceText: 'One more FAKE:ok', modelId: 'claude-sonnet-5-5', effort: 'low', sourceFormat: 'plain_text' };
+  const oneMore = await fetch(`${server.baseUrl}/translate`, { method: 'POST', body: JSON.stringify(body) });
+  assert.equal(oneMore.status, 429);
+  assert.ok((await oneMore.text()).startsWith(`${MAX_RUNNING_TRANSLATIONS} translations are already running.`));
   const countAfter = (await (await fetch(`${server.baseUrl}/history`)).json()).length;
   assert.equal(countAfter, countBefore);
 

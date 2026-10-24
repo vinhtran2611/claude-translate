@@ -13,7 +13,9 @@ import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { TranslateRequest, TranslationOptions } from '../api-types.ts';
 import { openHistoryStore } from './history-store.ts';
 import { DEFAULT_SOURCE_FORMAT, isSourceFormat, PROMPT_PATHS, SOURCE_FORMAT_OPTIONS, systemPromptOf } from './translate-prompt.ts';
-import { createTranslationJobs, MAX_RUNNING_TRANSLATIONS, type TranslateSettings, type TranslationJobs } from './translation-jobs.ts';
+import {
+  createTranslationJobs, formatInterruptedLine, formatRunningCount, MAX_RUNNING_TRANSLATIONS, type TranslateSettings, type TranslationJobs,
+} from './translation-jobs.ts';
 
 // Output is the ceiling, not input: the reply restates the source and adds the translation, ~1.05 output tokens per
 // source char (measured en->vi), so 100k chars leaves ~20k of MAX_OUTPUT_TOKENS for thinking.
@@ -126,13 +128,14 @@ async function handleTranslate(req: IncomingMessage, res: ServerResponse, jobs: 
     return;
   }
   if (jobs.isFull()) {
-    log('warn', null, 'http', `429 POST /translate: ${MAX_RUNNING_TRANSLATIONS} translations running`);
+    const liveIds = jobs.liveIds();
+    log('warn', null, 'http', `429 POST /translate: ${formatRunningCount(liveIds.length)} (history ${liveIds.join(', ')})`);
     res.writeHead(429).end(TOO_MANY_RUNNING_TEXT);
     return;
   }
   // A row that cannot be saved throws before anything starts; the entry file answers 500 and logs it.
   const translationId = jobs.start(body as TranslateRequest);
-  jobs.watch(res, translationId);
+  jobs.watch(res, translationId, false);
 }
 
 // What the page offers in its settings menus. quotaWarning: the latest reply's rate limit when it is a warning or a
@@ -156,8 +159,8 @@ function translationOptionsResponse(): TranslationOptions {
 export function createTranslateFeature({ databasePath }: { databasePath: string }): Feature {
   // Throws on a migration problem, so a damaged or newer database stops the server at startup, not mid-request.
   const historyStore = openHistoryStore(databasePath);
-  const interruptedCount = historyStore.failInterruptedTranslations();
-  if (interruptedCount > 0) log('warn', null, 'history', `${interruptedCount} translation(s) were interrupted by a restart`);
+  const interrupted = historyStore.failInterruptedTranslations();
+  if (interrupted.length > 0) log('warn', null, 'history', formatInterruptedLine(interrupted));
   watchPromptFiles();
   const jobs = createTranslationJobs({ historyStore, takeClaudeProcess, noteClaudeResult });
 
@@ -180,11 +183,17 @@ export function createTranslateFeature({ databasePath }: { databasePath: string 
       else res.writeHead(404).end('No such history entry');
     } else if (req.method === 'GET' && historyEventsMatch) {
       // An unknown id is not live either: it gets `finished`, and GET /history/:id then answers 404.
-      jobs.watch(res, Number(historyEventsMatch[1]));
+      jobs.watch(res, Number(historyEventsMatch[1]), true);
     } else if (req.method === 'POST' && historyCancelMatch) {
-      const isCancelled = jobs.cancel(Number(historyCancelMatch[1]));
-      if (isCancelled) res.writeHead(204).end();
-      else res.writeHead(409).end('not_running');
+      const translationId = Number(historyCancelMatch[1]);
+      const isCancelled = jobs.cancel(translationId, 'cancel');
+      if (isCancelled) {
+        res.writeHead(204).end();
+      } else {
+        // Logged because a Cancel the page sent did nothing, which the user may report.
+        log('warn', null, 'http', `409 POST /history/${translationId}/cancel: not running`);
+        res.writeHead(409).end('not_running');
+      }
     } else if (req.method === 'POST' && historyReadMatch) {
       // A POST, not part of GET /history/:id: reading an entry from a script or an agent must not clear the mark.
       const isMarked = historyStore.markRead(Number(historyReadMatch[1]));
@@ -192,8 +201,9 @@ export function createTranslateFeature({ databasePath }: { databasePath: string 
     } else if (req.method === 'DELETE' && historyEntryMatch) {
       const translationId = Number(historyEntryMatch[1]);
       // A live run is stopped first, so no job is left writing to a row that is gone.
-      jobs.cancel(translationId);
+      jobs.cancel(translationId, 'delete');
       const isDeleted = historyStore.deleteTranslation(translationId);
+      if (isDeleted) log('info', null, 'history', `${translationId} deleted`);
       res.writeHead(isDeleted ? 204 : 404).end();
     } else {
       return false;

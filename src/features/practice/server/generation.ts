@@ -8,7 +8,7 @@ import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { Effort, GenerationDetail } from '../../../shared/api-types.ts';
 import { modelLabelOf, runClaude, type Run } from '../../../shared/server/claude-runner.ts';
-import { formatCount, formatSeconds, log } from '../../../shared/server/log.ts';
+import { formatCount, formatSeconds, log, nextRequestNumber } from '../../../shared/server/log.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { GenerationStreamEvents } from '../api-types.ts';
 import {
@@ -21,8 +21,6 @@ const PROMPT_PATH = join(FEATURES_DIRECTORY, 'practice', 'prompts', 'generate.md
 export const GENERATION_SETTINGS: { modelId: string; effort: Effort } = { modelId: 'claude-opus-5-5', effort: 'medium' };
 // Every exercise of the reply starts with its key, so counting them as they stream in shows the progress.
 const KEY_FIELD = /"key"\s*:/g;
-
-let generationRequestCount = 0;
 
 // Read at every generation, so an edit of the prompt applies without a restart.
 export function systemPrompt(): string {
@@ -57,7 +55,7 @@ export function createGenerator(store: PracticeStore): Generator {
 
   function start(generation: GenerationDetail, post: NewGeneration): void {
     if (liveGenerations.has(generation.id)) return;
-    const requestNumber = ++generationRequestCount;
+    const requestNumber = nextRequestNumber();
     const modelId = generation.run.requestedModelId ?? GENERATION_SETTINGS.modelId;
     const effort = generation.run.effort ?? GENERATION_SETTINGS.effort;
     const plan = planOf(postWordCount(post.blocks));

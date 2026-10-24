@@ -194,6 +194,12 @@ export interface TranslationProgress {
   thinkingMs: number | null;
 }
 
+// A row a restart cut short, and how many blocks its last checkpoint kept.
+export interface InterruptedTranslation {
+  id: number;
+  blockCount: number;
+}
+
 // How a run ended, and what it produced (complete when it succeeded, partial or none otherwise).
 interface TranslationOutcome extends TranslationProgress {
   status: 'succeeded' | 'failed' | 'cancelled';
@@ -212,8 +218,8 @@ export interface HistoryStore {
   // Saves how the run ended; a row that is no longer running is left as it is.
   finishTranslation(id: number, outcome: TranslationOutcome): void;
   // A server stopped mid-run leaves running rows nobody will finish: they become failed with 'interrupted', and unread,
-  // so the sidebar points at them.
-  failInterruptedTranslations(): number;
+  // so the sidebar points at them. The rows it changed, by id.
+  failInterruptedTranslations(): InterruptedTranslation[];
   // Clears the unread mark of an opened entry; false when no translation had this id.
   markRead(id: number): boolean;
   listTranslations(): TranslationSummary[];
@@ -262,7 +268,8 @@ export function openHistoryStore(databasePath: string): HistoryStore {
     UPDATE translations
     SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, is_unread = 1,
         updated_at = $now
-    WHERE run_status = 'running'`);
+    WHERE run_status = 'running'
+    RETURNING id, json_array_length(blocks_json) AS block_count`);
   // updated_at is left alone: opening an entry does not change the translation.
   const markReadRow = database.prepare('UPDATE translations SET is_unread = 0 WHERE id = $id');
   // The output preview is worked out from the stored blocks (the first with a translation), so it can never disagree with
@@ -330,9 +337,11 @@ export function openHistoryStore(databasePath: string): HistoryStore {
     });
   }
 
-  function failInterruptedTranslations(): number {
-    const result = failInterrupted.run({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() });
-    return Number(result.changes);
+  // RETURNING gives the rows in no set order, so they are sorted for the log.
+  function failInterruptedTranslations(): InterruptedTranslation[] {
+    const rows = failInterrupted.all({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() }) as unknown as { id: number; block_count: number }[];
+    const interrupted = rows.map((row) => ({ id: row.id, blockCount: row.block_count }));
+    return interrupted.sort((first, second) => first.id - second.id);
   }
 
   function markRead(id: number): boolean {

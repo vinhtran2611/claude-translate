@@ -61,18 +61,26 @@ test('a run is saved as it starts, then finished once with its output', () => {
   assert.equal(store.readTranslation(id), null);
 });
 
-test('a server restart fails the runs it interrupted', () => {
-  const { databasePath } = scratchPath();
-  const store = openHistoryStore(databasePath);
-  const id = store.startTranslation(REQUEST);
-  assert.equal(openHistoryStore(databasePath).failInterruptedTranslations(), 1);
-  const run = store.readTranslation(id)!.run;
-  assert.equal(run.status, 'failed');
-  assert.equal(run.errorCode, 'interrupted');
-});
-
 const PARTIAL_BLOCK = { blockType: 'paragraph' as const, level: 0, marker: null, sourceText: 'Hel', translatedText: '' };
 const PROGRESS = { blocks: [PARTIAL_BLOCK], textOutsideBlocks: '', servedModelId: 'claude-sonnet-5-5', thinkingText: 'Plan.', thinkingMs: null };
+
+test('a server restart fails the runs it interrupted and names each with the blocks it kept', () => {
+  const { databasePath } = scratchPath();
+  const store = openHistoryStore(databasePath);
+  const savedId = store.startTranslation(REQUEST);
+  store.saveProgress(savedId, PROGRESS);
+  const emptyId = store.startTranslation(REQUEST);
+  const finishedId = store.startTranslation(REQUEST);
+  store.finishTranslation(finishedId, { ...PROGRESS, status: 'succeeded', errorCode: null, errorMessage: null, isUnread: false });
+
+  const interrupted = openHistoryStore(databasePath).failInterruptedTranslations();
+  assert.deepEqual(interrupted, [{ id: savedId, blockCount: 1 }, { id: emptyId, blockCount: 0 }]);
+  const run = store.readTranslation(emptyId)!.run;
+  assert.equal(run.status, 'failed');
+  assert.equal(run.errorCode, 'interrupted');
+  assert.equal(store.readTranslation(finishedId)!.run.status, 'succeeded');
+  assert.deepEqual(openHistoryStore(databasePath).failInterruptedTranslations(), []);
+});
 
 test('a checkpoint saves a running row and leaves a finished one as it is', () => {
   const store = openHistoryStore(scratchPath().databasePath);

@@ -23,9 +23,17 @@ let logFilePath: string | null = null;
 let lastLoggedDateText: string | null = null;
 // Set by the first failed write to logFilePath, so the terminal warns once instead of on every line.
 let isLogFileFailing = false;
+// The last #n handed out. One counter for every feature, so a #n names one run among all of this process's lines.
+let lastRequestNumber = 0;
 
 export function configureLogFile(path: string): void {
   logFilePath = path;
+}
+
+// The #n of a new run: unique within this server process, from 1 again after a restart.
+export function nextRequestNumber(): number {
+  lastRequestNumber += 1;
+  return lastRequestNumber;
 }
 
 function padTwoDigits(number: number): string {
@@ -66,7 +74,7 @@ function paint(text: string, ansiColor: string, isColor: boolean): string {
 }
 
 // 5, 4 and 9 fit 'ERROR', '#999' and 'cancelled', the widest values, so the columns line up.
-function formatLogLine(
+export function formatLogLine(
   date: Date, level: LogLevel, requestNumber: number | null, eventName: string, message: string, detailLines: string[], isColor: boolean,
 ): string {
   const timeText = formatClockTime(date);

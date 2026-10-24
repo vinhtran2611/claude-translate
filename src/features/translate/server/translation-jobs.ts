@@ -5,9 +5,9 @@
 import type { ServerResponse } from 'node:http';
 import type { CliErrorCode, Effort, TranslatedBlock } from '../../../shared/api-types.ts';
 import { modelLabelOf, runClaude, type ClaudeProcess, type Run } from '../../../shared/server/claude-runner.ts';
-import { formatCount, formatSeconds, log, type LogLevel } from '../../../shared/server/log.ts';
+import { formatCount, formatSeconds, log, nextRequestNumber, type LogLevel } from '../../../shared/server/log.ts';
 import type { Language, Outcome, RunNotice, SourceFormat, StreamEvent, TranslateRequest, Translation } from '../api-types.ts';
-import type { HistoryStore } from './history-store.ts';
+import type { HistoryStore, InterruptedTranslation } from './history-store.ts';
 import { createPairStreamParser } from './pair-stream-parser.ts';
 import { systemPromptOf } from './translate-prompt.ts';
 
@@ -30,8 +30,11 @@ const FIRST_TOKEN_MS_PER_INPUT_TOKEN = 0.1;
 const CHECKPOINT_INTERVAL_MS = 5000;
 const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
 const RUN_STATUS_OF_OUTCOME = { done: 'succeeded', error: 'failed', cancelled: 'cancelled' } as const;
+// Arbitrary: enough ids to find the rows after a restart; the rest are counted, so the line stays one terminal line.
+const MAX_LISTED_INTERRUPTED = 10;
 
-let translateRequestCount = 0;
+// What stopped a cancelled run: the Cancel button or Esc (one request, the server cannot tell them apart), or a delete.
+export type CancelCause = 'cancel' | 'delete';
 
 // What the model has produced so far, in the shape history stores. thinkingDurationMs stays null unless a thinking
 // block closed.
@@ -56,6 +59,8 @@ interface LiveTranslation {
   notice: RunNotice | null;
   // Date.now() of the last checkpoint; startedAt at first. Written only by saveCheckpoint.
   lastSavedAt: number;
+  // Checkpoints saved, for the closing line. Written only by saveCheckpoint.
+  checkpointCount: number;
   // A failed checkpoint is logged once per run.
   hasCheckpointFailed: boolean;
   // null until runClaude returns, which calls no handler before it does.
@@ -73,11 +78,13 @@ export interface TranslationJobs {
   isFull(): boolean;
   // The one rule for "is this run live": it is in the live map.
   isLive(translationId: number): boolean;
+  // The live runs' row ids, oldest first, for the 429 line.
+  liveIds(): number[];
   // Streams a run to one page: snapshot, live events, closing event. A run that is not live gets `finished` and the
-  // stream ends.
-  watch(res: ServerResponse, translationId: number): void;
-  // Stops a live run and saves it as cancelled. false when it is not live.
-  cancel(translationId: number): boolean;
+  // stream ends. isReattach: a page coming back to a run, not the page that started it; only that is logged.
+  watch(res: ServerResponse, translationId: number, isReattach: boolean): void;
+  // Stops a live run and saves it as cancelled; cause goes to the closing line. false when it is not live.
+  cancel(translationId: number, cause: CancelCause): boolean;
 }
 
 interface JobsOptions {
@@ -93,25 +100,69 @@ function sendEvent(res: ServerResponse, ...[eventName, data]: StreamEvent): void
   res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-// A fact the request never reached (null, or no tokens) is left out. 10, 6 and 6 fit 'Sonnet 5.5', 'medium' and
-// '144.5s', so model, effort and duration line up across closing lines.
-function formatRequestSummary({
+// "1 block", "18 blocks".
+function formatCountOf(count: number, noun: string): string {
+  const nounText = count === 1 ? noun : `${noun}s`;
+  return `${formatCount(count)} ${nounText}`;
+}
+
+// The slots in use, as the start, closing and 429 lines print them.
+export function formatRunningCount(runningCount: number): string {
+  return `${runningCount}/${MAX_RUNNING_TRANSLATIONS} running`;
+}
+
+// The start line's message. runningCount counts this run; `cold start` stays last.
+export function formatStartLine({ request, historyId, runningCount, isColdStart }: {
+  request: TranslateRequest; historyId: number; runningCount: number; isColdStart: boolean;
+}): string {
+  const { sourceLanguage, targetLanguage, sourceText, modelId, effort, sourceFormat } = request;
+  const fields = [
+    `${sourceLanguage}->${targetLanguage}`,
+    `${formatCount(sourceText.length)} chars`,
+    `${modelLabelOf(modelId)} ${effort}`,
+    sourceFormat,
+    `history ${historyId}`,
+    formatRunningCount(runningCount),
+  ];
+  if (isColdStart) fields.push('cold start');
+  return fields.join('  ');
+}
+
+// The closing line's message. A fact the request never reached (null, or no tokens) is left out. 10, 6 and 6 fit
+// 'Sonnet 5.5', 'medium' and '144.5s', so model, effort and duration line up across closing lines. failureText is an
+// error's `errorCode: reason` or a cancel's `by cancel`; runningCount is the slots in use once this run has left.
+export function formatRequestSummary({
   outcome, modelLabel, effort, durationMs, failureText, firstTextMs, thinkingDurationMs, blockCount,
-  outsideCharCount, outputTokens, historyId,
+  outsideCharCount, outputTokens, checkpointCount, historyId, runningCount, isUnread,
 }: {
   outcome: Outcome; modelLabel: string; effort: Effort; durationMs: number; failureText: string; firstTextMs: number | null;
   thinkingDurationMs: number | null; blockCount: number; outsideCharCount: number; outputTokens: number | null;
-  historyId: number;
+  checkpointCount: number; historyId: number; runningCount: number; isUnread: boolean;
 }): string {
   const fields = [modelLabel.padEnd(10), effort.padEnd(6), formatSeconds(durationMs).padStart(6)];
   if (failureText !== '') fields.push(failureText);
   if (firstTextMs !== null) fields.push(`first text ${formatSeconds(firstTextMs)}`);
   if (thinkingDurationMs !== null) fields.push(`thought ${formatSeconds(thinkingDurationMs)}`);
-  if (blockCount > 0 || outcome === 'done') fields.push(`${formatCount(blockCount)} ${blockCount === 1 ? 'block' : 'blocks'}`);
+  if (blockCount > 0 || outcome === 'done') fields.push(formatCountOf(blockCount, 'block'));
   if (outsideCharCount > 0) fields.push(`${formatCount(outsideCharCount)} chars outside blocks`);
   if (outputTokens !== null && outputTokens > 0) fields.push(`${formatCount(outputTokens)} tokens`);
+  if (checkpointCount > 0) fields.push(formatCountOf(checkpointCount, 'checkpoint'));
   fields.push(`history ${historyId}`);
+  fields.push(formatRunningCount(runningCount));
+  if (isUnread) fields.push('unread');
   return fields.join('  ');
+}
+
+// The startup line for the rows a restart cut short, by history id: the old #n mean nothing in the new process.
+export function formatInterruptedLine(interrupted: InterruptedTranslation[]): string {
+  const listedRows = interrupted.slice(0, MAX_LISTED_INTERRUPTED);
+  const rowTexts = listedRows.map(({ id, blockCount }) => {
+    const savedText = blockCount === 0 ? 'nothing saved' : `${formatCountOf(blockCount, 'block')} saved`;
+    return `${id} (${savedText})`;
+  });
+  const unlistedCount = interrupted.length - listedRows.length;
+  if (unlistedCount > 0) rowTexts.push(`and ${unlistedCount} more`);
+  return `${formatCountOf(interrupted.length, 'translation')} interrupted by a restart: ${rowTexts.join(', ')}`;
 }
 
 // The closing log line is a warning when the model ignored the block format, an error when the run failed.
@@ -172,6 +223,11 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
     return liveTranslations.size >= MAX_RUNNING_TRANSLATIONS;
   }
 
+  // A Map keeps insertion order, which is start order.
+  function liveIds(): number[] {
+    return [...liveTranslations.keys()];
+  }
+
   function tell(live: LiveTranslation, ...streamEvent: StreamEvent): void {
     for (const watcher of live.watchers) sendEvent(watcher, ...streamEvent);
   }
@@ -219,17 +275,20 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
         thinkingText: output.thinkingText,
         thinkingMs: output.thinkingDurationMs,
       });
+      live.checkpointCount += 1;
     } catch (saveError) {
       if (live.hasCheckpointFailed) return;
       live.hasCheckpointFailed = true;
-      log('error', live.requestNumber, 'history', `checkpoint failed: ${(saveError as Error).message}`);
+      const message = (saveError as Error).message;
+      log('error', live.requestNumber, 'history', `${live.id} checkpoint failed: ${message}; a crash keeps the last good one`);
     }
   }
 
   // The one place a run ends: saves how it ended with what the model produced, logs the closing line, then tells every
   // watcher and ends their streams. When outcome is 'error', error = { errorCode, message } goes to the page and the saved
-  // run, and failureText (one line) and failureDetailLines (e.g. a stderr tail) go to the log only. A throw here would
-  // escape a stream handler and stop the server, so a failed save is only logged.
+  // run, and failureText (one line) and failureDetailLines (e.g. a stderr tail) go to the log only; a cancel's
+  // failureText is its cause. A throw here would escape a stream handler and stop the server, so a failed save is only
+  // logged.
   function finishJob(
     live: LiveTranslation, outcome: Outcome, error: { errorCode: CliErrorCode; message: string } | null = null, failureText = '',
     failureDetailLines: string[] = [],
@@ -242,6 +301,8 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
     const outsideCharCount = output.textOutsideBlocks.length;
     let textOutsideBlocks = output.textOutsideBlocks;
     if (textOutsideBlocks.trim() === '') textOutsideBlocks = '';
+    // A run someone watched end is never unread. Worked out once, so the saved row and the log line agree.
+    const isUnread = live.watchers.size === 0;
     try {
       historyStore.finishTranslation(live.id, {
         status: RUN_STATUS_OF_OUTCOME[outcome],
@@ -252,25 +313,30 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
         thinkingMs: output.thinkingDurationMs,
         errorCode: error?.errorCode ?? null,
         errorMessage: error?.message ?? null,
-        // A run someone watched end is never unread.
-        isUnread: live.watchers.size === 0,
+        isUnread,
       });
     } catch (saveError) {
-      log('error', live.requestNumber, 'history', `save failed: ${(saveError as Error).message}`);
+      const message = (saveError as Error).message;
+      log('error', live.requestNumber, 'history', `${live.id} save failed: ${message}; the row stays running until a restart marks it interrupted`);
     }
     liveTranslations.delete(live.id);
+    let summaryFailureText = failureText;
+    if (error !== null) summaryFailureText = `${error.errorCode}: ${failureText}`;
     const summary = formatRequestSummary({
       outcome,
       modelLabel: modelLabelOf(servedModelId),
       effort: request.effort,
       durationMs,
-      failureText: error === null ? '' : `${error.errorCode}: ${failureText}`,
+      failureText: summaryFailureText,
       firstTextMs: live.firstTextMs,
       thinkingDurationMs: output.thinkingDurationMs,
       blockCount,
       outsideCharCount,
       outputTokens: live.outputTokens,
+      checkpointCount: live.checkpointCount,
       historyId: live.id,
+      runningCount: liveTranslations.size,
+      isUnread,
     });
     log(closingLogLevel(outcome, blockCount, outsideCharCount), live.requestNumber, outcome, summary, failureDetailLines);
     const isFallback = servedModelId !== request.modelId;
@@ -283,7 +349,7 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
 
   function start(request: TranslateRequest): number {
     const { sourceLanguage, targetLanguage, sourceText, modelId: requestedModelId, effort, sourceFormat } = request;
-    const requestNumber = ++translateRequestCount;
+    const requestNumber = nextRequestNumber();
     const startedAt = Date.now();
     // The run is saved as it starts (the spec's run rules), so a failure or a cancel is kept too. A job is keyed by its
     // row's id, so a failed save throws to the caller and nothing starts.
@@ -304,6 +370,7 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
       output: { blocks: [], textOutsideBlocks: '', thinkingText: '', thinkingDurationMs: null },
       notice: null,
       lastSavedAt: startedAt,
+      checkpointCount: 0,
       hasCheckpointFailed: false,
       run: null,
       firstTextMs: null,
@@ -316,9 +383,8 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
     const firstTokenAllowanceMs = Math.round((sourceText.length / CHARS_PER_TOKEN[sourceLanguage]) * FIRST_TOKEN_MS_PER_INPUT_TOKEN);
     const pairParser = createPairStreamParser();
     const { claudeProcess, isColdStart } = takeClaudeProcess({ modelId: requestedModelId, effort, sourceFormat });
-    const coldStartNote = isColdStart ? '  cold start' : '';
-    const requestLine = `${formatCount(sourceText.length)} chars  ${modelLabelOf(requestedModelId)} ${effort}  ${sourceFormat}`;
-    log('info', requestNumber, 'start', `${sourceLanguage}->${targetLanguage}  ${requestLine}${coldStartNote}`);
+    const startLine = formatStartLine({ request, historyId: id, runningCount: liveTranslations.size, isColdStart });
+    log('info', requestNumber, 'start', startLine);
     live.run = runClaude({
       requestNumber,
       settings: { modelId: requestedModelId, effort, systemPrompt: systemPromptOf(sourceFormat) },
@@ -354,7 +420,7 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
 
   // The snapshot is built and the watcher added in one synchronous step, so no event falls between them: Node handles
   // one claude stdout chunk at a time, and live.output is folded from exactly the events sent.
-  function watch(res: ServerResponse, translationId: number): void {
+  function watch(res: ServerResponse, translationId: number, isReattach: boolean): void {
     // A page that closed its POST /translate while the body was being read: its 'close' has fired already, so it would
     // stay in the set until the job ends.
     if (res.destroyed) return;
@@ -365,20 +431,26 @@ export function createTranslationJobs({ historyStore, takeClaudeProcess, noteCla
       res.end();
       return;
     }
-    sendEvent(res, 'snapshot', { translation: translationOf(live), notice: live.notice, elapsedMs: Date.now() - live.startedAt });
+    const elapsedMs = Date.now() - live.startedAt;
+    sendEvent(res, 'snapshot', { translation: translationOf(live), notice: live.notice, elapsedMs });
     live.watchers.add(res);
-    // Closing a stream only stops watching; the job runs on.
+    // Closing a stream only stops watching; the job runs on. Not logged: the closing line's `unread` gives the end
+    // state, and a later `watch` shows the page came back (docs/server-log-design.md §10).
     res.on('close', () => live.watchers.delete(res));
+    if (!isReattach) return;
+    const blockText = formatCountOf(live.output.blocks.length, 'block');
+    const watchLine = `history ${live.id}  at ${formatSeconds(elapsedMs)}  ${blockText}  ${live.watchers.size} watching`;
+    log('info', live.requestNumber, 'watch', watchLine);
   }
 
-  function cancel(translationId: number): boolean {
+  function cancel(translationId: number, cause: CancelCause): boolean {
     const live = liveTranslations.get(translationId);
     if (live === undefined) return false;
     // Stopped first, so the run reports nothing more and finishJob has the last word.
     live.run?.stop();
-    finishJob(live, 'cancelled');
+    finishJob(live, 'cancelled', null, `by ${cause}`);
     return true;
   }
 
-  return { start, isFull, isLive, watch, cancel };
+  return { start, isFull, isLive, liveIds, watch, cancel };
 }

@@ -166,6 +166,28 @@ test('document index: GitHub slugs, footnote order, a table of contents', () => 
   assert.ok(essay.anchorIds.has('md-fn-1') && essay.anchorIds.has('md-fnref-1'));
 });
 
+test('document index: numbered list items count up, though the model writes "1." for each', () => {
+  const pairOf = (blockType: TranslatedBlock['blockType'], level: number, marker: string | null): TranslatedBlock => {
+    return { blockType, level, marker, sourceText: 'text', translatedText: 'text' };
+  };
+  const pairs = [
+    pairOf('paragraph', 0, null),
+    pairOf('list_item', 1, '1.'),
+    pairOf('list_item', 2, '1.'),
+    pairOf('list_item', 2, '1.'),
+    pairOf('list_item', 1, '1.'),
+    pairOf('list_item', 2, '-'),
+    pairOf('list_item', 1, '1.'),
+    pairOf('paragraph', 0, null),
+    pairOf('list_item', 1, '3.'),
+    pairOf('list_item', 1, '1.'),
+  ];
+  const listNumbers = documentIndexOf(pairs).listNumbers;
+  const shown = pairs.map((_pair, pairIndex) => listNumbers.get(pairIndex) ?? null);
+  // A nested list starts again from 1 under each parent; a paragraph ends the list; a list keeps its first number.
+  assert.deepEqual(shown, [null, 1, 1, 2, 2, null, 3, null, 3, 4]);
+});
+
 // The text a reader sees in a block.
 function blockText(block: Block): string {
   switch (block.kind) {

@@ -1,11 +1,11 @@
-// The document index: the only cross-pair facts (reference links, footnote numbers, heading anchors).
+// The document index: the only cross-pair facts (reference links, footnote numbers, heading anchors, list numbers).
 import type { TranslatedBlock } from '../../api-types.ts';
 import { definitionOf } from './blocks.ts';
 import { type LinkDefinition, normalizeLabel, parseInline, plainTextOf } from './inline.ts';
 import { ANCHOR_ID_PREFIX } from './links.ts';
 
 // The fields of a pair the cross-pair index reads.
-type IndexedBlock = Pick<TranslatedBlock, 'blockType' | 'sourceText' | 'translatedText'>;
+type IndexedBlock = Pick<TranslatedBlock, 'blockType' | 'level' | 'marker' | 'sourceText' | 'translatedText'>;
 
 export interface DocumentIndex {
   linkDefinitions: Map<string, LinkDefinition>;
@@ -13,6 +13,38 @@ export interface DocumentIndex {
   footnoteFirstPair: Map<string, number>;
   headingSlugs: Map<number, string>;
   anchorIds: Set<string>;
+  listNumbers: Map<number, number>;
+}
+
+const NUMBERED_MARKER = /^\s*(\d{1,9})[.)]\s*$/;
+
+// Each list item is its own pair, and the model writes every numbered marker as "1.", so the number shown is counted
+// here, as CommonMark counts it: the first item of a numbered list keeps its number and each later one adds 1. A list
+// ends at a pair that is no list item; an item at a shallower level ends the lists nested deeper; a bullet at a level
+// ends the numbered list at that level.
+function listNumbersOf(pairs: readonly (IndexedBlock | undefined)[]): Map<number, number> {
+  const listNumbers = new Map<number, number>();
+  // level -> the number the next item of the open numbered list at that level gets.
+  const nextNumbers = new Map<number, number>();
+  pairs.forEach((pair, pairIndex) => {
+    if (!pair || pair.blockType !== 'list_item') {
+      nextNumbers.clear();
+      return;
+    }
+    const level = Math.max(1, pair.level);
+    for (const openLevel of nextNumbers.keys()) {
+      if (openLevel > level) nextNumbers.delete(openLevel);
+    }
+    const numberMatch = NUMBERED_MARKER.exec(pair.marker ?? '');
+    if (numberMatch === null) {
+      nextNumbers.delete(level);
+      return;
+    }
+    const number = nextNumbers.get(level) ?? parseInt(numberMatch[1], 10);
+    listNumbers.set(pairIndex, number);
+    nextNumbers.set(level, number + 1);
+  });
+  return listNumbers;
 }
 
 // GitHub's heading id algorithm (https://github.com/Flet/github-slugger): lowercase, drop punctuation except - and _,
@@ -34,6 +66,7 @@ const FOOTNOTE_REFERENCE = /\[\^([^\s\]]{1,99})\](?!:)/g;
 //   footnoteFirstPair: Map(label -> pairIndex)   the source cell that carries the back-reference target id
 //   headingSlugs: Map(pairIndex -> slug)   GitHub slug of each source heading, deduplicated in order
 //   anchorIds: Set(element id)             every id the source column carries, so "#x" can be checked
+//   listNumbers: Map(pairIndex -> n)       the number each numbered list item shows (see listNumbersOf)
 export function documentIndexOf(pairs: readonly (IndexedBlock | undefined)[]): DocumentIndex {
   const linkDefinitions = new Map<string, LinkDefinition>();
   const footnoteNumbers = new Map<string, number>();
@@ -68,5 +101,6 @@ export function documentIndexOf(pairs: readonly (IndexedBlock | undefined)[]): D
       anchorIds.add(`${ANCHOR_ID_PREFIX}${slug}`);
     }
   });
-  return { linkDefinitions, footnoteNumbers, footnoteFirstPair, headingSlugs, anchorIds };
+  const listNumbers = listNumbersOf(pairs);
+  return { linkDefinitions, footnoteNumbers, footnoteFirstPair, headingSlugs, anchorIds, listNumbers };
 }

@@ -43,7 +43,11 @@ function renderPairCell(pair: ShownBlock, side: PairSide): void {
   const isStreaming = streamingCell !== null && streamingCell.pair === pair && streamingCell.side === side;
   const text = side === 'source' ? pair.sourceText : translationTextOf(pair);
   const inlineOptions = { isStreaming, linkDefinitions: documentIndex.linkDefinitions };
-  const blocks = parseCellBlocks(pair.blockType, pair.marker, pair.level, text, inlineOptions);
+  // A numbered item shows its place in the list, not the "1." the model wrote for every item.
+  const listNumber = documentIndex.listNumbers.get(pair.blockIndex);
+  let marker = pair.marker;
+  if (marker !== null && listNumber !== undefined) marker = marker.replace(/\d+/, String(listNumber));
+  const blocks = parseCellBlocks(pair.blockType, marker, pair.level, text, inlineOptions);
   const contentElement = side === 'source' ? pair.sourceContent : pair.translationContent;
   const isDocumentComplete = streamingCell === null;
   renderCellContent(contentElement, blocks, { side, blockIndex: pair.blockIndex, documentIndex, isStreaming, isDocumentComplete });

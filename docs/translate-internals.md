@@ -282,21 +282,31 @@ website cannot read your history through DNS rebinding.
 The server writes its log to the terminal running `npm start` and appends the same lines, without
 colour, to `data/server.log` (next to the history database; `SERVER_LOG_PATH` overrides it), so the log
 outlives the terminal tab: `tail -f data/server.log` follows it. Each translation prints a `start` line and exactly one
-closing line (`done`, `error` or `cancelled`); `fallback`, `retry` and `quota` lines appear in between
-only when they happen. Times are local.
+closing line (`done`, `error` or `cancelled`); `watch`, `fallback`, `retry` and `quota` lines appear in between
+only when they happen. Times are local. Why each line exists, and what is left out on purpose, is in
+[server-log-design.md](server-log-design.md).
 
 ```
---- Sat 2026-10-17 ---
-11:30:02            ready     http://localhost:8787  (Ctrl-C stops)
-11:30:16       #1   start     en->vi  23,029 chars  Sonnet 5.5 low
-11:30:19 WARN       quota     7d 89% (warning), resets Mon 06:00
-11:32:41       #1   done      Sonnet 5.5  low     144.5s  first text 15.7s  thought 12.8s  140 pairs  27,745 tokens  history 16
-11:40:05       #2   start     en->vi  65 chars  Sonnet 5.5 low
-11:40:15 WARN  #2   fallback  Sonnet 5.5 sent no token within 10s, last_event=system/status -> Haiku 5.5
-11:40:45 ERROR #2   error     Haiku 5.5   low      40.0s  no_response: sent nothing within 30s, last_event=system/status
+--- Sat 2026-10-24 ---
+09:38:40            ready     http://localhost:8787  (Ctrl-C stops)
+09:38:51       #1   start     en->vi  10,476 chars  Sonnet 5.5 high  markdown  history 63  1/3 running  cold start
+09:38:53 WARN       quota     7d 78% (warning), resets Tue 20:00
+09:39:07       #2   start     en->vi  706 chars  Sonnet 5.5 high  markdown  history 64  2/3 running
+09:39:15       #2   done      Sonnet 5.5  high      7.9s  first text 2.1s  thought 3.0s  4 blocks  1,512 tokens  1 checkpoint  history 64  1/3 running
+09:39:30       #1   watch     history 63  at 39.0s  18 blocks  1 watching
+09:40:04       #1   done      Sonnet 5.5  high     72.5s  first text 24.1s  thought 22.5s  34 blocks  12,830 tokens  13 checkpoints  history 63  0/3 running  unread
+09:40:20       #3   start     en->vi  65 chars  Sonnet 5.5 low  plain_text  history 65  1/3 running
+09:40:30 WARN  #3   fallback  Sonnet 5.5 sent no token within 10s, last_event=system/status -> Haiku 5.5
+09:41:00 ERROR #3   error     Haiku 5.5   low      40.0s  no_response: sent nothing within 30s, last_event=system/status  history 65  0/3 running
+09:41:12       #4   start     en->vi  9,800 chars  Sonnet 5.5 high  markdown  history 66  1/3 running
+09:41:24       #4   cancelled Sonnet 5.5  high     12.3s  by delete  first text 6.0s  2 blocks  2 checkpoints  history 66  0/3 running
+09:41:24            history   66 deleted
 ```
 
 Columns: time, level (blank, `WARN` or `ERROR`), request number, event, message.
+The request number `#n` is shared by every feature (Translate, grading, generation) and starts again at 1 after each
+restart; the `start` line pairs it with the `history` id, which lasts. `grep '#12 '` finds one run's lines,
+`grep 'history 63'` a row's lines across restarts.
 `grep -E 'WARN|ERROR'` keeps only the problems. Colour (WARN yellow, ERROR red) is used on a terminal
 only; `NO_COLOR=1 npm start` turns it off.
 
@@ -305,21 +315,23 @@ only; `NO_COLOR=1 npm start` turns it off.
 | `ready` | none | the server is listening |
 | `prompt` | none | a file in `src/features/translate/prompts/` changed; the spare process was replaced |
 | `spare` | WARN | the waiting `claude` died before a request used it; its stderr follows. Logged once until a spare works again |
-| `start` | none | a translation began, with the chosen model, effort and source format; `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
+| `start` | none | a translation began, with the chosen model, effort and source format, its `history` id and the slots in use counting it (`2/3 running`); `cold start` when no spare was waiting for those settings (about 1.3 s slower) |
+| `watch` | none | a page re-attached to a running translation (`GET /history/{id}/events`): how far the run had got (`at 39.0s`, blocks) and how many pages now watch it. The page that started the run, and a page that stops watching, log nothing |
 | `retry` | WARN | the API is busy and `claude` retries: attempt/max, error (HTTP status), delay |
 | `quota` | WARN, ERROR | subscription usage: window, percent, status, reset time. Logged when the status changes or usage passes another 5 % |
 | `fallback` | WARN | the chosen model sent no first token in time; the next one down takes over |
 | `continue` | WARN | the reply reached the output-token limit and `claude` asked the model to continue |
 | `done` | none, WARN | finished. WARN when the reply had no blocks or text outside them (`chars outside blocks`) |
 | `error` | ERROR | `errorCode: reason` (see the API section). `last_event` is the last stream-json event `claude` sent; an `exited` error shows its stderr tail below |
-| `cancelled` | none | the run was stopped: **Cancel**, `Esc`, or deleting the entry. A page that only stops watching logs nothing |
-| `history` | ERROR | saving to history failed: the final save, or a checkpoint (`checkpoint failed`, logged once per run) |
+| `cancelled` | none | the run was stopped: `by cancel` (**Cancel** or `Esc`, one request) or `by delete` (deleting the entry). A page that only stops watching logs nothing |
+| `history` | none, WARN, ERROR | none: `66 deleted`. WARN at startup: the rows a restart cut short, each with the blocks its last checkpoint kept (`63 (18 blocks saved), 65 (nothing saved)`; after 10 ids, `and N more`), printed before `ready`. ERROR: saving a row failed, naming it and what that means: `63 checkpoint failed: ...` (once per run) or `63 save failed: ...` |
 | `stdout` | WARN | `claude` printed a line that is not JSON |
-| `http` | WARN, ERROR | 400 bad request, 429 `POST /translate: 3 translations running`, 403 wrong `Host` (once per Host), 500 with the first stack frames (also when a new run's row cannot be saved) |
+| `http` | WARN, ERROR | 400 bad request, 429 `POST /translate: 3/3 running (history 63, 64, 65)`, 409 `POST /history/63/cancel: not running`, 403 wrong `Host` (once per Host), 500 with the first stack frames (also when a new run's row cannot be saved) |
 
 The closing line lists, in this order and only as far as the request got: model, effort, total time, the
-failure, `first text` (time to the first translated text), `thought` (thinking time), blocks,
-`chars outside blocks`, output `tokens` (thinking included), `history` id.
+failure or cancel cause, `first text` (time to the first translated text), `thought` (thinking time), blocks,
+`chars outside blocks`, output `tokens` (thinking included), `checkpoints` (progress saves; left out when none),
+`history` id, the slots still in use once this run has left (`0/3 running`), and `unread` when no page watched the end.
 
 ## Changing the translation style
 

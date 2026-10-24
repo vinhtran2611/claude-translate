@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { modelLabelOf, runClaude, type Run } from '../../../shared/server/claude-runner.ts';
-import { formatCount, formatSeconds, log } from '../../../shared/server/log.ts';
+import { formatCount, formatSeconds, log, nextRequestNumber } from '../../../shared/server/log.ts';
 import { FEATURES_DIRECTORY } from '../../../shared/server/paths.ts';
 import type { Answer, AttemptDetail, ExerciseSnapshot, GradingSettings, GradingStreamEvents } from '../api-types.ts';
 import { countWords } from '../text.ts';
@@ -15,8 +15,6 @@ import type { GradingOutcome, PracticeStore } from './store.ts';
 
 const PROMPT_PATH = join(FEATURES_DIRECTORY, 'practice', 'prompts', 'grade.md');
 const LETTERS = 'ABCDEF';
-
-let gradingRequestCount = 0;
 
 // The answer as a person would read it: the text, the options picked, the gaps typed.
 function answerTextOf(exercise: ExerciseSnapshot, answer: Answer): string {
@@ -80,7 +78,7 @@ export function createGrader(store: PracticeStore): Grader {
 
   function start(attempt: AttemptDetail, gradingId: number, settings: GradingSettings): void {
     if (liveGradings.has(attempt.id)) return;
-    const requestNumber = ++gradingRequestCount;
+    const requestNumber = nextRequestNumber();
     const { exerciseSnapshot: exercise } = attempt;
     const { modelId, effort } = settings;
     const live: LiveGrading = { settings, startedAt: Date.now(), thinkingText: '', thinkingMs: null, text: '', watchers: new Set() };

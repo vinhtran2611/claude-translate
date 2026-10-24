@@ -48,10 +48,18 @@ export interface TranslateRequest {
   sourceFormat: SourceFormat;
 }
 
-// POST /translate response: one Server-Sent Event per entry, `event: <name>` and `data: <JSON>`. Event names are lowercase
-// snake_case values; their data is camelCase, in the words of the stored Translation (a block, its blockIndex...).
-// translationId names the saved Translation (saved when the run starts); null only when saving it failed.
+// The latest retry or fallback of a live run, until the next output replaces it in the page's status line.
+export type RunNotice =
+  | { kind: 'retry'; attempt: number; maxRetries: number; error: string }
+  | { kind: 'fallback'; fromModelId: string; toModelId: string };
+
+// The stream of a run (POST /translate, GET /history/:id/events): one Server-Sent Event per entry, `event: <name>` and
+// `data: <JSON>`. Event names are lowercase snake_case values; their data is camelCase, in the words of the stored
+// Translation (a block, its blockIndex...). A live run's stream is `snapshot` (everything so far), the live events, then
+// one closing event: `done`, `error` or `cancelled`. A run that is not live sends only `finished`: read GET /history/:id.
+// translationId names the saved Translation (saved when the run starts).
 export interface StreamEvents {
+  snapshot: { translation: Translation; notice: RunNotice | null; elapsedMs: number };
   block_start: { blockIndex: number; blockType: BlockType; level: number; marker: string | null };
   source_delta: { blockIndex: number; text: string };
   translation_delta: { blockIndex: number; text: string };
@@ -61,10 +69,13 @@ export interface StreamEvents {
   thinking_delta: { text: string };
   thinking_done: { durationMs: number };
   fallback: { fromModelId: string; toModelId: string };
-  done: { durationMs: number; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null };
+  done: { durationMs: number; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number };
   error: {
-    errorCode: CliErrorCode; message: string; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number | null;
+    errorCode: CliErrorCode; message: string; servedModelId: string; effort: Effort; isFallback: boolean; translationId: number;
   };
+  // Cancel, Esc or a delete stopped the run; every page watching it hears it.
+  cancelled: { durationMs: number; translationId: number };
+  finished: Record<string, never>;
 }
 
 export type StreamEventName = keyof StreamEvents;
@@ -95,4 +106,6 @@ export interface Translation {
 export interface TranslationSummary extends Omit<Translation, 'sourceText' | 'blocks' | 'textOutsideBlocks'> {
   sourcePreview: string;
   outputPreview: string;
+  // The run ended with no page watching it (or a restart cut it short), and it has not been opened since.
+  isUnread: boolean;
 }

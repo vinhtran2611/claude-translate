@@ -2,7 +2,7 @@
 // Undo. Docked as a column on wide screens, a modal drawer on narrow ones.
 import { fetchJson } from '../../../shared/web/fetch-json.ts';
 import { parseInline, plainTextOf } from '../../../shared/web/markdown.ts';
-import { foldForSearch, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
+import { foldForSearch, formatElapsed, historyGroupOf, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
 import type { ModelRun } from '../../../shared/api-types.ts';
 import type { Translation, TranslationSummary } from '../api-types.ts';
 import { errorText, showAlert } from './alert.ts';
@@ -30,6 +30,9 @@ const wideScreenQuery = matchMedia('(min-width: 1280px)');
 const HISTORY_LIST_LIMIT = 200;
 // Long enough to reach Undo after a misclick, short enough that the row does not linger.
 const DELETE_UNDO_MS = 5000;
+// While a listed row is running, the list is read again this often, so its mark and preview lag by at most this. One read
+// is one query on a local file.
+const HISTORY_POLL_MS = 3000;
 const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/></svg>';
 
 let handlers: SidebarHandlers | null = null;
@@ -39,6 +42,15 @@ let historySummaries: TranslationSummary[] = [];
 let shownEntryId: number | null = null;
 // Deletes waiting out their Undo window: entry id -> timer. The row stays hidden while its id is here.
 const pendingDeletes = new Map<number, ReturnType<typeof setTimeout>>();
+// The next poll of the list; written only by schedulePoll.
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+// The one mark a row shows. A row has at most one, picked by markOf.
+interface RowMark {
+  className: string;
+  labelSuffix: string;
+  tooltipNote: string;
+}
 
 export function shownHistoryId(): number | null {
   return shownEntryId;
@@ -61,17 +73,30 @@ export function historyTitleOf(inputPreview: string): string {
     .trim();
 }
 
-function describeHistoryTooltip(summary: TranslationSummary): string {
+// The row's mark, in this order: still translating; finished while no page watched it and not opened since (an unread
+// failed run shows this first, and the partial mark once opened); a run that did not succeed is partial. null: no mark.
+function markOf(summary: TranslationSummary): RowMark | null {
+  const { run } = summary;
+  if (run.status === 'running') {
+    const elapsed = formatElapsed(Date.now() - Date.parse(run.startedAt));
+    return { className: 'history-running-mark', labelSuffix: ' (translating)', tooltipNote: ` · Translating · ${elapsed}` };
+  }
+  if (summary.isUnread) return { className: 'history-unread-mark', labelSuffix: ' (new)', tooltipNote: ' · Finished while you were away' };
+  if (run.status !== 'succeeded') return { className: 'history-partial-mark', labelSuffix: ' (partial)', tooltipNote: ' · partial' };
+  return null;
+}
+
+function describeHistoryTooltip(summary: TranslationSummary, mark: RowMark | null): string {
   const created = new Date(summary.createdAt);
   const time = created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const day = historyGroupOf(summary.createdAt);
   let dayLabel = day;
   if (day !== 'Today' && day !== 'Yesterday') dayLabel = created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const partialNote = summary.run.status === 'succeeded' ? '' : ' · partial';
+  const markNote = mark?.tooltipNote ?? '';
   const choice = { modelId: servedModelOf(summary.run), effort: summary.run.effort ?? '' };
   const choiceLabel = `${sourceFormatNoteOf(summary.sourceFormat)}${choiceLabelOf(choice)}`;
   const direction = `${summary.sourceLanguage.toUpperCase()} → ${summary.targetLanguage.toUpperCase()}`;
-  return `${direction} · ${dayLabel} ${time} · ${choiceLabel}${partialNote}`;
+  return `${direction} · ${dayLabel} ${time} · ${choiceLabel}${markNote}`;
 }
 
 function matchesHistorySearch(summary: TranslationSummary, foldedQueryWords: string[]): boolean {
@@ -93,19 +118,19 @@ function createHistoryItem(summary: TranslationSummary): HTMLLIElement {
   openButton.dataset.entryId = String(summary.id);
   openButton.tabIndex = -1;
   const title = historyTitleOf(summary.sourcePreview);
-  const isComplete = summary.run.status === 'succeeded';
-  openButton.title = describeHistoryTooltip(summary);
-  openButton.setAttribute('aria-label', isComplete ? title : `${title} (partial)`);
+  const mark = markOf(summary);
+  openButton.title = describeHistoryTooltip(summary, mark);
+  openButton.setAttribute('aria-label', `${title}${mark?.labelSuffix ?? ''}`);
   if (summary.id === shownEntryId) openButton.setAttribute('aria-current', 'true');
   const titleElement = document.createElement('span');
   titleElement.className = 'history-item-title';
   titleElement.textContent = title;
   openButton.append(titleElement);
-  if (!isComplete) {
-    const partialMark = document.createElement('span');
-    partialMark.className = 'history-partial-mark';
-    partialMark.setAttribute('aria-hidden', 'true');
-    openButton.append(partialMark);
+  if (mark !== null) {
+    const markElement = document.createElement('span');
+    markElement.className = `history-mark ${mark.className}`;
+    markElement.setAttribute('aria-hidden', 'true');
+    openButton.append(markElement);
   }
   openButton.addEventListener('click', () => openHistoryEntry(summary.id));
 
@@ -160,10 +185,19 @@ export async function loadHistory(): Promise<void> {
   try {
     historySummaries = await fetchJson<TranslationSummary[]>('/history');
     renderHistoryList();
+    schedulePoll();
   } catch (error) {
     historyList.replaceChildren();
     showHistoryStatus(`Could not load history: ${errorText(error)}`);
   }
+}
+
+// Reads the list again in HISTORY_POLL_MS while the sidebar is open and a listed row is running, so runs that finish here
+// or in another tab lose their running mark. A failed read stops polling until the next load.
+function schedulePoll(): void {
+  clearTimeout(pollTimer);
+  const hasRunningRow = historySummaries.some((summary) => summary.run.status === 'running');
+  if (historySidebar.open && hasRunningRow) pollTimer = setTimeout(loadHistory, HISTORY_POLL_MS);
 }
 
 function readIsSidebarOpen(): boolean {
@@ -227,6 +261,20 @@ async function openHistoryEntry(entryId: number): Promise<void> {
   } catch (error) {
     showHistoryStatus(`Could not open it: ${errorText(error)}`);
     loadHistory();
+    return;
+  }
+  const summary = historySummaries.find((listed) => listed.id === entryId);
+  if (summary?.isUnread) await markEntryRead(summary);
+}
+
+// Opening an unread entry clears its mark here at once, and on the server for every tab's next list.
+async function markEntryRead(summary: TranslationSummary): Promise<void> {
+  summary.isUnread = false;
+  renderHistoryList();
+  try {
+    await fetchJson<null>(`/history/${summary.id}/read`, { method: 'POST' });
+  } catch (error) {
+    showHistoryStatus(`Could not mark it read: ${errorText(error)}`);
   }
 }
 
@@ -279,7 +327,10 @@ export function initHistorySidebar(pageHandlers: SidebarHandlers): void {
   historySidebar.addEventListener('click', (event) => {
     if (event.target === historySidebar && isSidebarModal()) closeSidebar();
   });
-  historySidebar.addEventListener('close', () => sidebarOpenButton.setAttribute('aria-expanded', 'false'));
+  historySidebar.addEventListener('close', () => {
+    sidebarOpenButton.setAttribute('aria-expanded', 'false');
+    clearTimeout(pollTimer);
+  });
   wideScreenQuery.addEventListener('change', () => {
     historySidebar.close();
     if (wideScreenQuery.matches && readIsSidebarOpen()) openSidebar();

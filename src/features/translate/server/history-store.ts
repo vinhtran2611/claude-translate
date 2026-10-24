@@ -1,5 +1,6 @@
 // The one place that reads and writes the translate database: one row per translate run (docs/data-model-proposal.md
-// §3.5 and §4). The row is saved when the run starts and updated when it ends.
+// §3.5 and §4). The row is saved when the run starts, its output at checkpoints while it runs, and the row updated when
+// it ends.
 import type { DatabaseSync } from 'node:sqlite';
 import type { Effort, Language, ModelId, ModelRun, RunErrorCode } from '../../../shared/api-types.ts';
 import {
@@ -8,12 +9,16 @@ import {
 import { openDatabase } from '../../../shared/server/sqlite.ts';
 import type { SourceFormat, TranslatedBlock, Translation, TranslationSummary } from '../api-types.ts';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 const HISTORY_LIST_LIMIT = 200;
 const PREVIEW_CHARS = { source: 200, output: 160 };
 const INTERRUPTED_MESSAGE = 'The server stopped during the translation.';
 // What an old failed translation says: schema 4 kept no error details.
 const UNKNOWN_ERROR = 'Unknown (saved before error details were kept).';
+
+// Schema 6: 1 when the run ended with no page watching it, until it is opened. Last among the columns, where ADD COLUMN puts
+// it in a schema 5 file, so both files read the same.
+const IS_UNREAD_COLUMN = 'is_unread INTEGER NOT NULL DEFAULT 0 CHECK (is_unread IN (0, 1))';
 
 // AUTOINCREMENT: a deleted id is never reused, so a stale open or delete from the page cannot hit a newer entry.
 const CREATE_TABLES = [
@@ -24,7 +29,8 @@ const CREATE_TABLES = [
     source_format       TEXT    NOT NULL CHECK (source_format IN ('plain_text', 'markdown')),
     source_text         TEXT    NOT NULL,
     blocks_json         TEXT    NOT NULL CHECK (json_valid(blocks_json)),
-    text_outside_blocks TEXT    CHECK (text_outside_blocks IS NULL OR text_outside_blocks <> ''),${runColumns(true)},${TIME_COLUMNS},${RUN_CHECKS},
+    text_outside_blocks TEXT    CHECK (text_outside_blocks IS NULL OR text_outside_blocks <> ''),${runColumns(true)},${TIME_COLUMNS},
+    ${IS_UNREAD_COLUMN},${RUN_CHECKS},
     CHECK (source_language <> target_language)
   ) STRICT`,
   'CREATE INDEX translations_by_created_at ON translations (created_at)',
@@ -91,8 +97,9 @@ function emptyAsNull(text: string): string | null {
 }
 
 // Schema 4 -> 5 (the spec's §5): every row moved in code to the new table; ids and the AUTOINCREMENT counter are kept.
-// finishedAt = createdAt + duration_ms; updatedAt = createdAt. The caller has made a backup and runs this in one
-// transaction; any error rolls all of it back.
+// finishedAt = createdAt + duration_ms; updatedAt = createdAt. The new table is CREATE_TABLES, today's schema, so it
+// lands straight at SCHEMA_VERSION (no row is unread). The caller has made a backup and runs this in one transaction;
+// any error rolls all of it back.
 function migrateFrom4(database: DatabaseSync): void {
   const rows = database.prepare('SELECT * FROM translations ORDER BY id').all() as unknown as Schema4Row[];
   const sequence = database.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'translations'").get() as { seq: number } | undefined;
@@ -138,19 +145,25 @@ function migrateFrom4(database: DatabaseSync): void {
     });
   }
   const count = (database.prepare('SELECT count(*) AS count FROM translations').get() as { count: number }).count;
-  if (count !== rows.length) throw new Error(`migrating translations to schema 5 would lose rows (${rows.length} -> ${count})`);
+  if (count !== rows.length) throw new Error(`migrating translations to schema ${SCHEMA_VERSION} would lose rows (${rows.length} -> ${count})`);
   if (sequence !== undefined) {
     database.prepare("UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = 'translations'").run(sequence.seq);
     database.prepare("INSERT INTO sqlite_sequence (name, seq) SELECT 'translations', ? WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'translations')").run(sequence.seq);
   }
 }
 
-// Brings any older file to schema 5: first to schema 4 with the old steps, then to the new table.
-// openDatabase calls it at every open; a file already at SCHEMA_VERSION needs nothing.
+// Brings any older file to SCHEMA_VERSION. A file at 5 only gains the unread column. A file at 1 to 4 goes to schema 4 with
+// the old steps, then to the new table, which migrateFrom4 builds at today's schema: it must not fall through to the
+// ADD COLUMN, whose column that table already has. openDatabase calls it at every open; a file at SCHEMA_VERSION needs
+// nothing.
 function migrate(database: DatabaseSync, fileSchemaVersion: number): void {
   if (fileSchemaVersion === SCHEMA_VERSION) return;
   if (fileSchemaVersion === 0) {
     for (const statement of CREATE_TABLES) database.exec(statement);
+    return;
+  }
+  if (fileSchemaVersion === 5) {
+    database.exec(`ALTER TABLE translations ADD COLUMN ${IS_UNREAD_COLUMN}`);
     return;
   }
   if (fileSchemaVersion === 1) for (const statement of ADD_THINKING_COLUMNS) database.exec(statement);
@@ -172,14 +185,26 @@ export interface NewTranslation {
   startedAt: string;
 }
 
-// How a run ended, and what it produced (complete when it succeeded, partial or none otherwise).
-interface TranslationOutcome {
-  status: 'succeeded' | 'failed' | 'cancelled';
+// What a running run has produced so far.
+export interface TranslationProgress {
   blocks: TranslatedBlock[];
   textOutsideBlocks: string;
   servedModelId: ModelId;
   thinkingText: string;
   thinkingMs: number | null;
+}
+
+// A row a restart cut short, and how many blocks its last checkpoint kept.
+export interface InterruptedTranslation {
+  id: number;
+  blockCount: number;
+}
+
+// How a run ended, and what it produced (complete when it succeeded, partial or none otherwise).
+interface TranslationOutcome extends TranslationProgress {
+  status: 'succeeded' | 'failed' | 'cancelled';
+  // True when no page watched the run end, so the sidebar marks it until it is opened.
+  isUnread: boolean;
   // Set for 'failed' only.
   errorCode: RunErrorCode | null;
   errorMessage: string | null;
@@ -188,10 +213,15 @@ interface TranslationOutcome {
 export interface HistoryStore {
   // Saves a run as it starts (status running); its id.
   startTranslation(translation: NewTranslation): number;
+  // Saves what a running run has produced so far, so a crash keeps it; a row no longer running is left as it is.
+  saveProgress(id: number, progress: TranslationProgress): void;
   // Saves how the run ended; a row that is no longer running is left as it is.
   finishTranslation(id: number, outcome: TranslationOutcome): void;
-  // A server stopped mid-run leaves running rows nobody will finish: they become failed with 'interrupted'.
-  failInterruptedTranslations(): number;
+  // A server stopped mid-run leaves running rows nobody will finish: they become failed with 'interrupted', and unread,
+  // so the sidebar points at them. The rows it changed, by id.
+  failInterruptedTranslations(): InterruptedTranslation[];
+  // Clears the unread mark of an opened entry; false when no translation had this id.
+  markRead(id: number): boolean;
   listTranslations(): TranslationSummary[];
   readTranslation(id: number): Translation | null;
   deleteTranslation(id: number): boolean;
@@ -207,6 +237,7 @@ interface TranslationRow extends RunRow {
   text_outside_blocks: string | null;
   created_at: string;
   updated_at: string;
+  is_unread: 0 | 1;
 }
 
 interface SummaryRow extends Omit<TranslationRow, 'source_text' | 'blocks_json' | 'text_outside_blocks'> {
@@ -223,19 +254,29 @@ export function openHistoryStore(databasePath: string): HistoryStore {
     INSERT INTO translations (source_language, target_language, source_format, source_text, blocks_json, text_outside_blocks,
                               ${RUN_INSERT_COLUMNS}, created_at, updated_at)
     VALUES ($source_language, $target_language, $source_format, $source_text, '[]', NULL, ${RUN_INSERT_VALUES}, $run_started_at, $run_started_at)`);
+  // The run rules allow a running row "none yet, or partial" output (docs/data-model-proposal.md), so no column is added.
+  const saveProgressRow = database.prepare(`
+    UPDATE translations
+    SET blocks_json = $blocks_json, text_outside_blocks = $text_outside_blocks, run_served_model_id = $run_served_model_id,
+        run_thinking_text = $run_thinking_text, run_thinking_ms = $run_thinking_ms, updated_at = $now
+    WHERE id = $id AND run_status = 'running'`);
   const finishTranslationRow = database.prepare(`
     UPDATE translations SET blocks_json = $blocks_json, text_outside_blocks = $text_outside_blocks, ${RUN_FINISH_SET},
-                            updated_at = $run_finished_at
+                            is_unread = $is_unread, updated_at = $run_finished_at
     WHERE id = $id AND run_status = 'running'`);
   const failInterrupted = database.prepare(`
     UPDATE translations
-    SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, updated_at = $now
-    WHERE run_status = 'running'`);
+    SET run_status = 'failed', run_error_code = 'interrupted', run_error_message = $message, run_finished_at = $now, is_unread = 1,
+        updated_at = $now
+    WHERE run_status = 'running'
+    RETURNING id, json_array_length(blocks_json) AS block_count`);
+  // updated_at is left alone: opening an entry does not change the translation.
+  const markReadRow = database.prepare('UPDATE translations SET is_unread = 0 WHERE id = $id');
   // The output preview is worked out from the stored blocks (the first with a translation), so it can never disagree with
   // them; the text outside blocks stands in when the reply had none.
   const selectSummaries = database.prepare(`
     SELECT id, source_language, target_language, source_format, run_status, run_requested_model_id, run_served_model_id, run_effort,
-           run_thinking_ms, run_error_code, run_error_message, run_started_at, run_finished_at, created_at, updated_at,
+           run_thinking_ms, run_error_code, run_error_message, run_started_at, run_finished_at, created_at, updated_at, is_unread,
            substr(source_text, 1, ${PREVIEW_CHARS.source}) AS source_preview,
            substr(coalesce(
              (SELECT block.value ->> '$.translatedText' FROM json_each(blocks_json) AS block
@@ -268,6 +309,18 @@ export function openHistoryStore(databasePath: string): HistoryStore {
     return Number(inserted.lastInsertRowid);
   }
 
+  function saveProgress(id: number, progress: TranslationProgress): void {
+    saveProgressRow.run({
+      id,
+      blocks_json: JSON.stringify(progress.blocks),
+      text_outside_blocks: emptyAsNull(progress.textOutsideBlocks),
+      run_served_model_id: progress.servedModelId,
+      run_thinking_text: thinkingTextOf(progress.thinkingText),
+      run_thinking_ms: progress.thinkingMs,
+      now: new Date().toISOString(),
+    });
+  }
+
   function finishTranslation(id: number, outcome: TranslationOutcome): void {
     finishTranslationRow.run({
       id,
@@ -280,12 +333,19 @@ export function openHistoryStore(databasePath: string): HistoryStore {
       run_error_code: outcome.errorCode,
       run_error_message: outcome.errorMessage,
       run_finished_at: new Date().toISOString(),
+      is_unread: outcome.isUnread ? 1 : 0,
     });
   }
 
-  function failInterruptedTranslations(): number {
-    const result = failInterrupted.run({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() });
-    return Number(result.changes);
+  // RETURNING gives the rows in no set order, so they are sorted for the log.
+  function failInterruptedTranslations(): InterruptedTranslation[] {
+    const rows = failInterrupted.all({ message: INTERRUPTED_MESSAGE, now: new Date().toISOString() }) as unknown as { id: number; block_count: number }[];
+    const interrupted = rows.map((row) => ({ id: row.id, blockCount: row.block_count }));
+    return interrupted.sort((first, second) => first.id - second.id);
+  }
+
+  function markRead(id: number): boolean {
+    return markReadRow.run({ id }).changes > 0;
   }
 
   // Newest first, at most HISTORY_LIST_LIMIT. The list leaves out the thinking text (null here), which only an open
@@ -302,6 +362,7 @@ export function openHistoryStore(databasePath: string): HistoryStore {
       updatedAt: row.updated_at,
       sourcePreview: row.source_preview,
       outputPreview: row.output_preview ?? '',
+      isUnread: row.is_unread === 1,
     }));
   }
 
@@ -327,5 +388,5 @@ export function openHistoryStore(databasePath: string): HistoryStore {
     return deleteTranslationRow.run({ id }).changes > 0;
   }
 
-  return { startTranslation, finishTranslation, failInterruptedTranslations, listTranslations, readTranslation, deleteTranslation };
+  return { startTranslation, saveProgress, finishTranslation, failInterruptedTranslations, markRead, listTranslations, readTranslation, deleteTranslation };
 }

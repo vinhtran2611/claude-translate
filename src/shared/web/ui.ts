@@ -59,6 +59,15 @@ export function historyGroupOf(createdAt: string, now = new Date()): string {
   return created.toLocaleDateString('en-US', monthFormat);
 }
 
+// How long a run has been going: "8s", then "2m 14s".
+export function formatElapsed(durationMs: number): string {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
 // The inline icons, the same drawings as Claude Translate's. Trusted constants, so they may be set as markup.
 export const ICONS = {
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg>',

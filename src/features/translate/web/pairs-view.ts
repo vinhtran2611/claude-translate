@@ -153,14 +153,19 @@ export function applyBlockEvent([eventName, data]: BlockEvent): void {
   renderPairCell(pair, side);
 }
 
-// Replays stored blocks ({ blockType, level, marker, sourceText, translatedText }) through applyBlockEvent,
-// the same path a live translation takes. Used by Undo after Clear and by opening a history entry.
-export function renderStoredBlocks(pairs: TranslatedBlock[]): void {
+// Replays blocks ({ blockType, level, marker, sourceText, translatedText }) through applyBlockEvent, the same path a live
+// translation takes. The last cell is left streaming, so a live run's snapshot goes on with the deltas after it.
+export function replayBlocks(pairs: TranslatedBlock[]): void {
   resetPairs();
   pairs.forEach((pair, pairIndex) => {
     applyBlockEvent(['block_start', { blockIndex: pairIndex, blockType: pair.blockType, level: pair.level, marker: pair.marker }]);
     applyBlockEvent(['source_delta', { blockIndex: pairIndex, text: pair.sourceText }]);
     applyBlockEvent(['translation_delta', { blockIndex: pairIndex, text: pair.translatedText }]);
   });
+}
+
+// Draws stored blocks as final. Used by Undo after Clear and by opening a history entry.
+export function renderStoredBlocks(pairs: TranslatedBlock[]): void {
+  replayBlocks(pairs);
   setStreamingCell(null);
 }

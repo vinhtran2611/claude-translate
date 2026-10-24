@@ -4,8 +4,10 @@
 import type { GenerationDetail, GenerationRequest, ModelRun, TranslatedBlock } from '../../../shared/api-types.ts';
 import { ApiError, fetchJson } from '../../../shared/web/fetch-json.ts';
 import { documentIndexOf, parseCellBlocks, renderCellContent } from '../../../shared/web/markdown.ts';
-import { readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
-import type { Language, Outcome, SourceFormat, StreamEvent, TranslateRequest, Translation } from '../api-types.ts';
+import { formatElapsed, readStored, requiredElement, writeStored } from '../../../shared/web/ui.ts';
+import type {
+  Language, Outcome, RunNotice, SourceFormat, StreamEvent, StreamEvents, TranslateRequest, Translation,
+} from '../api-types.ts';
 import { errorText, hideAlert, isAlertShown, showAlert } from './alert.ts';
 import { alertForError, type PageErrorKind } from './alert-text.ts';
 import { detectSourceLanguage } from './detect-language.ts';
@@ -15,7 +17,7 @@ import {
 } from './history-sidebar.ts';
 import { composePairsMarkdown } from './pairs-markdown.ts';
 import {
-  applyBlockEvent, copyWithFeedback, isBlockEvent, pairsView, renderStoredBlocks, resetPairs, setStreamingCell, shownBlocks,
+  applyBlockEvent, copyWithFeedback, isBlockEvent, pairsView, renderStoredBlocks, replayBlocks, resetPairs, setStreamingCell, shownBlocks,
 } from './pairs-view.ts';
 import {
   choiceLabelOf, closeSettingsMenus, loadTranslationOptions, sourceFormatNoteOf, modelLabelOf, openSettingsMenu,
@@ -53,6 +55,21 @@ interface RunInfo {
   isFromHistory?: boolean;
 }
 
+// The run the page is watching. The job is the server's: aborting the stream only stops watching.
+interface FollowedRun {
+  // The run's row; null only until the first event (the snapshot) of a new run names it.
+  translationId: number | null;
+  stream: AbortController;
+  // Date.now() when the run started on the server, worked out from the snapshot's elapsedMs.
+  startedAt: number;
+  // The model asked for, which the "sent nothing back" alert names.
+  requestedModelId: string;
+  // Text outside pairs: the model ignored the format, so it is shown the old way.
+  unpairedText: string;
+  // "API busy (…), retry 1/3…" or "… is slow, switched to …" until more text arrives; '' otherwise.
+  retryNote: string;
+}
+
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'English', vi: 'Vietnamese' };
 const MAX_TEXT_CHARS = 100_000;
 const CHAR_COUNT_VISIBLE_FROM = 16000;
@@ -69,6 +86,7 @@ const detectedHint = requiredElement('#detected-hint', HTMLSpanElement);
 const swapButton = requiredElement('#swap-button', HTMLButtonElement);
 const clearButton = requiredElement('#clear-button', HTMLButtonElement);
 const translateButton = requiredElement('#translate-button', HTMLButtonElement);
+const cancelButton = requiredElement('#cancel-button', HTMLButtonElement);
 const copyButton = requiredElement('#copy-button', HTMLButtonElement);
 const practiceButton = requiredElement('#practice-button', HTMLButtonElement);
 const copySourceButton = requiredElement('#copy-source-button', HTMLButtonElement);
@@ -83,14 +101,17 @@ const hasEscapeKey = !matchMedia('(pointer: coarse)').matches;
 
 let sourceLanguage: Language = readStored('source_language') === 'vi' ? 'vi' : 'en';
 let isDirectionAuto = true;
-let activeRequest: AbortController | null = null;
+// The one run the page is watching; null when the page shows no live run. `followedRun !== null` is the page's one rule
+// for "the shown run is live": Esc, Cancel, the read-only box and the disabled Translate all read it. Written only by
+// followRun and stopFollowing.
+let followedRun: FollowedRun | null = null;
 let currentTargetState: TargetState = 'empty';
 // What the last Clear removed; null once the user types something else or translates again.
 let clearedSnapshot: WorkspaceSnapshot | null = null;
 const thinkingBlock = requiredElement('#thinking', HTMLDetailsElement);
 const thinkingLabel = requiredElement('#thinking-label', HTMLSpanElement);
 const thinkingBody = requiredElement('#thinking-text', HTMLDivElement);
-// The mode the result on screen ran in; null when there is none. Written by translate, showHistoryEntry and
+// The mode the result on screen ran in; null when there is none. Written by showRunStarting, showHistoryEntry and
 // restoreClearedTranslation.
 let shownResultMode: SourceFormat | null = null;
 // The thinking summary of the result on screen; '' when there is none. Written only by setThinking.
@@ -150,7 +171,7 @@ function isReformattedSourceShown(): boolean {
 
 function showErrorAlert(errorKind: PageErrorKind, message: string, hasPartialTranslation: boolean, silenceText: string): void {
   const { title, body } = alertForError(errorKind, message, hasPartialTranslation, silenceText);
-  showAlert({ severity: 'error', title, body, detail: message, action: { label: 'Try again', run: translate } });
+  showAlert({ severity: 'error', title, body, detail: message, action: { label: 'Try again', run: startTranslation } });
 }
 
 // "Neither Sonnet 5.5 nor Haiku 5.5 sent anything back." after a fallback, else "Haiku 5.5 sent nothing back."
@@ -160,18 +181,16 @@ function silenceTextOf(requestedModelId: string, servedModelId: string, isFallba
     : `${modelLabelOf(servedModelId)} sent nothing back.`;
 }
 
-// How a stored run ended, in the words of a live run's outcome. A run still going (another tab's) reads as stopped.
+// How a stored run ended, in the words of a live run's outcome. A row still running whose job is gone (its final save
+// failed) reads as stopped.
 function outcomeOf(run: Pick<ModelRun, 'status'>): Outcome {
   if (run.status === 'succeeded') return 'done';
   if (run.status === 'cancelled') return 'cancelled';
   return 'error';
 }
 
-// Shows a stored translation without calling Claude. Text typed but never translated is kept for Undo,
-// the same way Clear keeps it. Assigning .value fires no input event, so detection keeps the stored direction.
-function showHistoryEntry(translation: Translation): void {
-  if (activeRequest) activeRequest.abort();
-  hideAlert();
+// Text typed but never translated is kept for Undo when an entry replaces it, the same way Clear keeps it.
+function keepUnsavedInputForUndo(): void {
   const hasUnsavedInput = sourceText.value.trim() !== '' && shownHistoryId() === null && currentTargetState !== 'done';
   if (hasUnsavedInput) {
     clearedSnapshot = snapshotWorkspace();
@@ -179,6 +198,20 @@ function showHistoryEntry(translation: Translation): void {
   } else {
     forgetClearedSnapshot();
   }
+}
+
+// An entry the sidebar opened: a run still going is followed live, any other is shown as stored.
+function openEntry(translation: Translation): void {
+  if (translation.run.status === 'running') void openLiveRun(translation);
+  else showHistoryEntry(translation);
+}
+
+// Shows a stored translation without calling Claude. Assigning .value fires no input event, so detection keeps the
+// stored direction.
+function showHistoryEntry(translation: Translation): void {
+  stopFollowing();
+  hideAlert();
+  keepUnsavedInputForUndo();
   const { run } = translation;
   const pairs = translation.blocks;
   const textOutsideBlocks = translation.textOutsideBlocks ?? '';
@@ -284,7 +317,7 @@ function renderSource(): void {
   charCount.classList.toggle('is-over-limit', isOverLimit);
   clearButton.hidden = text === '';
   copySourceButton.hidden = text === '';
-  translateButton.disabled = text.trim() === '' || isOverLimit;
+  translateButton.disabled = text.trim() === '' || isOverLimit || followedRun !== null;
 }
 
 function renderTarget(targetState: TargetState, text = ''): void {
@@ -366,16 +399,6 @@ async function makePractice(): Promise<void> {
   else practiceTab.location.href = practiceUrl;
 }
 
-function cancelTranslation(): void {
-  if (!activeRequest) return;
-  activeRequest.abort();
-  activeRequest = null;
-  setStreamingCell(null);
-  const hasOutput = currentTargetState === 'streaming';
-  renderTarget(hasOutput ? 'done' : 'empty', hasOutput ? targetText.textContent : '');
-  setRunInfo(runInfoTextOf({ outcome: 'cancelled', hasOutput }));
-}
-
 // What the edit view shows after a run: the text that came outside pairs, when no pairs came at all.
 function plainTextAfterRun(unpairedText: string): string {
   return shownBlocks().length > 0 ? '' : unpairedText;
@@ -389,7 +412,7 @@ function showSourceDivergenceAlert(sourceDivergence: SourceDivergence): void {
     title: 'The left column differs from your input',
     body: 'Claude changed or skipped some of your words in the left column. Check that spot, or translate again.',
     detail: `Yours: “${inputExcerpt}” · Left column: ${leftColumnText}`,
-    action: { label: 'Translate again', run: translate },
+    action: { label: 'Translate again', run: startTranslation },
   });
 }
 
@@ -399,137 +422,253 @@ function showSkeleton(text: string): void {
   skeleton.innerHTML = '<span></span>'.repeat(barCount);
 }
 
-async function translate(): Promise<void> {
-  const text = sourceText.value;
-  const requestSettings = translationSettings();
-  if (text.trim() === '' || text.length > MAX_TEXT_CHARS || requestSettings === null) return;
-  closeSettingsMenus();
-  if (activeRequest) activeRequest.abort();
-  const request = new AbortController();
-  activeRequest = request;
-
+// The target pane while a run's first output is on its way.
+function showRunStarting(text: string, sourceFormat: SourceFormat): void {
   showSkeleton(text);
   hideAlert();
-  forgetClearedSnapshot();
-  setShownEntry(null);
   resetPairs();
-  shownResultMode = requestSettings.sourceFormat;
+  shownResultMode = sourceFormat;
   setViewMode('edit');
   renderTarget('waiting');
+}
 
-  // Text outside pairs: the model ignored the format, so it is shown the old way.
-  let unpairedText = '';
-  // "API busy (…), retry 1/3…" or "… is slow, switched to …" until more text arrives; '' otherwise.
-  let retryNote = '';
-  const startedAt = Date.now();
+// The words of a retry or fallback in the status line.
+function noticeTextOf(notice: RunNotice): string {
+  if (notice.kind === 'retry') return `API busy (${notice.error}), retry ${notice.attempt}/${notice.maxRetries}…`;
+  return `${modelLabelOf(notice.fromModelId)} is slow, switched to ${modelLabelOf(notice.toModelId)}…`;
+}
 
-  // The status line while the run goes on; refreshed every second and on every event that changes it.
-  const renderProgress = (): void => {
-    if (activeRequest !== request || currentTargetState === 'done') return;
-    const waitedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-    let waitedNote = '';
-    if (waitedSeconds >= 5) waitedNote = hasEscapeKey ? ` ${waitedSeconds}s · Esc to cancel` : ` ${waitedSeconds}s`;
-    const isThinking = thinkingText !== '' && thinkingDurationMs === null;
-    const activityLabel = isThinking ? 'Thinking…' : 'Translating…';
-    setRunInfo(`${retryNote || activityLabel}${waitedNote}`);
-  };
+// The status line while the followed run goes on; refreshed every second and on every event that changes it.
+function renderProgress(): void {
+  if (followedRun === null || currentTargetState === 'done') return;
+  const waitedMs = Date.now() - followedRun.startedAt;
+  let waitedNote = '';
+  if (waitedMs >= 5000) waitedNote = hasEscapeKey ? ` ${formatElapsed(waitedMs)} · Esc to cancel` : ` ${formatElapsed(waitedMs)}`;
+  const isThinking = thinkingText !== '' && thinkingDurationMs === null;
+  const activityLabel = isThinking ? 'Thinking…' : 'Translating…';
+  setRunInfo(`${followedRun.retryNote || activityLabel}${waitedNote}`);
+}
 
-  // Keeps what arrived, and returns whether anything did.
-  const endFailedRun = (): boolean => {
-    setStreamingCell(null);
-    const hasOutput = shownBlocks().length > 0 || unpairedText.trim() !== '';
-    renderTarget(hasOutput ? 'done' : 'empty', plainTextAfterRun(unpairedText));
-    setRunInfo(runInfoTextOf({ outcome: 'error', hasOutput }));
-    return hasOutput;
-  };
+// While the page follows a live run the box is read-only and Translate disabled: Translate no longer replaces a run, so a
+// second click or ⌘↵ would start a duplicate job of the same text. Cancel stops it (a touch screen has no Esc).
+function renderFollowing(): void {
+  const isFollowing = followedRun !== null;
+  sourceText.readOnly = isFollowing;
+  cancelButton.hidden = !isFollowing;
+  renderSource();
+}
 
-  const handleStreamEvent = (streamEvent: StreamEvent): void => {
-    if (isBlockEvent(streamEvent)) {
-      const [eventName, data] = streamEvent;
-      if (eventName === 'block_start' && data.blockIndex === 0) setViewMode('pairs');
-      retryNote = '';
-      applyBlockEvent(streamEvent);
-      if (currentTargetState !== 'streaming') renderTarget('streaming');
-      return;
-    }
+// Stops watching the shown run; the server keeps the job, and the sidebar still shows it as running.
+function stopFollowing(): void {
+  if (followedRun === null) return;
+  followedRun.stream.abort();
+  followedRun = null;
+  renderFollowing();
+}
+
+// Esc and Cancel: asks the server to stop the run on screen. Its `cancelled` event, sent to every page watching, then
+// updates this one.
+async function cancelShownRun(): Promise<void> {
+  const translationId = followedRun?.translationId ?? null;
+  if (translationId === null) return;
+  try {
+    await fetchJson<null>(`/history/${translationId}/cancel`, { method: 'POST' });
+  } catch (error) {
+    // 409: the run ended meanwhile, and its closing event is on its way.
+    const isAlreadyEnded = error instanceof ApiError && error.status === 409;
+    if (!isAlreadyEnded) showAlert({ severity: 'error', title: 'Could not cancel', detail: errorText(error) });
+  }
+}
+
+// Keeps what arrived of a run that failed or was cancelled, and returns whether anything did.
+function endStoppedRun(run: FollowedRun, outcome: Outcome): boolean {
+  setStreamingCell(null);
+  const hasOutput = shownBlocks().length > 0 || run.unpairedText.trim() !== '';
+  renderTarget(hasOutput ? 'done' : 'empty', plainTextAfterRun(run.unpairedText));
+  setRunInfo(runInfoTextOf({ outcome, hasOutput }));
+  return hasOutput;
+}
+
+// Draws what the run produced before this page started watching: the blocks replayed as a live run draws them, the last
+// cell still streaming, then the thinking and the latest notice.
+function showSnapshot(run: FollowedRun, { translation, notice, elapsedMs }: StreamEvents['snapshot']): void {
+  run.translationId = translation.id;
+  run.startedAt = Date.now() - elapsedMs;
+  run.requestedModelId = translation.run.requestedModelId ?? '';
+  run.unpairedText = translation.textOutsideBlocks ?? '';
+  run.retryNote = notice === null ? '' : noticeTextOf(notice);
+  setShownEntry(translation.id);
+  // A new run is listed at once, as running, so the sidebar can bring it back after the page leaves it.
+  if (isSidebarOpen()) loadHistory();
+  const { thinkingText: snapshotThinkingText, thinkingMs } = translation.run;
+  const isThinking = snapshotThinkingText !== null && thinkingMs === null;
+  setThinking(snapshotThinkingText ?? '', thinkingMs, isThinking);
+  if (translation.blocks.length > 0) {
+    replayBlocks(translation.blocks);
+    setViewMode('pairs');
+    renderTarget('streaming');
+  } else if (run.unpairedText.trim() !== '') {
+    renderTarget('streaming', run.unpairedText);
+  }
+  renderProgress();
+}
+
+// Shows the run as its saved row says, once its stream can tell no more: the run was not live (`finished`), or the stream
+// ended without a closing event, which only a stopped server does. The server cannot resume a run, so nothing is retried.
+async function showSavedRun(run: FollowedRun): Promise<void> {
+  stopFollowing();
+  try {
+    if (run.translationId === null) throw new Error('The server closed the stream before naming the run.');
+    showHistoryEntry(await fetchJson<Translation>(`/history/${run.translationId}`));
+  } catch (error) {
+    const hasOutput = endStoppedRun(run, 'error');
+    showErrorAlert('server_unreachable', errorText(error), hasOutput, '');
+  }
+}
+
+function handleRunEvent(run: FollowedRun, streamEvent: StreamEvent): void {
+  // Events still in the chunk that carried a closing event, or that arrived as the page left the run.
+  if (followedRun !== run) return;
+  if (isBlockEvent(streamEvent)) {
     const [eventName, data] = streamEvent;
-    if (eventName === 'outside_text_delta') {
-      unpairedText += data.text;
-      retryNote = '';
-      // Once pairs exist, text outside them is a stray note and is not shown.
-      if (shownBlocks().length === 0) renderTarget('streaming', unpairedText);
-    } else if (eventName === 'thinking_delta') {
-      // Opens as the summary starts arriving; a click to close it while thinking is kept.
-      const isOpen = thinkingText === '' || thinkingBlock.open;
-      setThinking(thinkingText + data.text, null, isOpen);
-      renderProgress();
-    } else if (eventName === 'thinking_done') {
-      setThinking(thinkingText, data.durationMs, false);
-      renderProgress();
-    } else if (eventName === 'retry') {
-      retryNote = `API busy (${data.error}), retry ${data.attempt}/${data.maxRetries}…`;
-      renderProgress();
-    } else if (eventName === 'fallback') {
-      retryNote = `${modelLabelOf(data.fromModelId)} is slow, switched to ${modelLabelOf(data.toModelId)}…`;
-      renderProgress();
-    } else if (eventName === 'done') {
-      setStreamingCell(null);
-      renderTarget('done', plainTextAfterRun(unpairedText));
-      setShownEntry(data.translationId);
-      if (isSidebarOpen()) loadHistory();
-      setRunInfo(runInfoTextOf({ outcome: 'done', hasOutput: true, ...data }));
-      refreshQuotaWarning();
-      if (shownBlocks().length > 0) {
-        const sourceDivergence = findSourceDivergence(text, shownBlocks());
-        if (sourceDivergence !== null) showSourceDivergenceAlert(sourceDivergence);
-      }
-    } else if (eventName === 'error') {
-      const hasOutput = endFailedRun();
-      const silenceText = silenceTextOf(requestSettings.modelId, data.servedModelId, data.isFallback);
-      showErrorAlert(data.errorCode, data.message, hasOutput, silenceText);
-      refreshQuotaWarning();
-      setShownEntry(data.translationId);
-      if (isSidebarOpen()) loadHistory();
+    if (eventName === 'block_start' && data.blockIndex === 0) setViewMode('pairs');
+    run.retryNote = '';
+    applyBlockEvent(streamEvent);
+    if (currentTargetState !== 'streaming') renderTarget('streaming');
+    return;
+  }
+  const [eventName, data] = streamEvent;
+  if (eventName === 'snapshot') {
+    showSnapshot(run, data);
+  } else if (eventName === 'outside_text_delta') {
+    run.unpairedText += data.text;
+    run.retryNote = '';
+    // Once pairs exist, text outside them is a stray note and is not shown.
+    if (shownBlocks().length === 0) renderTarget('streaming', run.unpairedText);
+  } else if (eventName === 'thinking_delta') {
+    // Opens as the summary starts arriving; a click to close it while thinking is kept.
+    const isOpen = thinkingText === '' || thinkingBlock.open;
+    setThinking(thinkingText + data.text, null, isOpen);
+    renderProgress();
+  } else if (eventName === 'thinking_done') {
+    setThinking(thinkingText, data.durationMs, false);
+    renderProgress();
+  } else if (eventName === 'retry') {
+    run.retryNote = noticeTextOf({ kind: 'retry', ...data });
+    renderProgress();
+  } else if (eventName === 'fallback') {
+    run.retryNote = noticeTextOf({ kind: 'fallback', ...data });
+    renderProgress();
+  } else if (eventName === 'done') {
+    stopFollowing();
+    setStreamingCell(null);
+    renderTarget('done', plainTextAfterRun(run.unpairedText));
+    setShownEntry(data.translationId);
+    if (isSidebarOpen()) loadHistory();
+    setRunInfo(runInfoTextOf({ outcome: 'done', hasOutput: true, ...data }));
+    refreshQuotaWarning();
+    if (shownBlocks().length > 0) {
+      // The box is read-only while the run is followed, so it still holds the run's text.
+      const sourceDivergence = findSourceDivergence(sourceText.value, shownBlocks());
+      if (sourceDivergence !== null) showSourceDivergenceAlert(sourceDivergence);
     }
-  };
+  } else if (eventName === 'error') {
+    stopFollowing();
+    const hasOutput = endStoppedRun(run, 'error');
+    const silenceText = silenceTextOf(run.requestedModelId, data.servedModelId, data.isFallback);
+    showErrorAlert(data.errorCode, data.message, hasOutput, silenceText);
+    refreshQuotaWarning();
+    setShownEntry(data.translationId);
+    if (isSidebarOpen()) loadHistory();
+  } else if (eventName === 'cancelled') {
+    stopFollowing();
+    endStoppedRun(run, 'cancelled');
+    setShownEntry(data.translationId);
+    if (isSidebarOpen()) loadHistory();
+  } else if (eventName === 'finished') {
+    void showSavedRun(run);
+  }
+}
 
+// Watches one run until its stream ends. openStream sends the request: POST /translate for a new run, GET .../events to
+// re-attach. Both streams start with a snapshot, so a new run and an old one take the same path.
+async function followRun(translationId: number | null, openStream: (signal: AbortSignal) => Promise<Response>): Promise<void> {
+  const run: FollowedRun = {
+    translationId, stream: new AbortController(), startedAt: Date.now(), requestedModelId: '', unpairedText: '', retryNote: '',
+  };
+  followedRun = run;
+  renderFollowing();
   renderProgress();
   const progressTimer = setInterval(renderProgress, 1000);
   try {
-    const requestBody: TranslateRequest = {
-      sourceLanguage,
-      targetLanguage: targetLanguageOf(sourceLanguage),
-      sourceText: text,
-      modelId: requestSettings.modelId,
-      effort: requestSettings.effort,
-      sourceFormat: requestSettings.sourceFormat,
-    };
-    const response = await fetch('/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: request.signal,
-    });
+    const response = await openStream(run.stream.signal);
+    if (response.status === 429) {
+      const reason = await response.text();
+      stopFollowing();
+      renderTarget('empty');
+      showAlert({ severity: 'warning', title: 'Too many translations at once', body: reason });
+      return;
+    }
     if (!response.ok) throw new Error(await response.text());
     if (response.body === null) throw new Error('The server sent an empty reply.');
-    await readStreamEvents(response.body, handleStreamEvent);
+    await readStreamEvents(response.body, (streamEvent) => handleRunEvent(run, streamEvent));
+    if (followedRun === run) await showSavedRun(run);
   } catch (error) {
-    // An abort comes from Esc, Clear or a newer run, which have already updated the page.
+    // An abort is the page leaving the run (another entry, Clear, ⇄) or its closing event; both have updated the page.
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (!isAbort) {
-      const hasOutput = endFailedRun();
+      stopFollowing();
+      const hasOutput = endStoppedRun(run, 'error');
       // fetch rejects with a TypeError only when the server cannot be reached at all.
       const errorKind = error instanceof TypeError ? 'server_unreachable' : 'request_rejected';
       showErrorAlert(errorKind, errorText(error), hasOutput, '');
     }
   } finally {
     clearInterval(progressTimer);
-    if (activeRequest === request) activeRequest = null;
   }
 }
 
+// Translate: a new job on the server. The page follows it; leaving it later does not stop it.
+async function startTranslation(): Promise<void> {
+  const text = sourceText.value;
+  const requestSettings = translationSettings();
+  if (followedRun !== null || text.trim() === '' || text.length > MAX_TEXT_CHARS || requestSettings === null) return;
+  closeSettingsMenus();
+  forgetClearedSnapshot();
+  setShownEntry(null);
+  showRunStarting(text, requestSettings.sourceFormat);
+  const requestBody: TranslateRequest = {
+    sourceLanguage,
+    targetLanguage: targetLanguageOf(sourceLanguage),
+    sourceText: text,
+    modelId: requestSettings.modelId,
+    effort: requestSettings.effort,
+    sourceFormat: requestSettings.sourceFormat,
+  };
+  await followRun(null, (signal) => fetch('/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    signal,
+  }));
+}
+
+// Re-attaches to a run that is still going (started in this tab earlier, or in another): the entry's text and direction
+// first, then its events, whose snapshot draws everything so far.
+async function openLiveRun(translation: Translation): Promise<void> {
+  stopFollowing();
+  keepUnsavedInputForUndo();
+  sourceText.value = translation.sourceText;
+  sourceLanguage = translation.sourceLanguage;
+  isDirectionAuto = false;
+  renderLanguages();
+  setShownEntry(translation.id);
+  showRunStarting(translation.sourceText, translation.sourceFormat);
+  await followRun(translation.id, (signal) => fetch(`/history/${translation.id}/events`, { signal }));
+}
+
 function swapLanguages(): void {
-  if (activeRequest) activeRequest.abort();
+  stopFollowing();
   hideAlert();
   if (currentTargetState === 'done') sourceText.value = composeCopyText();
   resetPairs();
@@ -548,7 +687,7 @@ sourceText.addEventListener('input', () => {
     sourceLanguage = detectSourceLanguage(sourceText.value);
     isDirectionAuto = true;
   }
-  if (!activeRequest && runInfo.textContent.startsWith('Cancelled')) setRunInfo('');
+  if (followedRun === null && runInfo.textContent.startsWith('Cancelled')) setRunInfo('');
   if (clearedSnapshot && sourceText.value === clearedSnapshot.sourceText) {
     restoreClearedTranslation();
   } else {
@@ -558,7 +697,8 @@ sourceText.addEventListener('input', () => {
   renderLanguages();
   renderSource();
 });
-translateButton.addEventListener('click', translate);
+translateButton.addEventListener('click', startTranslation);
+cancelButton.addEventListener('click', () => void cancelShownRun());
 swapButton.addEventListener('click', swapLanguages);
 // A reformatted left column is what gets edited, so a second Markdown run starts from it; insertText keeps the
 // pasted text one ⌘Z away. Its input event treats the insert as typing, so the entry and direction are put back.
@@ -579,9 +719,10 @@ editButton.addEventListener('click', () => {
     renderLanguages();
   }
 });
-// Clears the source and the translation, keeping both for Undo. Used by Clear and by New translation.
+// Clears the source and the translation, keeping both for Undo. Used by Clear and by New translation. A run on screen
+// keeps going; this only stops watching it.
 function clearWorkspace(): void {
-  if (activeRequest) activeRequest.abort();
+  stopFollowing();
   hideAlert();
   clearedSnapshot = snapshotWorkspace();
   resetPairs();
@@ -645,7 +786,7 @@ function startNewTranslation(): void {
 requiredElement('#new-translation-button', HTMLButtonElement).addEventListener('click', startNewTranslation);
 requiredElement('#masthead-new-translation-button', HTMLButtonElement).addEventListener('click', startNewTranslation);
 initHistorySidebar({
-  showEntry: showHistoryEntry,
+  showEntry: openEntry,
   focusSourceText: () => sourceText.focus(),
 });
 
@@ -667,14 +808,14 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key === 'Escape' && openMenu !== undefined) {
     // The one place Esc is ordered: an open menu closes first, then a running translation is cancelled.
     openMenu.hidePopover();
-  } else if (event.key === 'Escape' && activeRequest) {
+  } else if (event.key === 'Escape' && followedRun !== null) {
     event.preventDefault();
-    cancelTranslation();
+    void cancelShownRun();
   } else if (event.key === 'Escape' && isAlertShown()) {
     hideAlert();
   } else if (hasModifier && event.key === 'Enter') {
     event.preventDefault();
-    translate();
+    startTranslation();
   } else if (hasModifier && event.shiftKey && event.key.toLowerCase() === 's') {
     event.preventDefault();
     swapLanguages();
